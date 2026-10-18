@@ -1,0 +1,73 @@
+# Every evening at 21:00 US Pacific time, copy everything new on the "dev"
+# branch into "main" – but only if the automated tests pass on dev, so broken
+# code never reaches main. You can also run it by hand: GitHub → Actions tab →
+# "Nightly dev → main" → "Run workflow".
+name: Nightly dev → main
+
+on:
+  schedule:
+    # GitHub schedules use UTC time. 21:00 Pacific is 04:00 UTC in summer (PDT)
+    # and 05:00 UTC in winter (PST), so both are listed and the "check-time"
+    # job below skips whichever one isn't 21:00 in Los Angeles that day.
+    - cron: '0 4 * * *'
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to push to main
+
+concurrency:
+  group: nightly-dev-to-main
+  cancel-in-progress: false
+
+jobs:
+  check-time:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.clock.outputs.go }}
+    steps:
+      - id: clock
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          offset=$(TZ=America/Los_Angeles date +%z)   # -0700 in summer, -0800 in winter
+          if [ -z "$SCHEDULE" ] \
+            || { [ "$SCHEDULE" = "0 4 * * *" ] && [ "$offset" = "-0700" ]; } \
+            || { [ "$SCHEDULE" = "0 5 * * *" ] && [ "$offset" = "-0800" ]; }; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "This trigger isn't 21:00 Pacific today (UTC offset $offset), so skipping."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  promote:
+    needs: check-time
+    if: needs.check-time.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Run the tests on dev
+        run: |
+          npm ci
+          npm test
+
+      - name: Merge dev into main and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B main origin/main
+          if git merge-base --is-ancestor origin/dev HEAD; then
+            echo "main already has everything from dev. Nothing to do."
+            exit 0
+          fi
+          git merge --no-edit origin/dev
+          git push origin main
