@@ -8,8 +8,10 @@
 [build]
   publish = "placeholder"
   command = ""
-  # Only redeploy when the placeholder or this file changed, not on every app commit.
-  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- placeholder netlify.toml"
+  # Skip the build (exit 0) when:
+  #  - it would publish to the live site from any branch other than main, or
+  #  - nothing in the placeholder or this file changed.
+  ignore = "if [ \"$CONTEXT\" = production ] && [ \"$BRANCH\" != main ]; then echo 'Live site only publishes from main'; exit 0; fi; git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- placeholder netlify.toml"
 
 [build.environment]
   NODE_VERSION = "22"
