@@ -25,6 +25,7 @@ const ICONS = {
   menu: '<path d="M3 6h18M3 12h18M3 18h18"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   alert: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/>',
+  share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98M15.41 6.51l-6.82 3.98"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
 };
 
@@ -42,6 +43,7 @@ const NAV = [
   { href: '/clients', label: 'Clients & sites', icon: 'building' },
   { href: '/contracts', label: 'Contracts', icon: 'file' },
   { href: '/training', label: 'Training', icon: 'cap' },
+  { href: '/portal-access', label: 'Portal access', icon: 'share' },
 ];
 const ADMIN_NAV = [
   { href: '/users', label: 'User accounts', icon: 'key' },

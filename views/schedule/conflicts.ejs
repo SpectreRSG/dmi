@@ -1,0 +1,70 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/schedule?week=<%= startOfWeek(from) %>">← Schedule</a></p>
+    <h1>Schedule conflicts</h1>
+    <p class="page-sub">Problems in the roster from <%= fmtDate(from) %> to <%= fmtDate(to) %>, so you can fix them before they happen.</p>
+  </div>
+</div>
+
+<form class="filters" method="get" action="/schedule/conflicts">
+  <label class="inline">From <input type="date" name="from" value="<%= from %>"></label>
+  <label class="inline">To <input type="date" name="to" value="<%= to %>"></label>
+  <% if (type) { %><input type="hidden" name="type" value="<%= type %>"><% } %>
+  <button class="btn" type="submit">Check</button>
+  <a class="btn btn-ghost" href="/schedule/conflicts">Next 4 weeks</a>
+</form>
+<% if (notice) { %><div class="flash flash-info"><%= notice %></div><% } %>
+
+<% const typeLink = (t) => `/schedule/conflicts?from=${from}&to=${to}${t ? `&type=${t}` : ''}`; %>
+<nav class="tabs" aria-label="Filter by kind of problem">
+  <a href="<%= typeLink('') %>" class="<%= !type ? 'active' : '' %>">All <span class="count"><%= total %></span></a>
+  <% for (const [key, t] of Object.entries(TYPES)) { if (!counts[key] && type !== key) continue; %>
+    <a href="<%= typeLink(key) %>" class="<%= type === key ? 'active' : '' %>"><%= t.label %> <span class="count"><%= counts[key] %></span></a>
+  <% } %>
+</nav>
+
+<div class="card">
+  <% if (!issues.length) { %>
+    <p class="empty"><%= total ? 'None of this kind.' : 'No conflicts found. Everyone is free, rested and qualified for their shifts.' %></p>
+  <% } else { %>
+    <ul class="issue-list">
+      <% for (const issue of issues) { %>
+        <li class="issue is-<%= issue.severity %>">
+          <div class="issue-main">
+            <div class="issue-head">
+              <%- badge(issue.label, issue.severity === 'high' ? 'red' : 'amber') %>
+              <span class="muted small"><%= fmtDay(issue.date) %></span>
+            </div>
+            <p><%= issue.text %></p>
+          </div>
+          <div class="issue-actions">
+            <% if (issue.shift && issue.shift.status === 'scheduled' && issue.type !== 'overtime' && issue.type !== 'inactive_site') { %>
+              <a class="btn btn-sm btn-primary" href="/schedule/<%= issue.shift.id %>/cover?back=<%= encodeURIComponent(here) %>">Find cover</a>
+            <% } %>
+            <% if (issue.shift) { %><a class="btn btn-sm" href="/schedule/<%= issue.shift.id %>/edit">Edit shift</a><% } %>
+            <% if (issue.other) { %><a class="btn btn-sm btn-ghost" href="/schedule/<%= issue.other.id %>/edit">Other shift</a><% } %>
+            <% if (issue.sessionId) { %><a class="btn btn-sm btn-ghost" href="/training/sessions/<%= issue.sessionId %>">Training session</a><% } %>
+            <% if (issue.type === 'overtime') { %><a class="btn btn-sm" href="/schedule?week=<%= issue.week %>&employee=<%= issue.employeeId %>">See their week</a><% } %>
+            <% if (issue.type === 'compliance') { %><a class="btn btn-sm btn-ghost" href="/staff/<%= issue.employeeId %>">Staff record</a><% } %>
+          </div>
+        </li>
+      <% } %>
+    </ul>
+  <% } %>
+</div>
+
+<details class="card help-box">
+  <summary>What does the checker look for?</summary>
+  <ul>
+    <li><strong>Double-booked</strong> – one person on two shifts that overlap.</li>
+    <li><strong>Clashes with training</strong> – on a shift while booked on a training session.</li>
+    <li><strong>License or training problem</strong> – their security license or a required course is missing, or will have expired by the day of the shift.</li>
+    <li><strong>Staff member not active</strong> – booked, but marked inactive or terminated.</li>
+    <li><strong>Unfilled shift</strong> – nobody assigned yet.</li>
+    <li><strong>Not enough rest</strong> – less than <%= settings.min_rest_hours %> hours between shifts (change this in Settings).</li>
+    <li><strong>Overtime</strong> – more than <%= settings.overtime_weekly_hours %> scheduled hours in a Monday–Sunday week.</li>
+    <li><strong>Site not active</strong> – shifts at a site you've switched off.</li>
+  </ul>
+</details>
+<%- include('../partials/bottom') %>

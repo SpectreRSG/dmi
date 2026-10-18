@@ -38,12 +38,16 @@
         </select>
       </label>
     <% } else { %>
-      <label>Repeat weekly
-        <select name="repeat_weeks">
-          <option value="0">Don't repeat</option>
-          <% for (let w = 1; w <= maxRepeat; w++) { %><option value="<%= w %>" <%= Number(shift.repeat_weeks) === w ? 'selected' : '' %>>For <%= w %> more week<%= w === 1 ? '' : 's' %></option><% } %>
-        </select>
-      </label>
+      <fieldset class="field-full repeat-box">
+        <legend>Repeat (optional)</legend>
+        <div class="weekday-picker">
+          <% WEEKDAYS.forEach((name, i) => { %>
+            <label class="day-chip"><input type="checkbox" name="repeat_days" value="<%= i %>" <%= (shift.repeat_days || []).includes(i) ? 'checked' : '' %>><span><%= name %></span></label>
+          <% }) %>
+        </div>
+        <label class="repeat-until">Repeat until <input type="date" name="repeat_until" value="<%= shift.repeat_until || '' %>"></label>
+        <p class="hint">The first shift is on the date above. It then repeats on every ticked day until this date. Days when the person is already booked are skipped.</p>
+      </fieldset>
     <% } %>
     <label class="field-full">Notes <textarea name="notes" rows="2" placeholder="Anything the guard should know for this shift"><%= shift.notes || '' %></textarea></label>
   </div>

@@ -6,7 +6,10 @@
       <% if (unfilled) { %> · <%- badge(`${unfilled} unfilled`, 'red') %><% } %>
     </p>
   </div>
-  <div class="page-actions"><a class="btn btn-primary" href="/schedule/new?date=<%= week < today && today < addDays(week, 7) ? today : week %>"><%- icon('plus') %> Add shift</a></div>
+  <div class="page-actions">
+    <a class="btn <%= conflictCount ? 'btn-warning' : '' %>" href="/schedule/conflicts?from=<%= week %>&to=<%= addDays(week, 6) %>"><%- icon('alert') %> <%= conflictCount ? `${conflictCount} conflict${conflictCount === 1 ? '' : 's'}` : 'Check conflicts' %></a>
+    <a class="btn btn-primary" href="/schedule/new?date=<%= week < today && today < addDays(week, 7) ? today : week %>"><%- icon('plus') %> Add shift</a>
+  </div>
 </div>
 
 <%

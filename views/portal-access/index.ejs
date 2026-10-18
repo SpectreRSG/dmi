@@ -1,0 +1,81 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Portal access</h1>
+    <p class="page-sub">Officers and clients can see their schedule at <a href="/portal" target="_blank" rel="noopener"><%= portalUrl %></a> with a passphrase — no account needed. They never see pay, rates or phone numbers.</p>
+  </div>
+</div>
+
+<div class="card form-card">
+  <h2>Make a passphrase</h2>
+  <%- include('../partials/form-error') %>
+  <form method="post" action="/portal-access">
+    <%- include('../partials/csrf') %>
+    <div class="form-grid">
+      <label class="field-full">Who is it for?
+        <select name="scope" data-party-select>
+          <% for (const [key, label] of Object.entries(SCOPES)) { %><option value="<%= key %>" <%= values.scope === key ? 'selected' : '' %>><%= label %></option><% } %>
+        </select>
+      </label>
+      <label data-party="employee">Officer
+        <select name="employee_id">
+          <option value="">Choose…</option>
+          <% for (const e of staff) { %><option value="<%= e.id %>" <%= values.employee_id === e.id ? 'selected' : '' %>><%= e.first_name %> <%= e.last_name %></option><% } %>
+        </select>
+      </label>
+      <label data-party="site">Site
+        <select name="site_id">
+          <option value="">Choose…</option>
+          <% for (const s of sites) { %><option value="<%= s.id %>" <%= values.site_id === s.id ? 'selected' : '' %>><%= s.client_name %> – <%= s.name %></option><% } %>
+        </select>
+      </label>
+      <label data-party="client">Client
+        <select name="client_id">
+          <option value="">Choose…</option>
+          <% for (const c of clients) { %><option value="<%= c.id %>" <%= values.client_id === c.id ? 'selected' : '' %>><%= c.name %></option><% } %>
+        </select>
+      </label>
+      <label>Note (optional) <input name="label" value="<%= values.label || '' %>" maxlength="100" placeholder="e.g. Site supervisor, front desk tablet"></label>
+      <label>Stops working after (optional)
+        <input type="date" name="expires_on" value="<%= values.expires_on || '' %>" min="<%= today %>">
+        <span class="hint">Leave empty to keep it working until you turn it off.</span>
+      </label>
+    </div>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Make passphrase</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Passphrases in use</h2><span class="muted small"><%= accesses.length %></span></div>
+  <% if (!accesses.length) { %>
+    <p class="empty">No passphrases yet. Make one above.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>For</th><th>Sees</th><th>Note</th><th>Last used</th><th>Stops working</th><th></th></tr></thead>
+        <tbody>
+          <% for (const a of accesses) { const expired = a.expires_on && a.expires_on < today; %>
+            <tr class="<%= expired ? 'is-muted' : '' %>">
+              <td><%= a.name %></td>
+              <td><%= { employee: 'Their own shifts', site: 'All shifts at this site', client: 'All shifts at their sites' }[a.scope] %></td>
+              <td><%= a.label || '' %></td>
+              <td><%= a.last_used_at ? fmtDateTime(a.last_used_at) : 'Never' %></td>
+              <td><%= expired ? 'Expired' : a.expires_on ? fmtDate(a.expires_on) : '—' %></td>
+              <td class="row-actions">
+                <form method="post" action="/portal-access/<%= a.id %>/regenerate" class="inline-form" data-confirm="Make a new passphrase for <%= a.name %>? The old one will stop working.">
+                  <%- include('../partials/csrf') %>
+                  <button type="submit" class="btn btn-sm">New passphrase</button>
+                </form>
+                <form method="post" action="/portal-access/<%= a.id %>/delete" class="inline-form" data-confirm="Turn off this passphrase? <%= a.name %> will no longer be able to see the schedule.">
+                  <%- include('../partials/csrf') %>
+                  <button type="submit" class="btn btn-sm btn-danger">Turn off</button>
+                </form>
+              </td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+<%- include('../partials/bottom') %>

@@ -73,6 +73,21 @@ function startOfWeek(dateStr) {
   return fromUTC(d);
 }
 
+// 0 = Monday … 6 = Sunday.
+function dayOfWeek(dateStr) {
+  return (parseDate(dateStr).getUTCDay() + 6) % 7;
+}
+
+// The first and last day of a month written like '2026-10'.
+function monthRange(month) {
+  const first = `${month}-01`;
+  return { first, last: addDays(addMonths(first, 1), -1) };
+}
+
+function isValidMonth(str) {
+  return typeof str === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(str);
+}
+
 function daysBetween(fromDate, toDate) {
   return Math.round((parseDate(toDate) - parseDate(fromDate)) / 86400000);
 }
@@ -111,6 +126,14 @@ function fmtDate(str) {
   return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+// '2026-10' -> 'October 2026'
+function fmtMonth(month) {
+  const [y, m] = month.split('-').map(Number);
+  return `${MONTH_NAMES[m - 1]} ${y}`;
+}
+
 function fmtDay(str) {
   if (!str) return '';
   const d = parseDate(str);
@@ -138,12 +161,16 @@ module.exports = {
   addDays,
   addMonths,
   startOfWeek,
+  dayOfWeek,
+  monthRange,
+  isValidMonth,
   daysBetween,
   isValidDate,
   isValidTime,
   hoursBetween,
   buildRange,
   fmtDate,
+  fmtMonth,
   fmtDay,
   fmtTime,
   fmtDateTime,

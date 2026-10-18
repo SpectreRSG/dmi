@@ -1,0 +1,16 @@
+<%- include('top') %>
+<div class="auth-card">
+  <div class="auth-logo"><%- icon('calendar') %></div>
+  <h1>View your schedule</h1>
+  <p class="muted">Type the passphrase you were given by <%= settings.company_name %>.</p>
+  <%- include('../partials/form-error') %>
+  <form method="post" action="/portal" class="stack">
+    <%- include('../partials/csrf') %>
+    <label>Passphrase
+      <input name="passphrase" required autofocus autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="e.g. maple-falcon-river-27">
+    </label>
+    <button type="submit" class="btn btn-primary btn-block">Show schedule</button>
+  </form>
+  <p class="auth-footer">Lost your passphrase? Ask your office for a new one.</p>
+</div>
+<%- include('bottom') %>

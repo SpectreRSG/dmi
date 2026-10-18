@@ -3,7 +3,7 @@
   <div>
     <p class="page-sub"><a href="/training/sessions">← Sessions</a></p>
     <h1><%= session.course_name %> <%- statusBadge(session.status) %></h1>
-    <p class="page-sub"><%= fmtDateTime(session.starts_at) %><%= session.location ? ` · ${session.location}` : '' %><%= session.trainer ? ` · Trainer: ${session.trainer}` : '' %></p>
+    <p class="page-sub"><%= fmtDateTime(session.starts_at) %> · <%= session.duration_minutes / 60 %> h<%= session.location ? ` · ${session.location}` : '' %><%= session.trainer ? ` · Trainer: ${session.trainer}` : '' %></p>
   </div>
   <div class="page-actions"><a class="btn" href="/training/sessions/<%= session.id %>/edit">Edit details</a></div>
 </div>

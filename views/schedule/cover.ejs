@@ -1,0 +1,60 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="<%= back %>">← Back</a></p>
+    <h1>Find cover</h1>
+    <p class="page-sub">
+      <%= fmtDay(shift.start_at) %> · <%= fmtRange(shift.start_at, shift.end_at) %> · <%= shift.site_name %> (<%= shift.client_name %>)
+      · <%= shift.employee_id ? `Currently: ${shift.first_name} ${shift.last_name}` : 'Currently unfilled' %>
+    </p>
+  </div>
+  <div class="page-actions"><a class="btn" href="/schedule/<%= shift.id %>/edit">Edit shift</a></div>
+</div>
+
+<% if (shift.status !== 'scheduled') { %>
+  <div class="flash flash-warning">This shift is <%= shift.status %>, so it can't be reassigned.</div>
+<% } %>
+
+<div class="card">
+  <div class="card-head"><h2>Who could work it?</h2><span class="muted small">Best choices first</span></div>
+  <% if (!options.length) { %>
+    <p class="empty">There are no other active staff members.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Staff member</th><th>Checks</th><th class="num">Hours that week</th><th></th></tr></thead>
+        <tbody>
+          <% for (const o of options) { %>
+            <tr class="<%= o.blockers.length ? 'is-muted' : '' %>">
+              <td>
+                <a href="/staff/<%= o.employee.id %>"><%= o.employee.first_name %> <%= o.employee.last_name %></a>
+                <% if (o.siteShifts) { %><div class="muted small">Worked here <%= o.siteShifts %>× in the last 90 days</div><% } %>
+              </td>
+              <td>
+                <% if (!o.blockers.length && !o.warnings.length) { %><%- badge('Free and good to go', 'green') %><% } %>
+                <% for (const b of o.blockers) { %><div><%- badge('Busy', 'red') %> <span class="small"><%= b %></span></div><% } %>
+                <% for (const w of o.warnings) { %><div><%- badge('Check', 'amber') %> <span class="small"><%= w %></span></div><% } %>
+              </td>
+              <td class="num"><%= fmtHours(o.weekHours) %></td>
+              <td class="num">
+                <% if (!o.blockers.length && shift.status === 'scheduled') { %>
+                  <form method="post" action="/schedule/<%= shift.id %>/assign">
+                    <%- include('../partials/csrf') %>
+                    <input type="hidden" name="employee_id" value="<%= o.employee.id %>">
+                    <input type="hidden" name="back" value="<%= back %>">
+                    <% if (o.warnings.length) { %>
+                      <button type="submit" class="btn btn-sm" data-confirm="<%= `Assign ${o.employee.first_name} anyway? ${o.warnings.join('. ')}.` %>">Assign</button>
+                    <% } else { %>
+                      <button type="submit" class="btn btn-sm btn-primary">Assign</button>
+                    <% } %>
+                  </form>
+                <% } %>
+              </td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+<%- include('../partials/bottom') %>

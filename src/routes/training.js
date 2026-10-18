@@ -24,6 +24,36 @@ function findCourse(id) {
   return db.get('SELECT * FROM training_courses WHERE id = ?', id);
 }
 
+// A training picked from the list, or a new one typed in. A new one is only
+// created when the rest of the form is valid (see createCourseIfNew).
+async function readCourseChoice(body) {
+  const courseId = toId(body.course_id);
+  if (courseId) {
+    const course = await findCourse(courseId);
+    return course ? { course } : { error: 'Please choose a training from the list.' };
+  }
+  const name = String(body.new_course_name || '').trim().slice(0, 200);
+  if (!name) return { error: 'Choose a training from the list, or type the name of a new one.' };
+  const existing = await db.get('SELECT * FROM training_courses WHERE lower(name) = lower(?)', name);
+  if (existing) return { course: existing };
+  const validity = toNumber(String(body.new_course_validity || '').trim(), null);
+  if (validity !== null && (!Number.isInteger(validity) || validity < 1)) {
+    return { error: 'Validity must be a whole number of months, or left empty if it never expires.' };
+  }
+  return { newCourse: { name, validity_months: validity } };
+}
+
+async function createCourseIfNew(choice, req) {
+  if (choice.course) return choice.course;
+  const id = await db.insert(
+    'INSERT INTO training_courses (name, validity_months, required, active) VALUES (?, ?, 0, 1)',
+    choice.newCourse.name,
+    choice.newCourse.validity_months
+  );
+  await logActivity(req, `Added training course ${choice.newCourse.name}`);
+  return findCourse(id);
+}
+
 // If no expiry date was typed, work it out from the course's validity period.
 function expiryFor(course, completedOn, typedExpiry) {
   if (typedExpiry) return typedExpiry;
@@ -162,18 +192,18 @@ function findRecord(id) {
 }
 
 async function readRecordForm(body) {
-  const v = clean(body, ['employee_id', 'course_id', 'completed_on', 'expires_on', 'provider', 'certificate_number', 'notes']);
+  const v = clean(body, ['employee_id', 'course_id', 'completed_on', 'expires_on', 'provider', 'certificate_number', 'notes', 'new_course_name', 'new_course_validity']);
   v.employee_id = toId(v.employee_id);
   v.course_id = toId(v.course_id);
+  const choice = await readCourseChoice(body);
   let error = null;
-  const course = v.course_id ? await findCourse(v.course_id) : null;
   if (!v.employee_id || !(await db.get('SELECT 1 FROM employees WHERE id = ?', v.employee_id))) {
     error = 'Please choose a staff member.';
-  } else if (!course) error = 'Please choose a course.';
+  } else if (choice.error) error = choice.error;
   else if (!time.isValidDate(v.completed_on)) error = 'Please enter the date the course was completed.';
   else if (v.expires_on && !time.isValidDate(v.expires_on)) error = 'Please use the date picker for the expiry date.';
-  if (!error) v.expires_on = expiryFor(course, v.completed_on, v.expires_on);
-  return { values: v, error };
+  if (!error) v.expires_on = expiryFor(choice.course || choice.newCourse, v.completed_on, v.expires_on);
+  return { values: v, choice, error };
 }
 
 async function renderRecordForm(res, record, error, status = 200) {
@@ -220,7 +250,7 @@ router.get('/records/new', async (req, res) => {
 });
 
 router.post('/records', async (req, res) => {
-  const { values, error } = await readRecordForm(req.body);
+  const { values, choice, error } = await readRecordForm(req.body);
   if (error) return renderRecordForm(res, values, error, 400);
   let file = null;
   try {
@@ -229,6 +259,7 @@ router.post('/records', async (req, res) => {
     if (err instanceof UploadError) return renderRecordForm(res, values, err.message, 400);
     throw err;
   }
+  values.course_id = (await createCourseIfNew(choice, req)).id;
   await db.run(
     `INSERT INTO training_records (employee_id, course_id, completed_on, expires_on, provider, certificate_number, notes, file_name, file_original)
      VALUES (@employee_id, @course_id, @completed_on, @expires_on, @provider, @certificate_number, @notes, @file_name, @file_original)`,
@@ -256,7 +287,7 @@ router.get('/records/:id/edit', async (req, res) => {
 router.post('/records/:id', async (req, res) => {
   const record = await findRecord(req.params.id);
   if (!record) return notFound(res, 'training record');
-  const { values, error } = await readRecordForm(req.body);
+  const { values, choice, error } = await readRecordForm(req.body);
   const formValues = { ...values, id: record.id, file_name: record.file_name, file_original: record.file_original };
   if (error) return renderRecordForm(res, formValues, error, 400);
   let file = null;
@@ -272,6 +303,7 @@ router.post('/records/:id', async (req, res) => {
     file_name = file?.file_name ?? null;
     file_original = file?.file_original ?? null;
   }
+  values.course_id = (await createCourseIfNew(choice, req)).id;
   await db.run(
     `UPDATE training_records SET employee_id = @employee_id, course_id = @course_id, completed_on = @completed_on,
      expires_on = @expires_on, provider = @provider, certificate_number = @certificate_number, notes = @notes,
@@ -304,9 +336,12 @@ function findSession(id) {
 }
 
 async function readSessionForm(body) {
-  const v = clean(body, ['course_id', 'date', 'start_time', 'location', 'trainer', 'capacity', 'notes', 'status']);
+  const v = clean(body, ['course_id', 'date', 'start_time', 'duration_hours', 'location', 'trainer', 'capacity', 'notes', 'status', 'new_course_name', 'new_course_validity']);
+  const durationHours = toNumber(v.duration_hours, 4);
   const values = {
     course_id: toId(v.course_id),
+    new_course_name: v.new_course_name,
+    new_course_validity: v.new_course_validity,
     date: v.date,
     start_time: v.start_time,
     location: v.location,
@@ -314,16 +349,22 @@ async function readSessionForm(body) {
     capacity: toNumber(v.capacity, null),
     notes: v.notes,
     status: ['scheduled', 'completed', 'cancelled'].includes(v.status) ? v.status : 'scheduled',
+    duration_hours: durationHours,
+    duration_minutes: Math.round(durationHours * 60),
   };
+  const choice = await readCourseChoice(body);
   let error = null;
-  if (!values.course_id || !(await findCourse(values.course_id))) error = 'Please choose a course.';
+  if (choice.error) error = choice.error;
   else if (!time.isValidDate(values.date)) error = 'Please choose a date.';
   else if (!time.isValidTime(values.start_time)) error = 'Please enter a start time.';
+  else if (Number.isNaN(durationHours) || durationHours < 0.5 || durationHours > 24) {
+    error = 'Length must be between half an hour and 24 hours.';
+  }
   else if (values.capacity !== null && (!Number.isInteger(values.capacity) || values.capacity < 1)) {
     error = 'Capacity must be a whole number, or left empty.';
   }
   values.starts_at = `${values.date}T${values.start_time}`;
-  return { values, error };
+  return { values, choice, error };
 }
 
 async function renderSessionForm(res, session, error, status = 200) {
@@ -348,16 +389,18 @@ router.get('/sessions', async (req, res) => {
 router.get('/sessions/new', async (req, res) => {
   await renderSessionForm(
     res,
-    { course_id: toId(req.query.course), date: time.addDays(time.todayStr(), 7), start_time: '09:00' },
+    { course_id: toId(req.query.course), date: time.addDays(time.todayStr(), 7), start_time: '09:00', duration_hours: 4 },
     null
   );
 });
 
 router.post('/sessions', async (req, res) => {
-  const { values, error } = await readSessionForm(req.body);
+  const { values, choice, error } = await readSessionForm(req.body);
   if (error) return renderSessionForm(res, values, error, 400);
+  values.course_id = (await createCourseIfNew(choice, req)).id;
   const id = await db.insert(
-    'INSERT INTO training_sessions (course_id, starts_at, location, trainer, capacity, notes) VALUES (@course_id, @starts_at, @location, @trainer, @capacity, @notes)',
+    `INSERT INTO training_sessions (course_id, starts_at, duration_minutes, location, trainer, capacity, notes)
+     VALUES (@course_id, @starts_at, @duration_minutes, @location, @trainer, @capacity, @notes)`,
     values
   );
   await logActivity(req, `Scheduled training session #${id} on ${values.date}`);
@@ -397,16 +440,21 @@ router.get('/sessions/:id', async (req, res) => {
 router.get('/sessions/:id/edit', async (req, res) => {
   const session = await findSession(req.params.id);
   if (!session) return notFound(res, 'training session');
-  await renderSessionForm(res, { ...session, date: session.starts_at.slice(0, 10), start_time: time.fmtTime(session.starts_at) }, null);
+  await renderSessionForm(
+    res,
+    { ...session, date: session.starts_at.slice(0, 10), start_time: time.fmtTime(session.starts_at), duration_hours: session.duration_minutes / 60 },
+    null
+  );
 });
 
 router.post('/sessions/:id', async (req, res) => {
   const session = await findSession(req.params.id);
   if (!session) return notFound(res, 'training session');
-  const { values, error } = await readSessionForm(req.body);
+  const { values, choice, error } = await readSessionForm(req.body);
   if (error) return renderSessionForm(res, { ...values, id: session.id }, error, 400);
+  values.course_id = (await createCourseIfNew(choice, req)).id;
   await db.run(
-    `UPDATE training_sessions SET course_id = @course_id, starts_at = @starts_at, location = @location, trainer = @trainer,
+    `UPDATE training_sessions SET course_id = @course_id, starts_at = @starts_at, duration_minutes = @duration_minutes, location = @location, trainer = @trainer,
      capacity = @capacity, notes = @notes, status = @status WHERE id = @id`,
     { ...values, id: session.id }
   );

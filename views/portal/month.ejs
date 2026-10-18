@@ -1,0 +1,68 @@
+<%- include('top', { signedIn: true }) %>
+<div class="page-head">
+  <div>
+    <h1><%= fmtMonth(month) %></h1>
+    <p class="page-sub"><%= who %></p>
+  </div>
+  <div class="page-actions"><button type="button" class="btn" data-print>Print</button></div>
+</div>
+
+<div class="toolbar">
+  <div class="btn-group">
+    <a class="btn" href="/portal?month=<%= prevMonth %>">← <%= fmtMonth(prevMonth).split(' ')[0] %></a>
+    <a class="btn <%= month === thisMonth ? 'btn-current' : '' %>" href="/portal">This month</a>
+    <a class="btn" href="/portal?month=<%= nextMonth %>"><%= fmtMonth(nextMonth).split(' ')[0] %> →</a>
+  </div>
+  <p class="muted small portal-totals">
+    <%= totals.shifts %> shift<%= totals.shifts === 1 ? '' : 's' %> · <%= fmtHours(totals.hours) %> hours
+    <% if (access.scope !== 'employee' && totals.unfilled) { %> · <%- badge(`${totals.unfilled} not yet assigned`, 'amber') %><% } %>
+  </p>
+</div>
+
+<% if (sites.length) { %>
+  <div class="portal-sites">
+    <% for (const site of sites) { %>
+      <div class="card card-pad">
+        <h2><%= site.name %></h2>
+        <% if (site.address) { %><p class="muted small"><%= site.address %></p><% } %>
+        <% if (site.instructions) { %><p class="small pre-line"><%= site.instructions %></p><% } %>
+      </div>
+    <% } %>
+  </div>
+<% } %>
+
+<% if (!days.length) { %>
+  <div class="card"><p class="empty">Nothing scheduled in <%= fmtMonth(month) %>.</p></div>
+<% } %>
+<% for (const day of days) { %>
+  <section class="card agenda-day <%= day.date === today ? 'is-today' : day.date < today ? 'is-past' : '' %>">
+    <div class="card-head"><h2><%= fmtDay(day.date) %></h2><% if (day.date === today) { %><%- badge('Today', 'blue') %><% } %></div>
+    <ul class="agenda">
+      <% for (const item of day.items) { %>
+        <li class="agenda-item <%= item.status === 'cancelled' ? 'is-cancelled' : '' %>">
+          <div class="agenda-time"><%= fmtRange(item.start_at, item.end_at) %></div>
+          <div class="agenda-body">
+            <% if (item.kind === 'training') { %>
+              <strong><%= item.course %> training</strong> <%- badge('Training', 'blue') %>
+              <% if (item.location) { %><div class="muted small"><%= item.location %></div><% } %>
+            <% } else if (access.scope === 'employee') { %>
+              <strong><%= item.site %></strong> <span class="muted">· <%= item.client %></span>
+              <% if (item.status === 'cancelled') { %><%- badge('Cancelled', 'gray') %><% } %>
+              <% if (item.address) { %><div class="muted small"><%= item.address %></div><% } %>
+              <% if (item.notes) { %><div class="small pre-line"><%= item.notes %></div><% } %>
+              <% if (item.instructions) { %>
+                <details class="small"><summary>Site instructions</summary><p class="pre-line"><%= item.instructions %></p></details>
+              <% } %>
+            <% } else { %>
+              <% if (item.guard) { %><strong><%= item.guard %></strong><% } else { %><%- badge('Not yet assigned', 'amber') %><% } %>
+              <% if (access.scope === 'client') { %><span class="muted">· <%= item.site %></span><% } %>
+              <% if (item.status === 'cancelled') { %><%- badge('Cancelled', 'gray') %><% } %>
+            <% } %>
+          </div>
+        </li>
+      <% } %>
+    </ul>
+  </section>
+<% } %>
+<p class="muted small portal-note">Times are <%= zoneName %> time. Schedules can change, so check back before each shift.</p>
+<%- include('bottom') %>

@@ -5,13 +5,15 @@ A private website for running the business side of a security company:
 | Area | What it does |
 | --- | --- |
 | **Dashboard** | One screen with everything that needs attention: unfilled shifts, hours to approve, expired licenses, contracts ending. |
-| **Schedule** | A weekly roster. Add shifts (including overnight ones), repeat them weekly, see unfilled shifts in red. It stops you double-booking a guard and warns you if they aren't licensed or trained. |
+| **Schedule** | A weekly roster. Add shifts (including overnight ones), repeat them on chosen days of the week, see unfilled shifts in red. It stops you double-booking a guard and warns you if they aren't licensed or trained. |
+| **Conflict checker** | Scans the roster ahead of time for double bookings, too little rest between shifts, overtime, clashes with training, expired licenses and unfilled shifts. "Find cover" lists who is free (best choices first) and assigns them in one click. |
+| **Schedule portal** | A public page (`/portal`) where officers and clients type a passphrase to see a month of shifts: an officer sees their own, a client sees their site(s). No account needed, and no pay or phone numbers are shown. |
 | **Timesheets** | Hours actually worked. Press "Mark as worked" on a shift, or type hours in. Approve or reject them, one by one or in bulk. |
 | **Pay** | Turns approved hours into pay for a period: regular hours, weekly overtime, bonuses or deductions. Printable payslips and a spreadsheet download for your accountant. Admins only. |
 | **Staff** | Guard profiles: contact details, pay rate, security license, emergency contact, hours, training and contracts. |
 | **Clients & sites** | Your customers and the places your guards work, with site instructions. |
 | **Contracts** | Client agreements, employment contracts, NDAs, subcontracts. Upload the signed copy and get warned before they end. |
-| **Training** | A table showing who is qualified, who's expiring, and who's missing training. Plan training sessions, book people in, and record attendance. |
+| **Training** | A table showing who is qualified, who's expiring, and who's missing training. Plan training sessions, book people in, and record attendance. Type the name of a new training right on the form. |
 | **Admin** | User accounts (admin or manager), company settings, and an activity log of who changed what. |
 
 > **Live site:** https://dmi.codehound.org, hosted on Netlify (see section 4). The officers'
@@ -64,23 +66,32 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
 
 1. **Set up once:** add your **clients & sites**, your **staff** (with pay rates and license
    details), and your **training courses** (tick "required" for must-haves like First Aid).
-2. **Plan:** in **Schedule**, add shifts. Use "Repeat weekly" for regular posts.
-   Leave the staff box empty to create an unfilled shift you'll fill later.
-3. **After each shift:** press **Mark as worked**. This copies the shift into **Timesheets**.
+2. **Plan:** in **Schedule**, add shifts. For regular posts, tick the days of the week it repeats
+   on and the date to repeat until. Leave the staff box empty to create an unfilled shift you'll fill later.
+3. **Check for conflicts:** press the **Check conflicts** button on the Schedule page (it turns
+   orange and shows a number when there's a problem that week). Fix each one, or press
+   **Find cover** to pick someone who is free, rested and qualified.
+4. **Share the schedule:** in **Portal access**, make a passphrase for an officer, a site or a
+   client and send it to them with the link `https://dmi.codehound.org/portal`. The passphrase
+   is only shown once; if it's lost, press **New passphrase** (the old one stops working).
+5. **After each shift:** press **Mark as worked**. This copies the shift into **Timesheets**.
    If someone worked different hours, edit the entry there.
-4. **Approve hours** in Timesheets. Tick the rows, then press "Approve".
-5. **Pay day:** in **Pay**, create a pay run for the period. Check it, add any bonuses or
+6. **Approve hours** in Timesheets. Tick the rows, then press "Approve".
+7. **Pay day:** in **Pay**, create a pay run for the period. Check it, add any bonuses or
    deductions, then press **Finalize**. Download the spreadsheet for your accountant, or print payslips.
-6. **Keep an eye on the dashboard** for expiring licenses, training and contracts.
+8. **Keep an eye on the dashboard** for expiring licenses, training and contracts.
 
 ### Who can do what?
 
 - **Admin**: everything, including pay, pay rates, user accounts and settings.
-- **Manager**: schedule, timesheets, staff, clients, contracts and training. Managers never see pay or pay rates.
+- **Manager**: schedule, timesheets, staff, clients, contracts, training and portal passphrases. Managers never see pay or pay rates.
+- **Officers and clients** don't get accounts. With a portal passphrase they can only *view* their schedule.
 
 ### Important rules the app follows
 
 - **Overtime** is counted per week (Monday–Sunday). By default, hours over 40 pay 1.5×. Change this in **Settings**.
+- **Rest between shifts:** the conflict checker warns when someone has less than 8 hours between
+  shifts. Change the number in **Settings → Scheduling**.
 - **Gross pay only.** The app does not work out tax or other deductions; your accountant or
   payroll provider does that from the spreadsheet.
 - Once a pay run is **finalized**, its hours are locked so nobody can be paid twice.
@@ -122,11 +133,14 @@ src/
   auth.js            passwords, login checks, admin-only checks
   csrf.js            protection against forged forms
   uploads.js         file uploads (contracts, certificates): Netlify Blobs live, data/uploads locally
+  secrets.js         the app's own secret keys, kept in the database
+  passphrase.js      makes portal passphrases and checks them
   time.js            date/time helpers
   viewHelpers.js     formatting helpers used by templates (dates, money, badges, icons)
   services/
     payroll.js       the pay & overtime maths
     compliance.js    "is this guard licensed and trained?"
+    conflicts.js     the schedule conflict checker and "find cover"
   routes/            one file per area: staff, schedule, timesheets, pay, contracts, training…
 views/               the HTML templates, one folder per area
 public/              CSS, browser JavaScript, icon, and the officers' timesheet page (timesheet/)
@@ -172,7 +186,8 @@ This app stores personal details and pay information, so treat it carefully.
 **Already built in:** scrambled (hashed) passwords; sign-in lockout after 5 wrong tries; automatic
 sign-out after 8 idle hours; protection against forged forms (CSRF) and other common attacks
 (security headers); uploaded files that only signed-in users can download; managers who can't see
-pay; and an activity log.
+pay; and an activity log. Portal passphrases are stored only as a scrambled fingerprint, wrong
+guesses are limited (5 per 15 minutes), and turning one off or replacing it signs out anyone using it.
 
 **How the live site works (Netlify):**
 
@@ -203,7 +218,7 @@ spreadsheets as you go, and ask for help setting up regular database snapshots.
 
 ## 5. Ideas for later
 
-- A phone page for guards to see their own roster and clock in/out
+- Clock in/out from the officers' portal (replacing the separate timesheet page)
 - Client invoicing (bill rates per site)
 - Email reminders for expiring licenses and unfilled shifts
 - Incident reports from sites

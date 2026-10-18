@@ -8,6 +8,7 @@
   <div class="page-actions">
     <a class="btn" href="/schedule/new?employee=<%= employee.id %>">Add shift</a>
     <a class="btn" href="/timesheets/new?employee=<%= employee.id %>">Add hours</a>
+    <% if (employee.status === 'active') { %><a class="btn" href="/portal-access?scope=employee&employee=<%= employee.id %>">Portal passphrase</a><% } %>
     <a class="btn btn-primary" href="/staff/<%= employee.id %>/edit">Edit</a>
   </div>
 </div>

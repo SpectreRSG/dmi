@@ -30,6 +30,13 @@
       <span class="hint">1.5 = "time and a half", 2 = "double time".</span>
     </label>
   </div>
+  <h2>Scheduling</h2>
+  <div class="form-grid">
+    <label>Minimum rest between shifts (hours)
+      <input type="number" name="min_rest_hours" min="0" max="24" step="0.5" value="<%= values.min_rest_hours %>">
+      <span class="hint">The conflict checker warns when someone has less time off than this between two shifts.</span>
+    </label>
+  </div>
   <h2>Reminders</h2>
   <div class="form-grid">
     <label>Warn this many days before expiry

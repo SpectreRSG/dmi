@@ -14,6 +14,22 @@ document.addEventListener('DOMContentLoaded', () => {
     button.addEventListener('click', () => window.print());
   });
 
+  // "Copy" buttons put their text on the clipboard.
+  document.querySelectorAll('[data-copy]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copy);
+        const original = button.textContent;
+        button.textContent = 'Copied!';
+        setTimeout(() => {
+          button.textContent = original;
+        }, 2000);
+      } catch {
+        window.prompt('Copy this:', button.dataset.copy);
+      }
+    });
+  });
+
   // Filter dropdowns apply as soon as you pick something.
   document.querySelectorAll('[data-autosubmit]').forEach((field) => {
     field.addEventListener('change', () => field.form.submit());
@@ -40,6 +56,19 @@ document.addEventListener('DOMContentLoaded', () => {
     partySelect.addEventListener('change', showParty);
     showParty();
   }
+
+  // Training forms: only show "name of the new training" when "+ New training…" is picked.
+  document.querySelectorAll('[data-course-select]').forEach((select) => {
+    const newFields = select.closest('fieldset').querySelector('[data-new-course]');
+    const showNew = () => {
+      newFields.hidden = select.value !== 'new';
+    };
+    select.addEventListener('change', () => {
+      showNew();
+      if (select.value === 'new') newFields.querySelector('input').focus();
+    });
+    showNew();
+  });
 
   // Phone-sized screens: open and close the side menu.
   const toggle = document.querySelector('[data-nav-toggle]');

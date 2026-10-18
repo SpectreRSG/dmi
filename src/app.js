@@ -95,6 +95,7 @@ app.use(csrfProtection);
 
 // ---- Pages ------------------------------------------------------------------
 app.use(require('./routes/auth')); // /setup, /login, /logout (no login needed)
+app.use('/portal', require('./routes/portal')); // schedule portal for officers and clients (passphrase, no login)
 app.use(requireLogin); // everything below needs a login
 
 app.use('/', require('./routes/dashboard'));
@@ -107,6 +108,7 @@ app.use('/clients', require('./routes/clients').clientsRouter);
 app.use('/sites', require('./routes/clients').sitesRouter);
 app.use('/contracts', require('./routes/contracts'));
 app.use('/training', require('./routes/training'));
+app.use('/portal-access', require('./routes/portalAccess'));
 app.use('/users', requireAdmin, require('./routes/users'));
 app.use('/settings', requireAdmin, require('./routes/settings'));
 app.use('/activity', requireAdmin, require('./routes/activity'));

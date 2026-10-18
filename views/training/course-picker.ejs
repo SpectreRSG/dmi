@@ -1,0 +1,28 @@
+<%#
+  "Which training?" — pick one from the list, or type the name of a new one.
+  Expects: courses (list), item (the record/session being edited).
+  A new training is saved to the Courses list automatically.
+%>
+<% const pickingNew = !item.course_id && (item.new_course_name || !courses.length); %>
+<fieldset class="field-full course-picker">
+  <legend>Training</legend>
+  <label>Choose a training
+    <select name="course_id" data-course-select>
+      <% if (courses.length) { %><option value="" <%= !item.course_id && !pickingNew ? 'selected' : '' %>>Choose…</option><% } %>
+      <% for (const c of courses) { %>
+        <option value="<%= c.id %>" <%= item.course_id === c.id ? 'selected' : '' %>><%= c.name %><%= c.validity_months ? ` (valid ${c.validity_months} months)` : '' %></option>
+      <% } %>
+      <option value="new" <%= pickingNew ? 'selected' : '' %>>+ New training…</option>
+    </select>
+    <% if (!courses.length) { %><span class="hint">No trainings yet — type the name of your first one below.</span><% } %>
+  </label>
+  <div class="new-course" data-new-course>
+    <label>Name of the new training
+      <input name="new_course_name" value="<%= item.new_course_name || '' %>" maxlength="200" placeholder="e.g. First Aid, Fire Safety, Baton">
+    </label>
+    <label>Valid for (months)
+      <input type="number" name="new_course_validity" min="1" step="1" value="<%= item.new_course_validity || '' %>">
+      <span class="hint">Leave empty if it never expires.</span>
+    </label>
+  </div>
+</fieldset>

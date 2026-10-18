@@ -1,15 +1,22 @@
 // Schedule (the roster): planning who works where and when.
 const express = require('express');
 const db = require('../db');
-const { clean, toId, toNumber, notFound, numericIdParam, logActivity, employeeName } = require('../helpers');
+const { clean, toId, toNumber, asArray, notFound, numericIdParam, logActivity, employeeName } = require('../helpers');
 const time = require('../time');
 const { entryHours, round2 } = require('../services/payroll');
 const { complianceForEmployee } = require('../services/compliance');
+const { TYPES, findConflicts, coverOptions } = require('../services/conflicts');
 
 const router = express.Router();
 numericIdParam(router);
 
-const MAX_REPEAT_WEEKS = 26;
+// The conflict checker looks at most this many days at once.
+const MAX_CHECK_DAYS = 92;
+
+// Repeating shifts can run for up to a year, and at most this many at once.
+const MAX_REPEAT_DAYS = 366;
+const MAX_REPEAT_SHIFTS = 400;
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 const SHIFT_SELECT = `
   SELECT s.*, si.name AS site_name, c.name AS client_name, e.first_name, e.last_name
@@ -65,7 +72,7 @@ async function complianceWarning(employeeId, shiftDate, warningDays) {
 }
 
 async function readForm(body) {
-  const v = clean(body, ['site_id', 'employee_id', 'date', 'start_time', 'end_time', 'break_minutes', 'notes', 'status', 'repeat_weeks']);
+  const v = clean(body, ['site_id', 'employee_id', 'date', 'start_time', 'end_time', 'break_minutes', 'notes', 'status', 'repeat_until']);
   const values = {
     site_id: toId(v.site_id),
     employee_id: toId(v.employee_id),
@@ -75,7 +82,9 @@ async function readForm(body) {
     break_minutes: toNumber(v.break_minutes, 0),
     notes: v.notes,
     status: ['scheduled', 'completed', 'cancelled'].includes(v.status) ? v.status : 'scheduled',
-    repeat_weeks: Math.min(Math.max(parseInt(v.repeat_weeks, 10) || 0, 0), MAX_REPEAT_WEEKS),
+    // Days of the week to repeat on (0 = Monday … 6 = Sunday), and the last date to repeat to.
+    repeat_days: [...new Set(asArray(body.repeat_days).map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))],
+    repeat_until: v.repeat_until,
   };
 
   let error = null;
@@ -89,9 +98,25 @@ async function readForm(body) {
     error = 'Please enter a start time and an end time.';
   } else if (!Number.isInteger(values.break_minutes) || values.break_minutes < 0 || values.break_minutes > 600) {
     error = 'Break must be a whole number of minutes.';
+  } else if (values.repeat_days.length && !time.isValidDate(values.repeat_until)) {
+    error = 'Choose the last date the shift should repeat until.';
+  } else if (values.repeat_days.length && values.repeat_until < values.date) {
+    error = 'The repeat end date must be on or after the first date.';
+  } else if (values.repeat_days.length && time.daysBetween(values.date, values.repeat_until) > MAX_REPEAT_DAYS) {
+    error = 'Shifts can repeat for up to one year at a time.';
   }
   if (!error) Object.assign(values, time.buildRange(values.date, values.start_time, values.end_time));
   return { values, error };
+}
+
+// Every date to create a shift on: the first date, then each ticked weekday up to the end date.
+function repeatDates(values) {
+  const dates = [values.date];
+  if (!values.repeat_days.length) return dates;
+  for (let d = time.addDays(values.date, 1); d <= values.repeat_until; d = time.addDays(d, 1)) {
+    if (values.repeat_days.includes(time.dayOfWeek(d))) dates.push(d);
+  }
+  return dates;
 }
 
 async function renderForm(res, shift, error, status = 200) {
@@ -102,7 +127,7 @@ async function renderForm(res, shift, error, status = 200) {
     error,
     sites,
     staff,
-    maxRepeat: MAX_REPEAT_WEEKS,
+    WEEKDAYS,
   });
 }
 
@@ -129,10 +154,11 @@ router.get('/', async (req, res) => {
     where.push('s.employee_id = ?');
     params.push(employeeId);
   }
-  const [shifts, sites, staff] = await Promise.all([
+  const [shifts, sites, staff, conflicts] = await Promise.all([
     db.all(`${SHIFT_SELECT} WHERE ${where.join(' AND ')} ORDER BY s.start_at, si.name`, ...params),
     siteOptions(),
     staffOptions(),
+    findConflicts(week, time.addDays(week, 6), res.locals.settings),
   ]);
 
   const days = Array.from({ length: 7 }, (_, i) => {
@@ -160,11 +186,86 @@ router.get('/', async (req, res) => {
     days,
     totals: [...totals.values()].sort((a, b) => b.hours - a.hours),
     unfilled: shifts.filter((s) => !s.employee_id && s.status === 'scheduled').length,
+    conflictCount: conflicts.filter((c) => c.type !== 'unfilled').length,
     sites,
     staff,
     siteId,
     employeeId,
   });
+});
+
+// ---- Conflict checker -----------------------------------------------------------
+
+// Only send people back to schedule pages after assigning cover.
+function backTo(value, fallback) {
+  return typeof value === 'string' && /^\/schedule(\/conflicts)?(\?[\w=&%.:-]*)?$/.test(value) ? value : fallback;
+}
+
+router.get('/conflicts', async (req, res) => {
+  const today = time.todayStr();
+  let from = time.isValidDate(req.query.from) ? req.query.from : today;
+  let to = time.isValidDate(req.query.to) ? req.query.to : time.addDays(from, 27);
+  let notice = null;
+  if (to < from) [from, to] = [to, from];
+  if (time.daysBetween(from, to) >= MAX_CHECK_DAYS) {
+    to = time.addDays(from, MAX_CHECK_DAYS - 1);
+    notice = `The checker looks at up to ${MAX_CHECK_DAYS} days at a time, so it stopped at ${time.fmtDate(to)}.`;
+  }
+  const type = TYPES[req.query.type] ? req.query.type : '';
+  const issues = await findConflicts(from, to, res.locals.settings);
+  const counts = Object.fromEntries(Object.keys(TYPES).map((t) => [t, issues.filter((i) => i.type === t).length]));
+  res.render('schedule/conflicts', {
+    title: 'Schedule conflicts',
+    from,
+    to,
+    type,
+    notice,
+    issues: type ? issues.filter((i) => i.type === type) : issues,
+    total: issues.length,
+    counts,
+    TYPES,
+    here: req.originalUrl,
+  });
+});
+
+router.get('/:id/cover', async (req, res) => {
+  const shift = await findShift(req.params.id);
+  if (!shift) return notFound(res, 'shift');
+  const back = backTo(req.query.back, `/schedule?week=${time.startOfWeek(shift.start_at.slice(0, 10))}`);
+  res.render('schedule/cover', {
+    title: 'Find cover',
+    shift,
+    back,
+    options: await coverOptions(shift, res.locals.settings),
+  });
+});
+
+router.post('/:id/assign', async (req, res) => {
+  const shift = await findShift(req.params.id);
+  if (!shift) return notFound(res, 'shift');
+  const back = backTo(req.body.back, `/schedule?week=${time.startOfWeek(shift.start_at.slice(0, 10))}`);
+  const employeeId = toId(req.body.employee_id);
+  const employee = employeeId && (await db.get("SELECT * FROM employees WHERE id = ? AND status = 'active'", employeeId));
+  if (shift.status !== 'scheduled') {
+    req.flash('error', 'Only scheduled shifts can be reassigned.');
+    return res.redirect(back);
+  }
+  if (!employee) {
+    req.flash('error', 'Please choose an active staff member.');
+    return res.redirect(`/schedule/${shift.id}/cover?back=${encodeURIComponent(back)}`);
+  }
+  const clash = await findClash(db, employee.id, shift.start_at, shift.end_at, shift.id);
+  if (clash) {
+    req.flash('error', clashMessage(clash));
+    return res.redirect(`/schedule/${shift.id}/cover?back=${encodeURIComponent(back)}`);
+  }
+  await db.run('UPDATE shifts SET employee_id = ? WHERE id = ?', employee.id, shift.id);
+  const was = shift.employee_id ? ` (was ${employeeName(shift)})` : '';
+  await logActivity(req, `Assigned ${employeeName(employee)} to shift #${shift.id} on ${shift.start_at.slice(0, 10)}${was}`);
+  req.flash('success', `${employeeName(employee)} is now covering ${time.fmtDay(shift.start_at)} ${time.fmtRange(shift.start_at, shift.end_at)} at ${shift.site_name}.`);
+  const warning = await complianceWarning(employee.id, shift.start_at.slice(0, 10), res.locals.settings.expiry_warning_days);
+  if (warning) req.flash('warning', warning);
+  res.redirect(back);
 });
 
 // ---- Add / edit -------------------------------------------------------------------
@@ -179,7 +280,7 @@ router.get('/new', async (req, res) => {
       start_time: '07:00',
       end_time: '19:00',
       break_minutes: 0,
-      repeat_weeks: 0,
+      repeat_days: [],
     },
     null
   );
@@ -194,13 +295,19 @@ router.post('/', async (req, res) => {
     if (clash) return renderForm(res, values, clashMessage(clash), 400);
   }
 
+  const dates = repeatDates(values);
+  if (dates.length > MAX_REPEAT_SHIFTS) {
+    return renderForm(res, values, `That would create ${dates.length} shifts. Please make it ${MAX_REPEAT_SHIFTS} or fewer at a time.`, 400);
+  }
+
   let created = 0;
   let skipped = 0;
   await db.transaction(async (tx) => {
-    for (let week = 0; week <= values.repeat_weeks; week += 1) {
-      const start_at = shiftDateTime(values.start_at, week * 7);
-      const end_at = shiftDateTime(values.end_at, week * 7);
-      if (week > 0 && values.employee_id && (await findClash(tx, values.employee_id, start_at, end_at))) {
+    for (const date of dates) {
+      const offset = time.daysBetween(values.date, date);
+      const start_at = shiftDateTime(values.start_at, offset);
+      const end_at = shiftDateTime(values.end_at, offset);
+      if (offset > 0 && values.employee_id && (await findClash(tx, values.employee_id, start_at, end_at))) {
         skipped += 1;
         continue;
       }
@@ -214,7 +321,7 @@ router.post('/', async (req, res) => {
   });
 
   await logActivity(req, `Added ${created} shift(s) starting ${values.date}`);
-  req.flash('success', created === 1 ? 'Shift added.' : `${created} shifts added (one per week).`);
+  req.flash('success', created === 1 ? 'Shift added.' : `${created} shifts added.`);
   if (skipped) req.flash('warning', `${skipped} repeat shift(s) were skipped because the person was already booked.`);
   if (values.employee_id) {
     const warning = await complianceWarning(values.employee_id, values.date, res.locals.settings.expiry_warning_days);

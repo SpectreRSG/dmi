@@ -9,14 +9,13 @@
 <form method="post" action="<%= session.id ? `/training/sessions/${session.id}` : '/training/sessions' %>" class="card form-card">
   <%- include('../partials/csrf') %>
   <div class="form-grid">
-    <label class="field-full">Course
-      <select name="course_id" required>
-        <option value="">Choose…</option>
-        <% for (const c of courses) { %><option value="<%= c.id %>" <%= session.course_id === c.id ? 'selected' : '' %>><%= c.name %></option><% } %>
-      </select>
-    </label>
+    <%- include('course-picker', { item: session }) %>
     <label>Date <input type="date" name="date" value="<%= session.date || '' %>" required></label>
     <label>Start time <input type="time" name="start_time" value="<%= session.start_time || '' %>" required></label>
+    <label>Length (hours)
+      <input type="number" name="duration_hours" min="0.5" max="24" step="0.5" value="<%= session.duration_hours ?? 4 %>" required>
+      <span class="hint">Used to warn you if someone is booked on a shift at the same time.</span>
+    </label>
     <label>Location <input name="location" value="<%= session.location || '' %>"></label>
     <label>Trainer / provider <input name="trainer" value="<%= session.trainer || '' %>"></label>
     <label>Maximum places <input type="number" name="capacity" min="1" step="1" value="<%= session.capacity ?? '' %>"><span class="hint">Leave empty for no limit.</span></label>

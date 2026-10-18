@@ -32,4 +32,4 @@ async function getSetupCode() {
   return { code: await storedSecret('setup_code', makeSetupCode), fromEnvironment: false };
 }
 
-module.exports = { getSessionSecret, getSetupCode };
+module.exports = { storedSecret, getSessionSecret, getSetupCode };

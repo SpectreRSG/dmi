@@ -5,9 +5,6 @@
     <h1><%= title %></h1>
   </div>
 </div>
-<% if (!courses.length) { %>
-  <div class="flash flash-warning">There are no courses yet. <a href="/training/courses/new">Add a course first</a>.</div>
-<% } %>
 <%- include('../partials/form-error') %>
 <form method="post" action="<%= record.id ? `/training/records/${record.id}` : '/training/records' %>" class="card form-card" enctype="multipart/form-data">
   <%- include('../partials/csrf') %>
@@ -18,12 +15,7 @@
         <% for (const e of staff) { %><option value="<%= e.id %>" <%= record.employee_id === e.id ? 'selected' : '' %>><%= e.first_name %> <%= e.last_name %></option><% } %>
       </select>
     </label>
-    <label>Course
-      <select name="course_id" required>
-        <option value="">Choose…</option>
-        <% for (const c of courses) { %><option value="<%= c.id %>" <%= record.course_id === c.id ? 'selected' : '' %>><%= c.name %><%= c.validity_months ? ` (valid ${c.validity_months} months)` : '' %></option><% } %>
-      </select>
-    </label>
+    <%- include('course-picker', { item: record }) %>
     <label>Date completed <input type="date" name="completed_on" value="<%= record.completed_on || '' %>" required></label>
     <label>Expiry date
       <input type="date" name="expires_on" value="<%= record.expires_on || '' %>">
