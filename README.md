@@ -180,8 +180,9 @@ pay; and an activity log.
   Netlify Function (`netlify/functions/app.mjs`).
 - Data is kept in **Netlify Database** (Postgres). Uploaded files are kept in **Netlify Blobs**
   (private file storage). Netlify creates both automatically.
-- Only the `main` branch can update the live site (a lock in `netlify.toml`). Work on other
-  branches can be previewed on private Netlify links first.
+- Only the `main` branch can update the live site (a lock in `netlify.toml`). Work on the
+  `netlify-app` branch is previewed first at https://netlify-app--directmeasures.netlify.app
+  (you need to be signed in to Netlify to see it). The preview has its own copy of the database.
 - Two secret settings live in Netlify (**Project configuration → Environment variables**), never in the code:
   - `SESSION_SECRET` – a long random value that protects login cookies.
   - `SETUP_CODE` – needed once, to create the first admin account on a brand-new database,
