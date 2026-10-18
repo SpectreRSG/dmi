@@ -100,7 +100,16 @@ const LAYOUT = {
   commentWidth: 160,
   totalY: 672,
   sig: { x: 204, top: 678, w: 96, h: 32 },
+  approvedBy: { x: 500, top: 709.5, w: 76 }, // just after the form's "APPROVED BY:"
 };
+
+// Shrinks text until it fits a width, then trims it if it still doesn't.
+function fitText(font, value, size, maxWidth, minSize = 5.5) {
+  let text = String(value || '');
+  while (size > minSize && font.widthOfTextAtSize(text, size) > maxWidth) size -= 0.25;
+  while (text.length > 1 && font.widthOfTextAtSize(text, size) > maxWidth) text = text.slice(0, -1);
+  return { text, size };
+}
 
 let template = null;
 
@@ -112,14 +121,9 @@ async function buildTimesheetPdf(sheet) {
   const page = doc.getPages()[0];
 
   function put(value, x, top, size = 8, maxWidth = null) {
-    let text = String(value || '');
-    if (!text) return;
-    if (maxWidth) {
-      // Shrink long text to fit its column, then trim if it still doesn't.
-      while (size > 5.5 && font.widthOfTextAtSize(text, size) > maxWidth) size -= 0.25;
-      while (text.length > 1 && font.widthOfTextAtSize(text, size) > maxWidth) text = text.slice(0, -1);
-    }
-    page.drawText(text, { x, y: PAGE_H - top, size, font, color: rgb(0, 0, 0) });
+    if (!value) return;
+    const fitted = maxWidth ? fitText(font, value, size, maxWidth) : { text: String(value), size };
+    page.drawText(fitted.text, { x, y: PAGE_H - top, size: fitted.size, font, color: rgb(0, 0, 0) });
   }
 
   put(sheet.name, LAYOUT.name.x, LAYOUT.name.y, 8, 120);
@@ -148,6 +152,19 @@ async function buildTimesheetPdf(sheet) {
   return Buffer.from(await doc.save());
 }
 
+// The approved copy: the officer's signed PDF with "APPROVED BY" filled in
+// (the approver's name, and the date underneath).
+async function stampApproval(pdf, { approver, date }) {
+  const doc = await PDFDocument.load(pdf);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.getPages()[0];
+  const { x, top, w } = LAYOUT.approvedBy;
+  const name = fitText(font, approver, 8, w);
+  page.drawText(name.text, { x, y: PAGE_H - top, size: name.size, font, color: rgb(0, 0, 0) });
+  page.drawText(short(date), { x, y: PAGE_H - top - 9.5, size: 6.5, font, color: rgb(0, 0, 0) });
+  return Buffer.from(await doc.save());
+}
+
 module.exports = {
-  PERIOD_DAYS, periodStartFor, periodEnd, periodLabel, short, parseClock, readRows, readSignature, fmtHours, buildTimesheetPdf,
+  PERIOD_DAYS, periodStartFor, periodEnd, periodLabel, short, parseClock, readRows, readSignature, fmtHours, buildTimesheetPdf, stampApproval,
 };

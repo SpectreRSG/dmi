@@ -18,6 +18,14 @@ const DEFAULTS = {
   payer_zip: '',
   payer_phone: '',
   payer_state_id: '', // state payer number (box 6), if your state has one
+  // Sending email (e.g. approved timesheets to officers), through your email
+  // provider's outgoing mail server ("SMTP").
+  smtp_host: '',
+  smtp_port: '587',
+  smtp_user: '',
+  smtp_password: '', // stored encrypted
+  mail_from: '', // who emails come from, e.g. DMI Timesheets <timesheets@yourcompany.com>
+  mail_reply_to: '', // where replies go, e.g. the office's own email
 };
 
 // The time zones you can pick on the Settings page.
@@ -51,6 +59,12 @@ async function getSettings() {
     payer_zip: s.payer_zip,
     payer_phone: s.payer_phone,
     payer_state_id: s.payer_state_id,
+    smtp_host: s.smtp_host,
+    smtp_port: Number(s.smtp_port) || 587,
+    smtp_user: s.smtp_user,
+    smtp_password_set: Boolean(s.smtp_password), // the password itself is only read when sending
+    mail_from: s.mail_from,
+    mail_reply_to: s.mail_reply_to,
   };
 }
 

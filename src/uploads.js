@@ -66,6 +66,11 @@ async function deleteUpload(storedName) {
   if (storedName) await storage.remove(path.basename(storedName));
 }
 
+// The file's contents, or null if it's missing.
+function readUpload(storedName) {
+  return storage.read(path.basename(storedName));
+}
+
 async function sendUpload(res, storedName, originalName) {
   const data = await storage.read(path.basename(storedName));
   if (!data) {
@@ -75,4 +80,4 @@ async function sendUpload(res, storedName, originalName) {
   res.send(data);
 }
 
-module.exports = { upload, saveUpload, deleteUpload, sendUpload, UploadError, MAX_FILE_MB };
+module.exports = { upload, saveUpload, readUpload, deleteUpload, sendUpload, UploadError, MAX_FILE_MB };

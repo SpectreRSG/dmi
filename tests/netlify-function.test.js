@@ -94,6 +94,14 @@ test('every library the app needs is listed in the function, so Netlify packages
   }
 });
 
+test('the scheduled email sender lists the libraries it needs, so Netlify packages them', () => {
+  const functionFile = fs.readFileSync(path.join(__dirname, '..', 'netlify', 'functions', 'send-emails.mjs'), 'utf8');
+  for (const name of ['@netlify/blobs', '@netlify/database', 'multer', 'nodemailer']) {
+    assert.match(functionFile, new RegExp(`^import '${name}';$`, 'm'), `add "import '${name}';" to netlify/functions/send-emails.mjs`);
+  }
+  assert.match(functionFile, /schedule: '\*\/10 \* \* \* \*'/);
+});
+
 test('the officer timesheet page is still served', async () => {
   const res = await handler(site('/timesheet/'), context);
   assert.equal(res.status, 200);

@@ -2,8 +2,16 @@
 <div class="page-head">
   <div>
     <h1>Timesheets</h1>
-    <p class="page-sub">Two-week timesheets officers sent in from their accounts. Their hours are already in the list, waiting for approval.</p>
+    <p class="page-sub">Two-week timesheets officers sent in from their accounts. Their hours are already in the list, waiting for approval. When every day is checked, the officer is emailed a copy with "Approved by" filled in.</p>
   </div>
+  <% if (unsent) { %>
+    <div class="page-actions">
+      <form method="post" action="/timesheets/emails/send" class="inline-form">
+        <%- include('../partials/csrf') %>
+        <button type="submit" class="btn">Send waiting emails (<%= unsent %>)</button>
+      </form>
+    </div>
+  <% } %>
 </div>
 <nav class="tabs" aria-label="Filter by status">
   <a href="/timesheets?status=pending">Waiting for approval <span class="count"><%= counts.pending || 0 %></span></a>
@@ -18,18 +26,31 @@
   <% } else { %>
     <div class="table-wrap">
       <table class="table">
-        <thead><tr><th>Officer</th><th>Pay period</th><th>Location</th><th class="num">Hours</th><th>Sent</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Officer</th><th>Pay period</th><th class="num">Hours</th><th>Sent in</th><th>Status</th><th>Emailed to officer</th><th></th></tr></thead>
         <tbody>
           <% for (const s of submissions) { %>
             <tr>
               <td><a href="/staff/<%= s.employee_id %>"><%= s.first_name %> <%= s.last_name %></a></td>
-              <td class="nowrap"><%= fmtDate(s.period_start) %> – <%= fmtDate(s.period_end) %></td>
-              <td><%= s.location || '' %></td>
+              <td class="nowrap"><%= fmtDate(s.period_start) %> – <%= fmtDate(s.period_end) %><% if (s.location) { %><div class="muted small"><%= s.location %></div><% } %></td>
               <td class="num"><%= fmtHours(s.total_hours) %></td>
               <td class="nowrap"><%= fmtDateTime(s.submitted_at) %></td>
-              <td><%- s.pending ? badge(`${s.pending} day(s) to approve`, 'amber') : badge('Checked', 'green') %></td>
+              <td><%- s.pending ? badge(`${s.pending} day(s) to approve`, 'amber') : (s.approved_at ? badge('Approved', 'green') : badge('Checked', 'gray')) %></td>
+              <td>
+                <% if (s.email_status === 'sent') { %><%- badge('Sent', 'green') %> <span class="muted small"><%= fmtDateTime(s.email_sent_at) %></span>
+                <% } else if (s.email_status === 'failed') { %><%- badge('Not sent', 'red') %><div class="muted small"><%= s.email_error %></div>
+                <% } else if (s.email_status) { %><%- badge('Waiting', 'amber') %>
+                <% } else if (s.approved_at) { %><span class="muted small">No email address</span>
+                <% } else { %><span class="muted small">After approval</span><% } %>
+                <% if (s.approved_at) { %>
+                  <form method="post" action="/timesheets/submissions/<%= s.id %>/email" class="inline-form">
+                    <%- include('../partials/csrf') %>
+                    <button type="submit" class="btn btn-sm btn-ghost"><%= s.email_status === 'sent' ? 'Send again' : 'Send now' %></button>
+                  </form>
+                <% } %>
+              </td>
               <td class="actions nowrap">
                 <a href="/timesheets/submissions/<%= s.id %>/pdf"><%- icon('file') %> PDF</a>
+                <% if (s.approved_file_name) { %>· <a href="/timesheets/submissions/<%= s.id %>/approved-pdf">Approved copy</a><% } %>
                 · <a href="/timesheets?status=all&employee=<%= s.employee_id %>&from=<%= s.period_start %>&to=<%= s.period_end %>">Hours</a>
               </td>
             </tr>

@@ -18,6 +18,7 @@ import 'express';
 import 'express-session';
 import 'helmet';
 import 'multer';
+import 'nodemailer';
 import 'pdf-lib';
 import app from '../../src/app.js';
 

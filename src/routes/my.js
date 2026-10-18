@@ -339,6 +339,12 @@ router.get('/timesheets/:id/pdf', officerOnly, async (req, res) => {
   await sendUpload(res, submission.file_name, `DMI_Timesheet_${submission.period_start}_to_${submission.period_end}.pdf`);
 });
 
+router.get('/timesheets/:id/approved-pdf', officerOnly, async (req, res) => {
+  const submission = await db.get('SELECT * FROM timesheet_submissions WHERE id = ? AND employee_id = ?', req.params.id, req.me.id);
+  if (!submission?.approved_file_name) return notFound(res, 'approved timesheet');
+  await sendUpload(res, submission.approved_file_name, `DMI_Timesheet_${submission.period_start}_to_${submission.period_end}_approved.pdf`);
+});
+
 router.use('/tax', officerOnly, require('./myTax'));
 
 module.exports = router;

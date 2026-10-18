@@ -617,6 +617,96 @@ test('1099-NEC: W-9 details, company details, issuing and sharing online', async
   assert.deepEqual([corrected.status, corrected.corrected], ['draft', 1]);
 });
 
+test('approved timesheets are emailed to the officer with the approved copy attached', async () => {
+  // The earlier approval happened before email was set up, so its email is waiting.
+  const waiting = await db.get("SELECT * FROM email_outbox WHERE to_address = 'olivia@example.com'");
+  assert.equal(waiting.status, 'waiting');
+  assert.match(waiting.subject, /was approved/);
+  const submission = await db.get("SELECT * FROM timesheet_submissions WHERE employee_id = ? AND status = 'submitted'", ids.officer);
+  assert.ok(submission.approved_at && submission.approved_file_name);
+  assert.ok((await officer.get(`/my/timesheets/${submission.id}/approved-pdf`)).text.startsWith('%PDF'));
+  assert.ok((await admin.get(`/timesheets/submissions/${submission.id}/approved-pdf`)).text.startsWith('%PDF'));
+
+  // A pretend mail server that keeps what it receives.
+  const { SMTPServer } = require('smtp-server');
+  const received = [];
+  const smtp = new SMTPServer({
+    disabledCommands: ['STARTTLS'],
+    allowInsecureAuth: true,
+    logger: false,
+    onAuth: (auth, session, done) => (auth.username === 'mailer' && auth.password === 'mail-secret' ? done(null, { user: 'mailer' }) : done(new Error('Invalid login'))),
+    onData: (stream, session, done) => {
+      const chunks = [];
+      stream.on('data', (c) => chunks.push(c));
+      stream.on('end', () => {
+        received.push({ to: session.envelope.rcptTo.map((r) => r.address), raw: Buffer.concat(chunks).toString() });
+        done();
+      });
+    },
+  });
+  await new Promise((resolve) => smtp.listen(0, '127.0.0.1', resolve));
+  try {
+    const settings = {
+      company_name: 'Test Security', timezone: 'America/New_York', currency_symbol: '$', overtime_weekly_hours: '40', overtime_multiplier: '1.5', expiry_warning_days: '30', min_rest_hours: '8',
+      payer_name: 'Test Security LLC', payer_ein: '12-3456789', payer_address: '100 Main St', payer_city: 'Los Angeles', payer_state: 'CA', payer_zip: '90012', payer_phone: '(213) 555-0100',
+      smtp_host: '127.0.0.1', smtp_port: String(smtp.server.address().port), smtp_user: 'mailer', smtp_password: 'mail-secret',
+      mail_from: 'DMI Timesheets <timesheets@example.com>', mail_reply_to: 'office@example.com',
+    };
+    let res = await admin.post('/settings', { ...settings, mail_from: 'not an address' });
+    assert.equal(res.status, 400);
+    res = await admin.post('/settings', settings);
+    assert.equal(res.status, 302);
+    const storedPassword = (await db.get("SELECT value FROM settings WHERE key = 'smtp_password'")).value;
+    assert.ok(storedPassword && !storedPassword.includes('mail-secret'), 'the mail password is stored encrypted');
+    // Saving again without typing the password keeps it.
+    await admin.post('/settings', { ...settings, smtp_password: '' });
+    assert.equal((await db.get("SELECT value FROM settings WHERE key = 'smtp_password'")).value, storedPassword);
+
+    await admin.post('/settings/test-email');
+    assert.deepEqual(received.at(-1).to, ['alex@example.com']);
+
+    // "Send waiting emails" sends the one that was waiting.
+    await admin.post('/timesheets/emails/send');
+    const mail = received.at(-1);
+    assert.deepEqual(mail.to, ['olivia@example.com']);
+    assert.match(mail.raw, /Subject: Your timesheet for .* was approved/);
+    assert.match(mail.raw, /Reply-To: office@example\.com/);
+    assert.match(mail.raw, /filename=.*_approved\.pdf/);
+    assert.match(mail.raw, /Content-Type: application\/pdf/);
+    assert.equal((await db.get('SELECT status FROM email_outbox WHERE id = ?', waiting.id)).status, 'sent');
+    assert.match((await admin.get('/timesheets/submissions')).text, /Sent/);
+
+    // From now on, approving the last waiting day emails the officer straight away.
+    const { periodStartFor } = require('../src/services/officerTimesheet');
+    const period = time.addDays(periodStartFor(time.todayStr()), -28);
+    res = await officer.post('/my/timesheets', { period, in_1: '0800', out_1: '1600', in_2: '0800', out_2: '1200', confirm: '1', signature: SIGNATURE });
+    assert.equal(res.status, 302);
+    const sheet = await db.get("SELECT * FROM timesheet_submissions WHERE employee_id = ? AND period_start = ? AND status = 'submitted'", ids.officer, period);
+    const [first, second] = await db.all('SELECT id FROM time_entries WHERE submission_id = ? ORDER BY start_at', sheet.id);
+    const before = received.length;
+    await admin.post(`/timesheets/${first.id}/approve`);
+    assert.equal(received.length, before, 'not until every day is checked');
+    await admin.post(`/timesheets/${second.id}/reject`);
+    assert.equal(received.length, before + 1);
+    assert.match(received.at(-1).raw, /1 day\(s\), 8\.0 hours/);
+    assert.match(received.at(-1).raw, /were not accepted/);
+    assert.ok((await db.get('SELECT approved_file_name FROM timesheet_submissions WHERE id = ?', sheet.id)).approved_file_name);
+
+    // "Send again" sends another copy.
+    await admin.post(`/timesheets/submissions/${sheet.id}/email`);
+    assert.equal(received.length, before + 2);
+  } finally {
+    await new Promise((resolve) => smtp.close(resolve));
+  }
+
+  // If the mail server is down, the email is kept and shown as not sent.
+  await admin.post(`/timesheets/submissions/${submission.id}/email`);
+  const failed = await db.get('SELECT * FROM email_outbox WHERE submission_id = ? ORDER BY id DESC LIMIT 1', submission.id);
+  assert.equal(failed.status, 'failed');
+  assert.ok(failed.last_error);
+  assert.match((await admin.get('/timesheets/submissions')).text, /Not sent/);
+});
+
 test('every main page loads', async () => {
   for (const url of ['/', '/schedule', '/timesheets?status=all', '/pay', `/pay/${ids.payRun}`, '/staff', `/staff/${ids.employee}`,
     '/clients', `/clients/${ids.client}`, '/contracts', '/training', '/training/records', '/training/sessions',

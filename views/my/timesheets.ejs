@@ -2,7 +2,7 @@
 <div class="page-head">
   <div>
     <h1>Timesheets</h1>
-    <p class="page-sub">Send in your hours every two weeks (Sunday to Saturday). The office checks them before pay day.</p>
+    <p class="page-sub">Send in your hours every two weeks (Sunday to Saturday). The office checks them before pay day, and you get an approved copy by email (<%= currentUser.email %>).</p>
   </div>
   <div class="page-actions">
     <a class="btn" href="/my/timesheets/new?period=<%= previousPeriod %>">Last period</a>
@@ -28,7 +28,10 @@
                 <% if (c.rejected) { %><%- badge(`${c.rejected} day(s) not accepted`, 'red') %><% } %>
                 <% if (c.approved && (c.pending || c.rejected)) { %><%- badge(`${c.approved} approved`, 'green') %><% } %>
               </td>
-              <td class="actions"><a href="/my/timesheets/<%= s.id %>/pdf"><%- icon('file') %> PDF</a></td>
+              <td class="actions nowrap">
+                <a href="/my/timesheets/<%= s.id %>/pdf"><%- icon('file') %> PDF</a>
+                <% if (s.approved_file_name) { %>· <a href="/my/timesheets/<%= s.id %>/approved-pdf">Approved copy</a><% } %>
+              </td>
             </tr>
           <% } %>
         </tbody>

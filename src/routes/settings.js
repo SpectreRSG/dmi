@@ -3,6 +3,15 @@ const express = require('express');
 const { getSettings, saveSettings, TIMEZONES } = require('../settings');
 const { clean, toNumber, logActivity } = require('../helpers');
 const { US_STATES, digitsOnly, zipOk } = require('../services/tax1099');
+const { encrypt } = require('../secureData');
+const { emailIsSetUp, openMailer } = require('../services/mailer');
+
+// "Name <name@example.com>" or just "name@example.com".
+const EMAIL_PATTERN = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
+function emailAddressOk(value) {
+  const match = /<([^>]+)>\s*$/.exec(value);
+  return EMAIL_PATTERN.test(match ? match[1] : value);
+}
 
 const router = express.Router();
 
@@ -18,6 +27,7 @@ router.post('/', async (req, res) => {
   const v = clean(req.body, [
     'company_name', 'timezone', 'currency_symbol', 'overtime_weekly_hours', 'overtime_multiplier', 'expiry_warning_days', 'min_rest_hours',
     'payer_name', 'payer_ein', 'payer_address', 'payer_city', 'payer_state', 'payer_zip', 'payer_phone', 'payer_state_id',
+    'smtp_host', 'smtp_port', 'smtp_user', 'mail_from', 'mail_reply_to',
   ]);
   const ein = digitsOnly(v.payer_ein);
   const values = {
@@ -36,6 +46,11 @@ router.post('/', async (req, res) => {
     payer_zip: v.payer_zip || '',
     payer_phone: (v.payer_phone || '').slice(0, 30),
     payer_state_id: (v.payer_state_id || '').slice(0, 30),
+    smtp_host: (v.smtp_host || '').slice(0, 120),
+    smtp_port: toNumber(v.smtp_port, 587),
+    smtp_user: (v.smtp_user || '').slice(0, 200),
+    mail_from: (v.mail_from || '').slice(0, 200),
+    mail_reply_to: (v.mail_reply_to || '').slice(0, 200),
   };
 
   let error = null;
@@ -56,13 +71,50 @@ router.post('/', async (req, res) => {
     error = 'Use the 2-letter state code, like CA.';
   } else if (values.payer_zip && !zipOk(values.payer_zip)) {
     error = 'The ZIP code should be 5 digits (or ZIP+4).';
+  } else if (values.smtp_host && !/^[A-Za-z0-9.-]+$/.test(values.smtp_host)) {
+    error = 'The mail server should look like smtp.example.com.';
+  } else if (!Number.isInteger(values.smtp_port) || values.smtp_port < 1 || values.smtp_port > 65535) {
+    error = 'The mail server port is a number, usually 587 or 465.';
+  } else if (values.mail_from && !emailAddressOk(values.mail_from)) {
+    error = 'The "send from" address should be an email address, like DMI Timesheets <timesheets@yourcompany.com>.';
+  } else if (values.mail_reply_to && !emailAddressOk(values.mail_reply_to)) {
+    error = 'The reply-to address should be an email address.';
+  } else if (values.smtp_host && !values.mail_from) {
+    error = 'Fill in the address emails are sent from.';
   }
-  if (error) return render(res, values, error, 400);
+  if (error) return render(res, { ...values, smtp_password_set: (await getSettings()).smtp_password_set }, error, 400);
+
+  // The mail password is only changed when a new one is typed (it's never shown).
+  if (req.body.smtp_password) values.smtp_password = await encrypt(String(req.body.smtp_password));
+  else if (req.body.smtp_password_clear) values.smtp_password = '';
 
   await saveSettings(values);
   await logActivity(req, 'Updated company settings');
   req.flash('success', 'Settings saved.');
   res.redirect('/settings');
+});
+
+// Sends a test email to the admin, to check the email settings work.
+router.post('/test-email', async (req, res) => {
+  const settings = await getSettings();
+  if (!emailIsSetUp(settings)) {
+    req.flash('error', 'Fill in and save the email settings first.');
+    return res.redirect('/settings#email');
+  }
+  const mailer = await openMailer(settings);
+  try {
+    await mailer.send({
+      to: req.user.email,
+      subject: `Test email from ${settings.company_name}`,
+      text: `It works! ${settings.company_name} can send email, so officers will get their approved timesheets.`,
+    });
+    req.flash('success', `Test email sent to ${req.user.email}. Check your inbox (and the spam folder).`);
+  } catch (err) {
+    req.flash('error', `The test email couldn't be sent: ${err.message}`);
+  } finally {
+    mailer.close();
+  }
+  res.redirect('/settings#email');
 });
 
 module.exports = router;

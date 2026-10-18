@@ -1099,3 +1099,4 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
 .btn:disabled, .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
 .page-actions label.inline { white-space: nowrap; }
 .form-card h2.spaced { margin-top: 26px; }
+.form-card > p.hint { margin: 0 0 12px; }

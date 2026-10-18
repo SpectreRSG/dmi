@@ -5,6 +5,8 @@ const { clean, toId, toNumber, asArray, notFound, numericIdParam, logActivity, g
 const time = require('../time');
 const { entryHours, round2 } = require('../services/payroll');
 const { sendUpload } = require('../uploads');
+const { finishCheckedTimesheets, queueApprovalEmail, SUBMISSION_SELECT } = require('../services/timesheetApproval');
+const { sendWaitingEmails, retryEmail } = require('../services/outbox');
 
 const router = express.Router();
 numericIdParam(router);
@@ -120,6 +122,32 @@ async function setStatus(entryIds, status, userId) {
   return changed;
 }
 
+// ---- Emailing officers their approved timesheet ----------------------------------
+
+const siteFor = (req, res) => ({ siteUrl: `${req.protocol}://${req.get('host')}`, companyName: res.locals.settings.company_name });
+
+// Tells the person what happened to the emails they just caused.
+function emailNotes(req, result, { noEmail = [], problems = [] } = {}) {
+  if (result.sent) req.flash('success', `Emailed ${result.sent} officer${result.sent === 1 ? '' : 's'} a copy of their approved timesheet.`);
+  if (result.notSetUp && result.waiting) {
+    req.flash('warning', `Email isn't set up yet, so ${result.waiting} approved timesheet${result.waiting === 1 ? ' is' : 's are'} waiting to be emailed. ${req.user.role === 'admin' ? 'Set it up under Settings → Email.' : 'Ask an admin to set it up under Settings → Email.'}`);
+  } else if (result.error) {
+    req.flash('warning', `An email couldn't be sent (${result.error}). It will be tried again; see Timesheets → Sent by officers.`);
+  } else if (result.waiting) {
+    req.flash('info', `${result.waiting} email${result.waiting === 1 ? ' is' : 's are'} still waiting and will go out shortly.`);
+  }
+  if (noEmail.length) req.flash('warning', `No email address for ${noEmail.join(', ')}, so no copy was emailed. Add one on their account or staff record.`);
+  if (problems.length) req.flash('error', `The approved copy couldn't be made: ${problems.join('; ')}`);
+}
+
+// After approving or rejecting: email officers whose timesheet is now fully checked.
+async function afterReview(req, res, entryIds) {
+  const finished = await finishCheckedTimesheets(entryIds, req.user, siteFor(req, res));
+  if (!finished.emailIds.length && !finished.noEmail.length && !finished.problems.length) return;
+  const result = await sendWaitingEmails(res.locals.settings, { ids: finished.emailIds });
+  emailNotes(req, result, finished);
+}
+
 // ---- List -----------------------------------------------------------------------
 
 router.get('/', async (req, res) => {
@@ -173,12 +201,59 @@ router.get('/', async (req, res) => {
 router.get('/submissions', async (req, res) => {
   const submissions = await db.all(
     `SELECT s.*, e.first_name, e.last_name,
-       (SELECT COUNT(*)::int FROM time_entries t WHERE t.submission_id = s.id AND t.status = 'pending') AS pending
+       (SELECT COUNT(*)::int FROM time_entries t WHERE t.submission_id = s.id AND t.status = 'pending') AS pending,
+       o.status AS email_status, o.sent_at AS email_sent_at, o.last_error AS email_error, o.to_address AS email_to
      FROM timesheet_submissions s JOIN employees e ON e.id = s.employee_id
+     LEFT JOIN LATERAL (SELECT * FROM email_outbox x WHERE x.submission_id = s.id ORDER BY x.id DESC LIMIT 1) o ON true
      WHERE s.status = 'submitted' ORDER BY s.submitted_at DESC LIMIT 200`
   );
   const counts = Object.fromEntries((await db.all('SELECT status, COUNT(*)::int AS n FROM time_entries GROUP BY status')).map((r) => [r.status, r.n]));
-  res.render('timesheets/submissions', { title: 'Officer timesheets', submissions, counts });
+  const unsent = (await db.get("SELECT COUNT(*)::int AS n FROM email_outbox WHERE status != 'sent'")).n;
+  res.render('timesheets/submissions', { title: 'Officer timesheets', submissions, counts, unsent });
+});
+
+// "Send again": the officer's approved copy, by email.
+router.post('/submissions/:id/email', async (req, res) => {
+  const submission = await db.get(`${SUBMISSION_SELECT} WHERE s.id = ?`, req.params.id);
+  if (!submission) return notFound(res, 'timesheet');
+  if (!submission.approved_at) {
+    req.flash('error', 'This timesheet still has days waiting for approval.');
+    return res.redirect('/timesheets/submissions');
+  }
+  const last = await db.get('SELECT id, status FROM email_outbox WHERE submission_id = ? ORDER BY id DESC LIMIT 1', submission.id);
+  let emailId = last && last.status !== 'sent' ? last.id : null;
+  if (emailId) await retryEmail(emailId);
+  else {
+    try {
+      emailId = await queueApprovalEmail(submission.id, siteFor(req, res));
+    } catch (err) {
+      req.flash('error', `The approved copy couldn't be made: ${err.message}`);
+      return res.redirect('/timesheets/submissions');
+    }
+  }
+  if (!emailId) {
+    emailNotes(req, { sent: 0, waiting: 0 }, { noEmail: [`${submission.first_name} ${submission.last_name}`] });
+  } else {
+    emailNotes(req, await sendWaitingEmails(res.locals.settings, { ids: [emailId] }));
+    await logActivity(req, `Emailed ${submission.first_name} ${submission.last_name} their approved timesheet for ${submission.period_start}`);
+  }
+  res.redirect('/timesheets/submissions');
+});
+
+// Sends everything waiting (including ones that failed before).
+router.post('/emails/send', async (req, res) => {
+  await db.run("UPDATE email_outbox SET status = 'waiting', attempts = 0 WHERE status = 'failed'");
+  const result = await sendWaitingEmails(res.locals.settings, { timeBudgetMs: 6000 });
+  if (!result.sent && !result.error && !result.notSetUp && !result.waiting) req.flash('info', 'Nothing was waiting to be sent.');
+  emailNotes(req, result);
+  res.redirect('/timesheets/submissions');
+});
+
+router.get('/submissions/:id/approved-pdf', async (req, res) => {
+  const submission = await db.get('SELECT s.*, e.first_name, e.last_name FROM timesheet_submissions s JOIN employees e ON e.id = s.employee_id WHERE s.id = ?', req.params.id);
+  if (!submission?.approved_file_name) return notFound(res, 'approved timesheet');
+  const who = `${submission.last_name}_${submission.first_name}`.replace(/[^A-Za-z0-9_-]+/g, '');
+  await sendUpload(res, submission.approved_file_name, `DMI_Timesheet_${who}_${submission.period_start}_to_${submission.period_end}_approved.pdf`);
 });
 
 router.get('/submissions/:id/pdf', async (req, res) => {
@@ -231,6 +306,7 @@ router.post('/bulk', async (req, res) => {
   const changed = await setStatus(ids, status, req.user.id);
   await logActivity(req, `${status === 'approved' ? 'Approved' : 'Rejected'} ${changed} timesheet entries`);
   req.flash('success', `${changed} entr${changed === 1 ? 'y' : 'ies'} ${status}.`);
+  await afterReview(req, res, ids);
   goBack(req, res, '/timesheets');
 });
 
@@ -283,6 +359,7 @@ for (const [action, status] of [['approve', 'approved'], ['reject', 'rejected']]
     await setStatus([entry.id], status, req.user.id);
     await logActivity(req, `${status === 'approved' ? 'Approved' : 'Rejected'} hours #${entry.id} for ${employeeName(entry)}`);
     req.flash('success', `Hours ${status}.`);
+    await afterReview(req, res, [entry.id]);
     goBack(req, res, '/timesheets');
   });
 }
