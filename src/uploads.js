@@ -71,12 +71,22 @@ function readUpload(storedName) {
   return storage.read(path.basename(storedName));
 }
 
-async function sendUpload(res, storedName, originalName) {
+// Sends a stored file as a download, or (with { inline: true }) to be shown
+// in the browser, like a PDF opened in a new tab.
+async function sendUpload(res, storedName, originalName, { inline = false } = {}) {
   const data = await storage.read(path.basename(storedName));
   if (!data) {
     return res.status(404).render('error', { title: 'File missing', message: 'That file could not be found.' });
   }
-  res.attachment(originalName || storedName);
+  const name = originalName || storedName;
+  if (inline) {
+    res.type(path.extname(name));
+    res.set('Content-Disposition', `inline; filename="${name.replace(/[^\w.-]+/g, '_')}"`);
+    // Our page security rules would stop some browsers' built-in PDF viewers from showing it.
+    res.removeHeader('Content-Security-Policy');
+  } else {
+    res.attachment(name);
+  }
   res.send(data);
 }
 

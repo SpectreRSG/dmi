@@ -183,7 +183,8 @@ function currentSubmission(employeeId, periodStart) {
 
 router.get('/timesheets', officerOnly, async (req, res) => {
   const submissions = await db.all(
-    "SELECT * FROM timesheet_submissions WHERE employee_id = ? AND status = 'submitted' ORDER BY period_start DESC LIMIT 52",
+    `SELECT s.*, u.name AS approver_name FROM timesheet_submissions s LEFT JOIN users u ON u.id = s.approved_by
+     WHERE s.employee_id = ? AND s.status = 'submitted' ORDER BY s.period_start DESC LIMIT 52`,
     req.me.id
   );
   for (const s of submissions) s.counts = await submissionStatus(s.id);
@@ -333,16 +334,19 @@ router.post('/timesheets', officerOnly, async (req, res) => {
   res.redirect('/my/timesheets');
 });
 
+// The officer's timesheet PDF: the approved copy once the office has approved
+// it, otherwise the one they signed. It opens in the browser to look at;
+// ?download=1 saves it instead.
 router.get('/timesheets/:id/pdf', officerOnly, async (req, res) => {
   const submission = await db.get('SELECT * FROM timesheet_submissions WHERE id = ? AND employee_id = ?', req.params.id, req.me.id);
   if (!submission?.file_name) return notFound(res, 'timesheet');
-  await sendUpload(res, submission.file_name, `DMI_Timesheet_${submission.period_start}_to_${submission.period_end}.pdf`);
-});
-
-router.get('/timesheets/:id/approved-pdf', officerOnly, async (req, res) => {
-  const submission = await db.get('SELECT * FROM timesheet_submissions WHERE id = ? AND employee_id = ?', req.params.id, req.me.id);
-  if (!submission?.approved_file_name) return notFound(res, 'approved timesheet');
-  await sendUpload(res, submission.approved_file_name, `DMI_Timesheet_${submission.period_start}_to_${submission.period_end}_approved.pdf`);
+  const approved = Boolean(submission.approved_file_name);
+  await sendUpload(
+    res,
+    approved ? submission.approved_file_name : submission.file_name,
+    `DMI_Timesheet_${submission.period_start}_to_${submission.period_end}${approved ? '_approved' : ''}.pdf`,
+    { inline: !req.query.download }
+  );
 });
 
 router.use('/tax', officerOnly, require('./myTax'));

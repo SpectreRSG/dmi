@@ -24,7 +24,7 @@
   # The app reads its page templates (and, as a fallback, public files) from disk.
   # The two node_modules entries are libraries Netlify's packager doesn't pick up
   # on its own (it takes their newer format; the app loads the older one).
-  included_files = ["views/**", "public/**", "assets/**", "node_modules/@netlify/database/**", "node_modules/waddler/**", "node_modules/nodemailer/**"]
+  included_files = ["views/**", "public/**", "assets/**", "node_modules/@netlify/database/**", "node_modules/waddler/**"]
 
 # Headers for files served straight from the CDN. (The admin app sets its own.)
 [[headers]]

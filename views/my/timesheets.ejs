@@ -2,7 +2,7 @@
 <div class="page-head">
   <div>
     <h1>Timesheets</h1>
-    <p class="page-sub">Send in your hours every two weeks (Sunday to Saturday). The office checks them before pay day, and you get an approved copy by email (<%= currentUser.email %>).</p>
+    <p class="page-sub">Send in your hours every two weeks (Sunday to Saturday). The office checks them before pay day. Once a timesheet is approved, its approved copy (with "Approved by" filled in) is here to view or download.</p>
   </div>
   <div class="page-actions">
     <a class="btn" href="/my/timesheets/new?period=<%= previousPeriod %>">Last period</a>
@@ -14,23 +14,26 @@
     <p class="empty">You haven't sent any timesheets yet. Press <strong>This period</strong> to fill one in.</p>
   <% } else { %>
     <div class="table-wrap">
-      <table class="table">
-        <thead><tr><th>Pay period</th><th class="num">Hours</th><th>Sent</th><th>Checked by the office</th><th></th></tr></thead>
+      <table class="table stack-on-phone">
+        <thead><tr><th>Pay period</th><th class="num">Hours</th><th>Sent</th><th>Checked by the office</th><th>Timesheet</th></tr></thead>
         <tbody>
           <% for (const s of submissions) { const c = s.counts; %>
             <tr>
-              <td><a href="/my/timesheets/new?period=<%= s.period_start %>"><%= fmtDate(s.period_start) %> – <%= fmtDate(s.period_end) %></a></td>
-              <td class="num"><%= fmtHours(s.total_hours) %></td>
-              <td class="nowrap"><%= fmtDateTime(s.submitted_at) %></td>
-              <td>
+              <td data-label="Pay period"><a href="/my/timesheets/new?period=<%= s.period_start %>"><%= fmtDate(s.period_start) %> – <%= fmtDate(s.period_end) %></a></td>
+              <td class="num" data-label="Hours"><%= fmtHours(s.total_hours) %></td>
+              <td class="nowrap" data-label="Sent"><%= fmtDateTime(s.submitted_at) %></td>
+              <td data-label="Checked by the office">
                 <% if (c.paid) { %><%- badge('Paid', 'green') %><% } else if (c.approved && !c.pending && !c.rejected) { %><%- badge('Approved', 'green') %><% } %>
                 <% if (c.pending) { %><%- badge(`${c.pending} day(s) waiting`, 'amber') %><% } %>
                 <% if (c.rejected) { %><%- badge(`${c.rejected} day(s) not accepted`, 'red') %><% } %>
                 <% if (c.approved && (c.pending || c.rejected)) { %><%- badge(`${c.approved} approved`, 'green') %><% } %>
               </td>
-              <td class="actions nowrap">
-                <a href="/my/timesheets/<%= s.id %>/pdf"><%- icon('file') %> PDF</a>
-                <% if (s.approved_file_name) { %>· <a href="/my/timesheets/<%= s.id %>/approved-pdf">Approved copy</a><% } %>
+              <td class="nowrap stack-full" data-label="Timesheet">
+                <div class="btn-row">
+                  <a class="btn btn-sm <%= s.approved_file_name ? 'btn-primary' : '' %>" href="/my/timesheets/<%= s.id %>/pdf" target="_blank" rel="noopener"><%- icon('file') %> View</a>
+                  <a class="btn btn-sm btn-ghost" href="/my/timesheets/<%= s.id %>/pdf?download=1">Download</a>
+                </div>
+                <div class="muted small"><%= s.approved_file_name ? `Approved copy · ${s.approver_name || 'Office'}, ${fmtDate(s.approved_at.slice(0, 10))}` : 'As you signed it' %></div>
               </td>
             </tr>
           <% } %>

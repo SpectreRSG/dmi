@@ -58,28 +58,6 @@
     </div>
     <label>State payer number (optional) <input name="payer_state_id" value="<%= values.payer_state_id || '' %>" maxlength="30"><span class="hint">For box 6, if your state gave you one.</span></label>
   </div>
-  <h2 id="email">Email</h2>
-  <p class="hint">Used to email officers a copy of their timesheet once it's approved. Use the "outgoing mail (SMTP)" details from your email provider. For example, Google Workspace: server smtp.gmail.com, port 587, your Google email as the user name and an app password (Google Account → Security → App passwords). Resend: server smtp.resend.com, port 465, user name <code>resend</code> and an API key as the password. Check your provider's help pages for the details.</p>
-  <div class="form-grid">
-    <label>Mail server <input name="smtp_host" value="<%= values.smtp_host || '' %>" placeholder="smtp.example.com" maxlength="120" autocomplete="off"></label>
-    <label>Port <input type="number" name="smtp_port" value="<%= values.smtp_port || 587 %>" min="1" max="65535"><span class="hint">Usually 587, or 465.</span></label>
-    <label>User name <input name="smtp_user" value="<%= values.smtp_user || '' %>" maxlength="200" autocomplete="off"></label>
-    <label>Password
-      <input type="password" name="smtp_password" maxlength="500" autocomplete="new-password" placeholder="<%= values.smtp_password_set ? '•••••••• (saved)' : '' %>">
-      <span class="hint"><%= values.smtp_password_set ? 'Saved (stored encrypted). Leave empty to keep it.' : 'Stored encrypted.' %></span>
-    </label>
-    <% if (values.smtp_password_set) { %><label class="check field-full"><input type="checkbox" name="smtp_password_clear" value="1"> Remove the saved password</label><% } %>
-    <label>Send from <input name="mail_from" value="<%= values.mail_from || '' %>" placeholder="DMI Timesheets <timesheets@yourcompany.com>" maxlength="200"></label>
-    <label>Replies go to (optional) <input name="mail_reply_to" value="<%= values.mail_reply_to || '' %>" placeholder="office@yourcompany.com" maxlength="200"></label>
-  </div>
   <div class="form-actions"><button type="submit" class="btn btn-primary">Save settings</button></div>
 </form>
-<% if (values.smtp_host && values.mail_from) { %>
-  <form method="post" action="/settings/test-email" class="card form-card narrow">
-    <%- include('partials/csrf') %>
-    <h2>Check the email settings</h2>
-    <p class="hint">Sends a test email to you (<%= currentUser.email %>) using the saved settings.</p>
-    <div class="form-actions"><button type="submit" class="btn">Send a test email</button></div>
-  </form>
-<% } %>
 <%- include('partials/bottom') %>

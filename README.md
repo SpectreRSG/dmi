@@ -82,9 +82,8 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
    on a shift. Either way the hours land in **Timesheets** to approve. Officers' PDFs are under
    **Timesheets → Sent by officers (PDF)**.
    When the last waiting day of an officer's timesheet is approved (or rejected), the app fills in
-   "APPROVED BY" (your name and the date) on their signed PDF and **emails it to the officer**. It
-   also shows up as "Approved copy" in their account. Set up email once under **Settings → Email**
-   (your email provider's outgoing mail server), then press **Send a test email**.
+   "APPROVED BY" (your name and the date) on their signed PDF. The officer can then **view or
+   download that approved copy** under **Timesheets** in their account.
 6. **Approve hours** in Timesheets. Tick the rows, then press "Approve".
 7. **Pay day:** in **Pay**, create a pay run for the period. Check it, add any bonuses or
    deductions, then choose the **pay date** and press **Finalize**. Download the spreadsheet for
@@ -168,9 +167,7 @@ src/
     officerTimesheet.js  pay periods + filling in the DMI timesheet PDF
     tax1099.js       who was paid what in a year, W-9 checks, payer details
     form1099Pdf.js   draws Form 1099-NEC (Copies B, 2, C and 1)
-    timesheetApproval.js  the approved copy of an officer's timesheet, and its email
-    mailer.js        sends email through your provider's mail server (SMTP)
-    outbox.js        emails wait here until they're sent (and are retried if sending fails)
+    timesheetApproval.js  the approved copy of an officer's timesheet ("APPROVED BY" filled in)
   routes/            one file per area: staff, schedule, timesheets, pay, contracts, training, tax…
                      (my.js and myTax.js are the officers' and clients' own pages)
 views/               the HTML templates, one folder per area
@@ -179,7 +176,6 @@ assets/              the blank DMI timesheet PDF the app fills in
 netlify/
   database/migrations/   the database tables (like spreadsheet tabs), applied by Netlify
   functions/app.mjs      runs the whole app on Netlify
-  functions/send-emails.mjs  every 10 minutes, sends emails still waiting (live site only)
 netlify.toml         Netlify settings
 scripts/
   start.js           "npm start": starts the local database, then the website
@@ -224,8 +220,7 @@ pay; and an activity log. New sign-ups can't see anything until an admin approve
 
 **Tax ID numbers** (from officers' W-9 details) are stored encrypted, and only the last 4 digits are
 shown, except on the company's own copies of the 1099 (Copy C and 1) and the admin-only filing
-summary (opening it is logged). The email password in Settings is stored encrypted the same way.
-For stronger protection, set a `TAX_ID_KEY` environment variable in Netlify
+summary (opening it is logged). For stronger protection, set a `TAX_ID_KEY` environment variable in Netlify
 (**Project configuration → Environment variables**) to a long random phrase *before* officers enter
 their details, and keep a copy of it somewhere safe: without it those numbers can't be read.
 
