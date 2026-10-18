@@ -18,15 +18,36 @@ function fromUTC(d) {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }
 
-// Today's date on the server's clock (set TZ in .env to choose the time zone).
-function todayStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+// The company's time zone (from Settings). Servers often run on UTC, so "today"
+// and "now" are worked out for this zone rather than the server's own clock.
+let timeZone;
+function setTimeZone(zone) {
+  timeZone = zone;
 }
 
+function clockParts() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date());
+  return Object.fromEntries(parts.map((p) => [p.type, p.value]));
+}
+
+// Today's date in the company's time zone, like '2026-10-20'.
+function todayStr() {
+  const p = clockParts();
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+// Now in the company's time zone, like '2026-10-20T14:30'.
 function nowStr() {
-  const d = new Date();
-  return `${todayStr()}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const p = clockParts();
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
 }
 
 function addDays(dateStr, days) {
@@ -111,6 +132,7 @@ function fmtRange(startAt, endAt) {
 }
 
 module.exports = {
+  setTimeZone,
   todayStr,
   nowStr,
   addDays,

@@ -14,11 +14,16 @@
     "node": ">=20"
   },
   "dependencies": {
-    "better-sqlite3": "^13.0.3",
+    "@netlify/blobs": "^11.1.4",
+    "@netlify/database": "^2.0.1",
     "ejs": "^7.0.1",
     "express": "^5.3.0",
     "express-session": "^1.19.0",
     "helmet": "^8.3.0",
+    "light-my-request": "^6.8.0",
     "multer": "^2.4.0"
+  },
+  "devDependencies": {
+    "@netlify/database-dev": "^1.0.1"
   }
 }

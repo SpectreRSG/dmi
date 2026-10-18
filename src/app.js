@@ -7,7 +7,8 @@ const multer = require('multer');
 
 const config = require('./config');
 const db = require('./db');
-const SqliteSessionStore = require('./sessionStore');
+const time = require('./time');
+const PgSessionStore = require('./sessionStore');
 const csrfProtection = require('./csrf');
 const { upload, MAX_FILE_MB } = require('./uploads');
 const { loadUser, requireLogin, requireAdmin } = require('./auth');
@@ -19,10 +20,12 @@ const app = express();
 // Pages are built from the templates in the "views" folder.
 app.set('view engine', 'ejs');
 app.set('views', path.join(config.rootDir, 'views'));
-Object.assign(app.locals, viewHelpers);
+Object.assign(app.locals, viewHelpers, { maxFileMb: MAX_FILE_MB });
 
-// When running behind an HTTPS proxy (most hosting), trust its headers.
-if (config.https) app.set('trust proxy', 1);
+// Behind Netlify (or another HTTPS proxy), trust its headers for the visitor's
+// address and for knowing the connection is secure.
+if (config.onNetlify) app.set('trust proxy', 'loopback');
+else if (config.https) app.set('trust proxy', 1);
 
 // Security headers: tell browsers to block common attacks.
 app.use(
@@ -37,6 +40,7 @@ app.use(
 );
 
 // Files in "public" (CSS, JavaScript, images) are sent as-is.
+// (On Netlify these are served straight from its CDN instead.)
 app.use(express.static(path.join(config.rootDir, 'public'), { maxAge: '1h' }));
 
 // Sessions remember who is logged in. Idle for 8 hours = logged out.
@@ -44,7 +48,7 @@ app.use(
   session({
     name: 'dmi.sid',
     secret: config.sessionSecret,
-    store: new SqliteSessionStore(db),
+    store: new PgSessionStore(db),
     resave: false,
     saveUninitialized: false,
     rolling: true,
@@ -57,8 +61,9 @@ app.use(express.urlencoded({ extended: false, limit: '200kb' }));
 app.use(loadUser);
 
 // Values every page needs.
-app.use((req, res, next) => {
-  const settings = getSettings();
+app.use(async (req, res, next) => {
+  const settings = await getSettings();
+  time.setTimeZone(settings.timezone);
   res.locals.settings = settings;
   res.locals.currentPath = req.path;
   res.locals.title = '';

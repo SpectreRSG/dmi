@@ -11,13 +11,13 @@ function expiryStatus(expiresOn, warningDays, today = todayStr()) {
   return 'valid';
 }
 
-function requiredCourses() {
-  return db.prepare('SELECT * FROM training_courses WHERE required = 1 AND active = 1 ORDER BY name').all();
+async function requiredCourses() {
+  return db.all('SELECT * FROM training_courses WHERE required = 1 AND active = 1 ORDER BY name');
 }
 
 // The most recent training record for each person + course, keyed "employeeId:courseId".
-function latestTrainingRecords() {
-  const rows = db.prepare('SELECT * FROM training_records ORDER BY completed_on, id').all();
+async function latestTrainingRecords() {
+  const rows = await db.all('SELECT * FROM training_records ORDER BY completed_on, id');
   const latest = new Map();
   for (const row of rows) latest.set(`${row.employee_id}:${row.course_id}`, row); // later rows win
   return latest;
@@ -54,9 +54,8 @@ function checkEmployee(employee, courses, latest, warningDays) {
 
 // Checks a list of staff. Returns the required courses plus a Map of
 // employee id -> { items, problems, warnings, level }.
-function complianceFor(employees, warningDays) {
-  const courses = requiredCourses();
-  const latest = latestTrainingRecords();
+async function complianceFor(employees, warningDays) {
+  const [courses, latest] = await Promise.all([requiredCourses(), latestTrainingRecords()]);
   const byEmployee = new Map();
   for (const employee of employees) {
     byEmployee.set(employee.id, checkEmployee(employee, courses, latest, warningDays));
@@ -64,8 +63,8 @@ function complianceFor(employees, warningDays) {
   return { courses, latest, byEmployee };
 }
 
-function complianceForEmployee(employee, warningDays) {
-  return complianceFor([employee], warningDays).byEmployee.get(employee.id);
+async function complianceForEmployee(employee, warningDays) {
+  return (await complianceFor([employee], warningDays)).byEmployee.get(employee.id);
 }
 
 module.exports = { expiryStatus, latestTrainingRecords, complianceFor, complianceForEmployee };

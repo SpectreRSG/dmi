@@ -54,10 +54,10 @@ function renderForm(res, employee, error, status = 200) {
 }
 
 function findEmployee(id) {
-  return db.prepare('SELECT * FROM employees WHERE id = ?').get(id);
+  return db.get('SELECT * FROM employees WHERE id = ?', id);
 }
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const q = String(req.query.q || '').trim();
   const status = ['active', 'inactive', 'all'].includes(req.query.status) ? req.query.status : 'active';
   const where = [];
@@ -69,16 +69,15 @@ router.get('/', (req, res) => {
   if (q) {
     const like = `%${q}%`;
     where.push(
-      "(first_name || ' ' || last_name LIKE ? OR email LIKE ? OR phone LIKE ? OR license_number LIKE ? OR position LIKE ?)"
+      "(first_name || ' ' || last_name ILIKE ? OR email ILIKE ? OR phone ILIKE ? OR license_number ILIKE ? OR position ILIKE ?)"
     );
     params.push(like, like, like, like, like);
   }
-  const employees = db
-    .prepare(
-      `SELECT * FROM employees ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY last_name, first_name`
-    )
-    .all(...params);
-  const { byEmployee } = complianceFor(employees, res.locals.settings.expiry_warning_days);
+  const employees = await db.all(
+    `SELECT * FROM employees ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY last_name, first_name`,
+    ...params
+  );
+  const { byEmployee } = await complianceFor(employees, res.locals.settings.expiry_warning_days);
   res.render('staff/index', { title: 'Staff', employees, compliance: byEmployee, q, status });
 });
 
@@ -86,67 +85,65 @@ router.get('/new', (req, res) => {
   renderForm(res, { status: 'active', license_required: 1, start_date: todayStr() }, null);
 });
 
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const { values, error } = readForm(req);
   if (error) return renderForm(res, values, error, 400);
-  const info = db
-    .prepare(`INSERT INTO employees (${FIELDS.join(', ')}) VALUES (${FIELDS.map((f) => `@${f}`).join(', ')})`)
-    .run(values);
-  logActivity(req, `Added staff member ${employeeName(values)}`);
+  const id = await db.insert(
+    `INSERT INTO employees (${FIELDS.join(', ')}) VALUES (${FIELDS.map((f) => `@${f}`).join(', ')})`,
+    values
+  );
+  await logActivity(req, `Added staff member ${employeeName(values)}`);
   req.flash('success', `${employeeName(values)} was added.`);
-  res.redirect(`/staff/${info.lastInsertRowid}`);
+  res.redirect(`/staff/${id}`);
 });
 
-router.get('/:id', (req, res) => {
-  const employee = findEmployee(req.params.id);
+router.get('/:id', async (req, res) => {
+  const employee = await findEmployee(req.params.id);
   if (!employee) return notFound(res, 'staff member');
 
   const today = todayStr();
   const weekStart = startOfWeek(today);
   const weekEnd = addDays(weekStart, 7);
 
-  const upcomingShifts = db
-    .prepare(
+  const [upcomingShifts, recentEntries, weekEntries, weekShifts, training, contracts, compliance] = await Promise.all([
+    db.all(
       `SELECT s.*, si.name AS site_name, c.name AS client_name
        FROM shifts s JOIN sites si ON si.id = s.site_id JOIN clients c ON c.id = si.client_id
        WHERE s.employee_id = ? AND s.status = 'scheduled' AND s.end_at >= ?
-       ORDER BY s.start_at LIMIT 10`
-    )
-    .all(employee.id, `${today}T00:00`);
-
-  const recentEntries = db
-    .prepare(
+       ORDER BY s.start_at LIMIT 10`,
+      employee.id,
+      `${today}T00:00`
+    ),
+    db.all(
       `SELECT t.*, si.name AS site_name FROM time_entries t LEFT JOIN sites si ON si.id = t.site_id
-       WHERE t.employee_id = ? ORDER BY t.start_at DESC LIMIT 10`
-    )
-    .all(employee.id);
-
-  const weekEntries = db
-    .prepare(
-      `SELECT * FROM time_entries WHERE employee_id = ? AND status != 'rejected' AND start_at >= ? AND start_at < ?`
-    )
-    .all(employee.id, `${weekStart}T00:00`, `${weekEnd}T00:00`);
-  const weekShifts = db
-    .prepare(
-      `SELECT * FROM shifts WHERE employee_id = ? AND status != 'cancelled' AND start_at >= ? AND start_at < ?`
-    )
-    .all(employee.id, `${weekStart}T00:00`, `${weekEnd}T00:00`);
-
-  const training = db
-    .prepare(
+       WHERE t.employee_id = ? ORDER BY t.start_at DESC LIMIT 10`,
+      employee.id
+    ),
+    db.all(
+      `SELECT * FROM time_entries WHERE employee_id = ? AND status != 'rejected' AND start_at >= ? AND start_at < ?`,
+      employee.id,
+      `${weekStart}T00:00`,
+      `${weekEnd}T00:00`
+    ),
+    db.all(
+      `SELECT * FROM shifts WHERE employee_id = ? AND status != 'cancelled' AND start_at >= ? AND start_at < ?`,
+      employee.id,
+      `${weekStart}T00:00`,
+      `${weekEnd}T00:00`
+    ),
+    db.all(
       `SELECT r.*, c.name AS course_name FROM training_records r JOIN training_courses c ON c.id = r.course_id
-       WHERE r.employee_id = ? ORDER BY r.completed_on DESC`
-    )
-    .all(employee.id);
-
-  const contracts = db
-    .prepare('SELECT * FROM contracts WHERE employee_id = ? ORDER BY start_date DESC')
-    .all(employee.id);
+       WHERE r.employee_id = ? ORDER BY r.completed_on DESC`,
+      employee.id
+    ),
+    db.all('SELECT * FROM contracts WHERE employee_id = ? ORDER BY start_date DESC', employee.id),
+    complianceForEmployee(employee, res.locals.settings.expiry_warning_days),
+  ]);
 
   res.render('staff/show', {
     title: employeeName(employee),
     employee,
-    compliance: complianceForEmployee(employee, res.locals.settings.expiry_warning_days),
+    compliance,
     upcomingShifts,
     recentEntries,
     hoursThisWeek: round2(weekEntries.reduce((sum, e) => sum + entryHours(e), 0)),
@@ -156,31 +153,31 @@ router.get('/:id', (req, res) => {
   });
 });
 
-router.get('/:id/edit', (req, res) => {
-  const employee = findEmployee(req.params.id);
+router.get('/:id/edit', async (req, res) => {
+  const employee = await findEmployee(req.params.id);
   if (!employee) return notFound(res, 'staff member');
   renderForm(res, employee, null);
 });
 
-router.post('/:id', (req, res) => {
-  const existing = findEmployee(req.params.id);
+router.post('/:id', async (req, res) => {
+  const existing = await findEmployee(req.params.id);
   if (!existing) return notFound(res, 'staff member');
   const { values, error } = readForm(req, existing);
   if (error) return renderForm(res, { ...values, id: existing.id }, error, 400);
-  db.prepare(`UPDATE employees SET ${FIELDS.map((f) => `${f} = @${f}`).join(', ')} WHERE id = @id`).run({
+  await db.run(`UPDATE employees SET ${FIELDS.map((f) => `${f} = @${f}`).join(', ')} WHERE id = @id`, {
     ...values,
     id: existing.id,
   });
-  logActivity(req, `Updated staff member ${employeeName(values)}`);
+  await logActivity(req, `Updated staff member ${employeeName(values)}`);
   req.flash('success', 'Changes saved.');
   res.redirect(`/staff/${existing.id}`);
 });
 
-router.post('/:id/delete', (req, res) => {
-  const employee = findEmployee(req.params.id);
+router.post('/:id/delete', async (req, res) => {
+  const employee = await findEmployee(req.params.id);
   if (!employee) return notFound(res, 'staff member');
   try {
-    db.prepare('DELETE FROM employees WHERE id = ?').run(employee.id);
+    await db.run('DELETE FROM employees WHERE id = ?', employee.id);
   } catch (err) {
     if (!isInUseError(err)) throw err;
     req.flash(
@@ -189,7 +186,7 @@ router.post('/:id/delete', (req, res) => {
     );
     return res.redirect(`/staff/${employee.id}`);
   }
-  logActivity(req, `Deleted staff member ${employeeName(employee)}`);
+  await logActivity(req, `Deleted staff member ${employeeName(employee)}`);
   req.flash('success', `${employeeName(employee)} was deleted.`);
   res.redirect('/staff');
 });

@@ -19,34 +19,34 @@ const SHIFT_SELECT = `
   LEFT JOIN employees e ON e.id = s.employee_id`;
 
 function siteOptions(includeId) {
-  return db
-    .prepare(
-      `SELECT si.id, si.name, c.name AS client_name FROM sites si JOIN clients c ON c.id = si.client_id
-       WHERE si.active = 1 OR si.id = ? ORDER BY c.name, si.name`
-    )
-    .all(includeId || 0);
+  return db.all(
+    `SELECT si.id, si.name, c.name AS client_name FROM sites si JOIN clients c ON c.id = si.client_id
+     WHERE si.active = 1 OR si.id = ? ORDER BY c.name, si.name`,
+    includeId || 0
+  );
 }
 
 function staffOptions(includeId) {
-  return db
-    .prepare(
-      `SELECT id, first_name, last_name FROM employees WHERE status = 'active' OR id = ? ORDER BY last_name, first_name`
-    )
-    .all(includeId || 0);
+  return db.all(
+    `SELECT id, first_name, last_name FROM employees WHERE status = 'active' OR id = ? ORDER BY last_name, first_name`,
+    includeId || 0
+  );
 }
 
 function findShift(id) {
-  return db.prepare(`${SHIFT_SELECT} WHERE s.id = ?`).get(id);
+  return db.get(`${SHIFT_SELECT} WHERE s.id = ?`, id);
 }
 
 // Is this person already booked for a shift that overlaps these times?
-function findClash(employeeId, startAt, endAt, ignoreShiftId = 0) {
-  return db
-    .prepare(
-      `${SHIFT_SELECT} WHERE s.employee_id = ? AND s.status != 'cancelled' AND s.id != ?
-       AND s.start_at < ? AND s.end_at > ? LIMIT 1`
-    )
-    .get(employeeId, ignoreShiftId, endAt, startAt);
+function findClash(conn, employeeId, startAt, endAt, ignoreShiftId = 0) {
+  return conn.get(
+    `${SHIFT_SELECT} WHERE s.employee_id = ? AND s.status != 'cancelled' AND s.id != ?
+     AND s.start_at < ? AND s.end_at > ? LIMIT 1`,
+    employeeId,
+    ignoreShiftId,
+    endAt,
+    startAt
+  );
 }
 
 function clashMessage(clash) {
@@ -55,16 +55,16 @@ function clashMessage(clash) {
 
 // Warn (but don't block) if the person's license or required training will
 // be missing or expired on the day of the shift.
-function complianceWarning(employeeId, shiftDate, warningDays) {
-  const employee = db.prepare('SELECT * FROM employees WHERE id = ?').get(employeeId);
-  const { items } = complianceForEmployee(employee, warningDays);
+async function complianceWarning(employeeId, shiftDate, warningDays) {
+  const employee = await db.get('SELECT * FROM employees WHERE id = ?', employeeId);
+  const { items } = await complianceForEmployee(employee, warningDays);
   const problems = items.filter((i) => i.status === 'missing' || (i.expires_on && i.expires_on < shiftDate));
   if (!problems.length) return null;
   const list = problems.map((p) => `${p.label} (${p.status === 'missing' ? 'missing' : 'expired'})`).join(', ');
   return `Check ${employeeName(employee)}'s compliance: ${list}.`;
 }
 
-function readForm(body) {
+async function readForm(body) {
   const v = clean(body, ['site_id', 'employee_id', 'date', 'start_time', 'end_time', 'break_minutes', 'notes', 'status', 'repeat_weeks']);
   const values = {
     site_id: toId(v.site_id),
@@ -79,9 +79,9 @@ function readForm(body) {
   };
 
   let error = null;
-  if (!values.site_id || !db.prepare('SELECT 1 FROM sites WHERE id = ?').get(values.site_id)) {
+  if (!values.site_id || !(await db.get('SELECT 1 FROM sites WHERE id = ?', values.site_id))) {
     error = 'Please choose a site.';
-  } else if (values.employee_id && !db.prepare('SELECT 1 FROM employees WHERE id = ?').get(values.employee_id)) {
+  } else if (values.employee_id && !(await db.get('SELECT 1 FROM employees WHERE id = ?', values.employee_id))) {
     error = 'Please choose a staff member from the list.';
   } else if (!time.isValidDate(values.date)) {
     error = 'Please choose a date.';
@@ -94,13 +94,14 @@ function readForm(body) {
   return { values, error };
 }
 
-function renderForm(res, shift, error, status = 200) {
+async function renderForm(res, shift, error, status = 200) {
+  const [sites, staff] = await Promise.all([siteOptions(shift.site_id), staffOptions(shift.employee_id)]);
   res.status(status).render('schedule/form', {
     title: shift.id ? 'Edit shift' : 'Add shift',
     shift,
     error,
-    sites: siteOptions(shift.site_id),
-    staff: staffOptions(shift.employee_id),
+    sites,
+    staff,
     maxRepeat: MAX_REPEAT_WEEKS,
   });
 }
@@ -112,7 +113,7 @@ function shiftDateTime(dateTime, days) {
 
 // ---- Week view ------------------------------------------------------------------
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const today = time.todayStr();
   const week = time.startOfWeek(time.isValidDate(req.query.week) ? req.query.week : today);
   const siteId = toId(req.query.site);
@@ -128,7 +129,11 @@ router.get('/', (req, res) => {
     where.push('s.employee_id = ?');
     params.push(employeeId);
   }
-  const shifts = db.prepare(`${SHIFT_SELECT} WHERE ${where.join(' AND ')} ORDER BY s.start_at, si.name`).all(...params);
+  const [shifts, sites, staff] = await Promise.all([
+    db.all(`${SHIFT_SELECT} WHERE ${where.join(' AND ')} ORDER BY s.start_at, si.name`, ...params),
+    siteOptions(),
+    staffOptions(),
+  ]);
 
   const days = Array.from({ length: 7 }, (_, i) => {
     const date = time.addDays(week, i);
@@ -155,8 +160,8 @@ router.get('/', (req, res) => {
     days,
     totals: [...totals.values()].sort((a, b) => b.hours - a.hours),
     unfilled: shifts.filter((s) => !s.employee_id && s.status === 'scheduled').length,
-    sites: siteOptions(),
-    staff: staffOptions(),
+    sites,
+    staff,
     siteId,
     employeeId,
   });
@@ -164,8 +169,8 @@ router.get('/', (req, res) => {
 
 // ---- Add / edit -------------------------------------------------------------------
 
-router.get('/new', (req, res) => {
-  renderForm(
+router.get('/new', async (req, res) => {
+  await renderForm(
     res,
     {
       date: time.isValidDate(req.query.date) ? req.query.date : time.todayStr(),
@@ -180,49 +185,49 @@ router.get('/new', (req, res) => {
   );
 });
 
-router.post('/', (req, res) => {
-  const { values, error } = readForm(req.body);
+router.post('/', async (req, res) => {
+  const { values, error } = await readForm(req.body);
   if (error) return renderForm(res, values, error, 400);
 
   if (values.employee_id) {
-    const clash = findClash(values.employee_id, values.start_at, values.end_at);
+    const clash = await findClash(db, values.employee_id, values.start_at, values.end_at);
     if (clash) return renderForm(res, values, clashMessage(clash), 400);
   }
 
-  const insert = db.prepare(
-    `INSERT INTO shifts (site_id, employee_id, start_at, end_at, break_minutes, notes)
-     VALUES (@site_id, @employee_id, @start_at, @end_at, @break_minutes, @notes)`
-  );
   let created = 0;
   let skipped = 0;
-  db.transaction(() => {
+  await db.transaction(async (tx) => {
     for (let week = 0; week <= values.repeat_weeks; week += 1) {
       const start_at = shiftDateTime(values.start_at, week * 7);
       const end_at = shiftDateTime(values.end_at, week * 7);
-      if (week > 0 && values.employee_id && findClash(values.employee_id, start_at, end_at)) {
+      if (week > 0 && values.employee_id && (await findClash(tx, values.employee_id, start_at, end_at))) {
         skipped += 1;
         continue;
       }
-      insert.run({ ...values, start_at, end_at });
+      await tx.run(
+        `INSERT INTO shifts (site_id, employee_id, start_at, end_at, break_minutes, notes)
+         VALUES (@site_id, @employee_id, @start_at, @end_at, @break_minutes, @notes)`,
+        { ...values, start_at, end_at }
+      );
       created += 1;
     }
-  })();
+  });
 
-  logActivity(req, `Added ${created} shift(s) starting ${values.date}`);
+  await logActivity(req, `Added ${created} shift(s) starting ${values.date}`);
   req.flash('success', created === 1 ? 'Shift added.' : `${created} shifts added (one per week).`);
   if (skipped) req.flash('warning', `${skipped} repeat shift(s) were skipped because the person was already booked.`);
   if (values.employee_id) {
-    const warning = complianceWarning(values.employee_id, values.date, res.locals.settings.expiry_warning_days);
+    const warning = await complianceWarning(values.employee_id, values.date, res.locals.settings.expiry_warning_days);
     if (warning) req.flash('warning', warning);
   }
   res.redirect(`/schedule?week=${time.startOfWeek(values.date)}`);
 });
 
-router.get('/:id/edit', (req, res) => {
-  const shift = findShift(req.params.id);
+router.get('/:id/edit', async (req, res) => {
+  const shift = await findShift(req.params.id);
   if (!shift) return notFound(res, 'shift');
-  const timeEntry = db.prepare('SELECT id FROM time_entries WHERE shift_id = ?').get(shift.id);
-  renderForm(res, {
+  const timeEntry = await db.get('SELECT id FROM time_entries WHERE shift_id = ?', shift.id);
+  await renderForm(res, {
     ...shift,
     date: shift.start_at.slice(0, 10),
     start_time: time.fmtTime(shift.start_at),
@@ -231,62 +236,70 @@ router.get('/:id/edit', (req, res) => {
   });
 });
 
-router.post('/:id', (req, res) => {
-  const shift = findShift(req.params.id);
+router.post('/:id', async (req, res) => {
+  const shift = await findShift(req.params.id);
   if (!shift) return notFound(res, 'shift');
-  const { values, error } = readForm(req.body);
+  const { values, error } = await readForm(req.body);
   if (error) return renderForm(res, { ...values, id: shift.id }, error, 400);
 
   if (values.employee_id && values.status !== 'cancelled') {
-    const clash = findClash(values.employee_id, values.start_at, values.end_at, shift.id);
+    const clash = await findClash(db, values.employee_id, values.start_at, values.end_at, shift.id);
     if (clash) return renderForm(res, { ...values, id: shift.id }, clashMessage(clash), 400);
   }
 
-  db.prepare(
+  await db.run(
     `UPDATE shifts SET site_id = @site_id, employee_id = @employee_id, start_at = @start_at, end_at = @end_at,
-     break_minutes = @break_minutes, status = @status, notes = @notes WHERE id = @id`
-  ).run({ ...values, id: shift.id });
+     break_minutes = @break_minutes, status = @status, notes = @notes WHERE id = @id`,
+    { ...values, id: shift.id }
+  );
 
-  logActivity(req, `Updated shift #${shift.id} on ${values.date}`);
+  await logActivity(req, `Updated shift #${shift.id} on ${values.date}`);
   req.flash('success', 'Shift saved.');
   if (values.employee_id && values.employee_id !== shift.employee_id) {
-    const warning = complianceWarning(values.employee_id, values.date, res.locals.settings.expiry_warning_days);
+    const warning = await complianceWarning(values.employee_id, values.date, res.locals.settings.expiry_warning_days);
     if (warning) req.flash('warning', warning);
   }
   res.redirect(`/schedule?week=${time.startOfWeek(values.date)}`);
 });
 
-router.post('/:id/delete', (req, res) => {
-  const shift = findShift(req.params.id);
+router.post('/:id/delete', async (req, res) => {
+  const shift = await findShift(req.params.id);
   if (!shift) return notFound(res, 'shift');
-  db.prepare('DELETE FROM shifts WHERE id = ?').run(shift.id);
-  logActivity(req, `Deleted shift #${shift.id} (${shift.site_name}, ${shift.start_at.slice(0, 10)})`);
+  await db.run('DELETE FROM shifts WHERE id = ?', shift.id);
+  await logActivity(req, `Deleted shift #${shift.id} (${shift.site_name}, ${shift.start_at.slice(0, 10)})`);
   req.flash('success', 'Shift deleted.');
   res.redirect(`/schedule?week=${time.startOfWeek(shift.start_at.slice(0, 10))}`);
 });
 
 // "Worked as planned": marks the shift completed and copies it into the
 // timesheets so it can be approved and paid.
-router.post('/:id/complete', (req, res) => {
-  const shift = findShift(req.params.id);
+router.post('/:id/complete', async (req, res) => {
+  const shift = await findShift(req.params.id);
   if (!shift) return notFound(res, 'shift');
   const back = `/schedule?week=${time.startOfWeek(shift.start_at.slice(0, 10))}`;
   if (!shift.employee_id) {
     req.flash('error', 'Assign someone to this shift before marking it as worked.');
     return res.redirect(back);
   }
-  if (db.prepare('SELECT 1 FROM time_entries WHERE shift_id = ?').get(shift.id)) {
+  if (await db.get('SELECT 1 FROM time_entries WHERE shift_id = ?', shift.id)) {
     req.flash('warning', 'This shift is already in the timesheets.');
     return res.redirect(back);
   }
-  db.transaction(() => {
-    db.prepare(
+  await db.transaction(async (tx) => {
+    await tx.run(
       `INSERT INTO time_entries (employee_id, site_id, shift_id, start_at, end_at, break_minutes, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(shift.employee_id, shift.site_id, shift.id, shift.start_at, shift.end_at, shift.break_minutes, shift.notes);
-    db.prepare("UPDATE shifts SET status = 'completed' WHERE id = ?").run(shift.id);
-  })();
-  logActivity(req, `Marked shift #${shift.id} as worked by ${employeeName(shift)}`);
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      shift.employee_id,
+      shift.site_id,
+      shift.id,
+      shift.start_at,
+      shift.end_at,
+      shift.break_minutes,
+      shift.notes
+    );
+    await tx.run("UPDATE shifts SET status = 'completed' WHERE id = ?", shift.id);
+  });
+  await logActivity(req, `Marked shift #${shift.id} as worked by ${employeeName(shift)}`);
   req.flash('success', `Shift marked as worked. ${employeeName(shift)}'s hours are waiting for approval in Timesheets.`);
   res.redirect(back);
 });

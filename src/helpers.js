@@ -33,8 +33,8 @@ function asArray(value) {
 }
 
 // Records "who did what" in the activity log.
-function logActivity(req, action) {
-  db.prepare('INSERT INTO activity_log (user_id, action) VALUES (?, ?)').run(req.user?.id ?? null, action);
+async function logActivity(req, action) {
+  await db.run('INSERT INTO activity_log (user_id, action) VALUES (?, ?)', req.user?.id ?? null, action);
 }
 
 function notFound(res, what = 'page') {
@@ -60,7 +60,12 @@ function goBack(req, res, fallback) {
 
 // True if the database error means "other records still point at this one".
 function isInUseError(err) {
-  return err?.code === 'SQLITE_CONSTRAINT_FOREIGNKEY';
+  return err?.code === '23503';
+}
+
+// True if the database error means "that value is already taken" (e.g. an email address).
+function isDuplicateError(err) {
+  return err?.code === '23505';
 }
 
 function employeeName(e) {
@@ -77,5 +82,6 @@ module.exports = {
   numericIdParam,
   goBack,
   isInUseError,
+  isDuplicateError,
   employeeName,
 };
