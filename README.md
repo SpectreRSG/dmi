@@ -14,6 +14,9 @@ A private website for running the business side of a security company:
 | **Training** | A table showing who is qualified, who's expiring, and who's missing training. Plan training sessions, book people in, and record attendance. |
 | **Admin** | User accounts (admin or manager), company settings, and an activity log of who changed what. |
 
+> **Live site:** https://dmi.codehound.org is hosted on Netlify. For now it shows the DMI
+> Timesheet page from the `placeholder/` folder while this admin app is adapted to run on Netlify.
+
 ---
 
 ## 1. Run it on your computer

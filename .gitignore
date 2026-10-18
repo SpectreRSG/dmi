@@ -5,5 +5,8 @@ node_modules/
 data/
 .env
 
+# Netlify's local link file
+.netlify/
+
 *.log
 .DS_Store

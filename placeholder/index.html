@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#1f3a5f" />
+    <title>DMI Timesheet</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>DMI Timesheet</h1>
+        <p class="lede">Type your shift times, then download a filled-in PDF. Everything stays on this device. Nothing is sent anywhere.</p>
+      </header>
+
+      <section aria-labelledby="me-h">
+        <h2 id="me-h">About you <span class="hint">remembered on this device</span></h2>
+        <div class="grid">
+          <label>Officer name <input id="name" autocomplete="name" placeholder="Last, First" /></label>
+          <label>Primary contact number <input id="phone" type="tel" autocomplete="tel" /></label>
+          <label>Location <input id="location" placeholder="e.g. HACDS" /></label>
+          <label>Default comment <input id="comment" placeholder="e.g. site name" /></label>
+        </div>
+      </section>
+
+      <section aria-labelledby="period-h">
+        <h2 id="period-h">Pay period</h2>
+        <div class="period">
+          <button type="button" id="prev" aria-label="Previous pay period">&larr;</button>
+          <output id="periodLabel" aria-live="polite"></output>
+          <button type="button" id="next" aria-label="Next pay period">&rarr;</button>
+        </div>
+        <p class="hint">Two weeks, Sunday to Saturday. Enter Clock in and Clock out in 24-hour time (like 1000 and 1630). Hours are worked out for you.</p>
+
+        <table>
+          <thead>
+            <tr><th scope="col">Day</th><th scope="col">Clock in</th><th scope="col">Clock out</th><th scope="col">Hours</th><th scope="col">Comment</th></tr>
+          </thead>
+          <tbody id="days"></tbody>
+          <tfoot>
+            <tr><th scope="row">Total</th><td id="total" colspan="4">0.0</td></tr>
+          </tfoot>
+        </table>
+      </section>
+
+      <section aria-labelledby="sig-h">
+        <h2 id="sig-h">Signature <span class="hint">remembered on this device</span></h2>
+        <canvas id="sig" width="600" height="160" aria-label="Draw your signature here"></canvas>
+        <div class="row">
+          <button type="button" id="sigClear" class="secondary">Clear signature</button>
+          <label class="check"><input type="checkbox" id="sigUse" checked /> Put my signature on the PDF</label>
+        </div>
+      </section>
+
+      <div class="actions">
+        <button type="button" id="download" class="primary">Download PDF</button>
+        <button type="button" id="clearPeriod" class="secondary">Clear this period's hours</button>
+      </div>
+      <p id="status" role="status"></p>
+    </main>
+    <script src="pdf-lib.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

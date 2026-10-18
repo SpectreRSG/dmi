@@ -1,0 +1,33 @@
+# Netlify settings for dmi.codehound.org (Netlify project "dmi-timesheet").
+#
+# FOR NOW: the live site is the DMI Timesheet page in placeholder/ – plain
+# static files, no build step – while the admin app is adapted to run on
+# Netlify. In Netlify's build settings, leave "Base directory" empty and set
+# the production branch to "main".
+
+[build]
+  publish = "placeholder"
+  command = ""
+  # Only redeploy when the placeholder or this file changed, not on every app commit.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- placeholder netlify.toml"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-Robots-Tag = "noindex, nofollow"
+    Referrer-Policy = "no-referrer"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains"
+    # Everything is self-hosted. blob: lets the finished PDF download;
+    # data: lets the saved signature image load back into the pad.
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+
+[[headers]]
+  for = "/*.pdf"
+  [headers.values]
+    Cache-Control = "no-cache"
