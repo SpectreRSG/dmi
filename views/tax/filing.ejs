@@ -1,0 +1,58 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/tax?year=<%= year %>">← 1099 forms <%= year %></a></p>
+    <h1>1099-NEC filing summary <%= year %></h1>
+    <p class="page-sub">Everything you need to file Copy A with the IRS, for the <%= forms.length %> issued form<%= forms.length === 1 ? '' : 's' %>.</p>
+  </div>
+  <div class="page-actions"><button type="button" class="btn" data-print>Print</button></div>
+</div>
+<div class="flash flash-warning">This page shows full Social Security and tax ID numbers. Don't leave it open, and shred any printouts when you're done. Opening it is recorded in the activity log.</div>
+
+<div class="card card-pad">
+  <h2>How to file Copy A (by January 31, <%= year + 1 %>)</h2>
+  <ol class="plain-list">
+    <li><strong>Online (free, recommended):</strong> use the IRS's IRIS Taxpayer Portal (search "IRS IRIS"). You need an IRIS account and a TCC (Transmitter Control Code) first, which can take several weeks to get, so apply early. Then type in each form below.</li>
+    <li><strong>On paper:</strong> order the official red-ink Copy A forms and a Form 1096 from the IRS (or an office supply store), copy the numbers below onto them, and mail them. A printout from this site isn't accepted for Copy A. If you file 10 or more information returns in total for the year, you must file online instead.</li>
+    <li>Your state may need its own copy (Copy 1). Check with your state's tax agency.</li>
+  </ol>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Payer</h2></div>
+  <div class="box-grid">
+    <div><span>Name</span><strong><%= payer.name %></strong></div>
+    <div><span>EIN</span><strong class="tin-cell"><%= payer.tin %></strong></div>
+    <div><span>Address</span><%= payer.address %>, <%= payer.city %>, <%= payer.state %> <%= payer.zip %></div>
+    <div><span>Phone</span><%= payer.phone %></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Recipients</h2><span class="muted small">Total box 1: <%= money(totals.box1) %><%= totals.box4 ? ` · box 4: ${money(totals.box4)}` : '' %></span></div>
+  <% if (!forms.length) { %>
+    <p class="empty">No issued forms for <%= year %> yet.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Recipient</th><th>TIN</th><th>Address</th><th>Account</th><th class="num">1</th><th class="num">4</th><th class="num">5</th><th>6</th><th class="num">7</th></tr></thead>
+        <tbody>
+          <% for (const f of forms) { const r = f.recipient; %>
+            <tr>
+              <td><strong><%= r.name %></strong><%= r.business_name ? ` (${r.business_name})` : '' %><%= f.corrected ? ' – CORRECTED' : '' %></td>
+              <td class="tin-cell"><%= r.tin_type %> <%= f.fullTin %></td>
+              <td><%= r.address %>, <%= r.city %>, <%= r.state %> <%= r.zip %></td>
+              <td><%= r.account %></td>
+              <td class="num"><%= money(f.box1) %></td>
+              <td class="num"><%= money(f.box4) %></td>
+              <td class="num"><%= money(f.box5) %></td>
+              <td><%= f.box6 || '' %></td>
+              <td class="num"><%= money(f.box7) %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+<%- include('../partials/bottom') %>

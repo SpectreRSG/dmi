@@ -3,6 +3,7 @@
   <div>
     <p class="page-sub"><a href="/users">← User accounts</a></p>
     <h1><%= title %></h1>
+    <% if (user.approving) { %><p class="page-sub">Signed up as <%= user.requested_role === 'client' ? 'a client' : 'a security officer' %>. Choose their role and press Save to let them in.</p><% } %>
   </div>
 </div>
 <%- include('../partials/form-error') %>
@@ -11,14 +12,29 @@
   <div class="form-grid">
     <label>Name <input name="name" value="<%= user.name || '' %>" required></label>
     <label>Email (used to sign in) <input type="email" name="email" value="<%= user.email || '' %>" required autocomplete="off"></label>
+    <label>Phone <input type="tel" name="phone" value="<%= user.phone || '' %>"></label>
     <label>Role
-      <select name="role">
-        <option value="manager" <%= user.role !== 'admin' ? 'selected' : '' %>>Manager</option>
-        <option value="admin" <%= user.role === 'admin' ? 'selected' : '' %>>Admin</option>
+      <select name="role" data-party-select>
+        <% for (const role of ROLES) { %><option value="<%= role %>" <%= user.role === role ? 'selected' : '' %>><%= ROLE_NAMES[role] %></option><% } %>
       </select>
     </label>
+    <label class="field-full" data-party="officer">Their staff record
+      <select name="employee_id">
+        <option value="">Choose…</option>
+        <option value="new" <%= user.new_employee ? 'selected' : '' %>>+ Make a new staff record for this person</option>
+        <% for (const e of staff) { %><option value="<%= e.id %>" <%= user.employee_id === e.id ? 'selected' : '' %>><%= e.last_name %>, <%= e.first_name %><%= e.email ? ` (${e.email})` : '' %></option><% } %>
+      </select>
+      <span class="hint">Links the account to the officer's shifts, hours and pay.</span>
+    </label>
+    <label class="field-full" data-party="client">Client
+      <select name="client_id">
+        <option value="">Choose…</option>
+        <% for (const c of clients) { %><option value="<%= c.id %>" <%= user.client_id === c.id ? 'selected' : '' %>><%= c.name %></option><% } %>
+      </select>
+      <span class="hint">They'll see the schedule for this client's sites.</span>
+    </label>
     <% if (user.id) { %>
-      <label class="check"><input type="checkbox" name="active" value="1" <%= user.active ? 'checked' : '' %>> Account is active (untick to block sign-in)</label>
+      <label class="check field-full"><input type="checkbox" name="active" value="1" <%= user.active ? 'checked' : '' %>> Account is active (untick to block sign-in)</label>
     <% } %>
   </div>
   <h2><%= user.id ? 'Reset password (optional)' : 'Password' %></h2>

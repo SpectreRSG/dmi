@@ -10,6 +10,9 @@
   </div>
 </div>
 
+<% if (waitingAccounts) { %>
+  <div class="flash flash-warning"><%= waitingAccounts %> new account<%= waitingAccounts === 1 ? ' is' : 's are' %> waiting for a role. <a href="/users">Approve them on User accounts →</a></div>
+<% } %>
 <div class="stats">
   <a class="stat" href="/staff">
     <span class="stat-label">Active staff</span>

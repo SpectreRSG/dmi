@@ -2,23 +2,34 @@
 <div class="page-head">
   <div>
     <h1>User accounts</h1>
-    <p class="page-sub">People who can sign in to this admin site.</p>
+    <p class="page-sub">Everyone who can sign in: office staff, officers and clients.</p>
   </div>
   <div class="page-actions"><a class="btn btn-primary" href="/users/new"><%- icon('plus') %> Add user</a></div>
 </div>
+<% const waiting = users.filter((u) => u.role === 'pending' && u.active); %>
+<% if (waiting.length) { %>
+  <div class="flash flash-warning"><%= waiting.length %> new account<%= waiting.length === 1 ? ' is' : 's are' %> waiting for a role. Press <strong>Approve</strong> to choose what they can see.</div>
+<% } %>
 <div class="card">
   <div class="table-wrap">
     <table class="table">
-      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Last sign-in</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Linked to</th><th>Last sign-in</th><th>Status</th><th></th></tr></thead>
       <tbody>
+        <% const roleColors = { admin: 'blue', manager: 'gray', officer: 'green', client: 'gray', pending: 'amber' }; %>
         <% for (const u of users) { %>
           <tr class="<%= u.active ? '' : 'is-faded' %>">
             <td><strong><%= u.name %></strong><%= u.id === currentUser.id ? ' (you)' : '' %></td>
             <td><%= u.email %></td>
-            <td><%- u.role === 'admin' ? badge('Admin', 'blue') : badge('Manager', 'gray') %></td>
+            <td><%- badge(ROLE_NAMES[u.role], roleColors[u.role]) %><% if (u.role === 'pending' && u.requested_role) { %><div class="muted small">Says: <%= u.requested_role %></div><% } %></td>
+            <td>
+              <% if (u.employee_id) { %><a href="/staff/<%= u.employee_id %>"><%= u.first_name %> <%= u.last_name %></a><% } %>
+              <% if (u.client_id) { %><a href="/clients/<%= u.client_id %>"><%= u.client_name %></a><% } %>
+            </td>
             <td class="nowrap"><%= u.last_login_at ? fmtDateTime(u.last_login_at) : 'Never' %></td>
             <td><%- u.active ? badge('Active', 'green') : badge('Deactivated', 'gray') %></td>
-            <td class="actions"><a href="/users/<%= u.id %>/edit">Edit</a></td>
+            <td class="actions">
+              <% if (u.role === 'pending' && u.active) { %><a class="btn btn-sm btn-primary" href="/users/<%= u.id %>/edit">Approve</a><% } else { %><a href="/users/<%= u.id %>/edit">Edit</a><% } %>
+            </td>
           </tr>
         <% } %>
       </tbody>
@@ -28,8 +39,11 @@
 <div class="card card-pad">
   <h2>What can each role do?</h2>
   <ul class="plain-list">
-    <li><strong>Admin</strong>: everything, including pay, pay rates, user accounts and settings.</li>
-    <li><strong>Manager</strong>: schedule, timesheets, staff, clients, contracts and training. Cannot see pay or pay rates.</li>
+    <li><strong>Admin</strong>: everything, including pay, pay rates, 1099s, user accounts and settings.</li>
+    <li><strong>Manager</strong>: schedule, timesheets, staff, clients, contracts and training. Cannot see pay, pay rates or tax details.</li>
+    <li><strong>Officer</strong>: sees their own shifts on a monthly calendar, sends in timesheets, fills in their W-9 details and downloads their 1099.</li>
+    <li><strong>Client</strong>: sees the monthly schedule for their sites (guards shown as first name and last initial).</li>
+    <li><strong>Waiting for approval</strong>: signed up but can't see anything yet. Anyone can sign up at <a href="/register">/register</a>; deactivate accounts you don't recognise.</li>
   </ul>
 </div>
 <%- include('../partials/bottom') %>

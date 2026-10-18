@@ -258,12 +258,28 @@ async function seed(db) {
     await tx.run('INSERT INTO activity_log (user_id, action) VALUES (?, ?)', adminId, 'Loaded demo data');
   });
 
+  // Demo officer and client accounts, to see what they see.
+  if (adminLogin) {
+    const guard = await db.get("SELECT * FROM employees WHERE status = 'active' ORDER BY id LIMIT 1");
+    const client = await db.get('SELECT * FROM clients ORDER BY id LIMIT 1');
+    await db.run(
+      "INSERT INTO users (name, email, password_hash, role, employee_id) VALUES (?, 'officer@example.com', ?, 'officer', ?)",
+      `${guard.first_name} ${guard.last_name}`, hashPassword(adminLogin), guard.id
+    );
+    await db.run(
+      "INSERT INTO users (name, email, password_hash, role, client_id) VALUES (?, 'client@example.com', ?, 'client', ?)",
+      `${client.name} (demo)`, hashPassword(adminLogin), client.id
+    );
+  }
+
   console.log('Demo data added.');
   if (adminLogin) {
     console.log('');
     console.log('Sign in with:');
     console.log(`  Admin:   admin@example.com   / ${adminLogin}`);
     console.log(`  Manager: manager@example.com / ${adminLogin}`);
+    console.log(`  Officer: officer@example.com / ${adminLogin}`);
+    console.log(`  Client:  client@example.com  / ${adminLogin}`);
     console.log('(Write this down – it is only shown once. You can change it under "My account".)');
   }
 }

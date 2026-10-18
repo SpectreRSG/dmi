@@ -52,6 +52,11 @@ router.get('/', async (req, res) => {
       ),
     ]);
 
+  // New sign-ups waiting for an admin to give them a role.
+  const waitingAccounts = res.locals.isAdmin
+    ? (await db.get("SELECT COUNT(*)::int AS n FROM users WHERE role = 'pending' AND active = 1")).n
+    : 0;
+
   const complianceIssues = employees
     .map((employee) => ({ employee, ...byEmployee.get(employee.id) }))
     .filter((c) => c.level !== 'ok');
@@ -75,6 +80,7 @@ router.get('/', async (req, res) => {
     endingContracts: endingContracts.map((k) => ({ ...k, state: expiryStatus(k.end_date, warningDays) })),
     trainingSessions,
     recentActivity,
+    waitingAccounts,
   });
 });
 

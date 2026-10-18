@@ -1,0 +1,27 @@
+<%- include('../partials/top') %>
+<div class="auth-card">
+  <div class="auth-logo"><%- icon('shield') %></div>
+  <h1>Create an account</h1>
+  <p class="muted">For <%= settings.company_name %> officers and clients. The office checks every new account before it can see anything.</p>
+  <%- include('../partials/form-error') %>
+  <form method="post" action="/register" class="stack">
+    <%- include('../partials/csrf') %>
+    <fieldset class="choice-row">
+      <legend>I am a…</legend>
+      <% for (const [key, label] of Object.entries(SIGNUP_KINDS)) { %>
+        <label class="check"><input type="radio" name="requested_role" value="<%= key %>" <%= values.requested_role === key ? 'checked' : '' %>> <%= label %></label>
+      <% } %>
+    </fieldset>
+    <label>Full name <input name="name" value="<%= values.name || '' %>" required autocomplete="name" maxlength="100"></label>
+    <label>Email <input type="email" name="email" value="<%= values.email || '' %>" required autocomplete="email"></label>
+    <label>Phone (optional) <input type="tel" name="phone" value="<%= values.phone || '' %>" autocomplete="tel" maxlength="40"></label>
+    <label>Password
+      <input type="password" name="password" required minlength="10" autocomplete="new-password">
+      <span class="hint">At least 10 characters.</span>
+    </label>
+    <label>Type it again <input type="password" name="confirm" required minlength="10" autocomplete="new-password"></label>
+    <button type="submit" class="btn btn-primary btn-block">Create account</button>
+  </form>
+  <p class="auth-footer">Already have an account? <a href="/login">Sign in →</a></p>
+</div>
+<%- include('../partials/bottom') %>

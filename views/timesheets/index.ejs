@@ -16,6 +16,7 @@
   <a href="<%= tabLink('approved') %>" class="<%= status === 'approved' ? 'active' : '' %>">Approved</a>
   <a href="<%= tabLink('rejected') %>" class="<%= status === 'rejected' ? 'active' : '' %>">Rejected</a>
   <a href="<%= tabLink('all') %>" class="<%= status === 'all' ? 'active' : '' %>">All</a>
+  <a href="/timesheets/submissions">Sent by officers (PDF)</a>
 </nav>
 
 <form class="filters" method="get" action="/timesheets">
@@ -52,7 +53,8 @@
                 <td><a href="/staff/<%= t.employee_id %>"><%= t.first_name %> <%= t.last_name %></a></td>
                 <td><%= t.site_name || '—' %></td>
                 <td class="nowrap"><%= fmtRange(t.start_at, t.end_at) %><% if (t.break_minutes) { %><br><span class="muted"><%= t.break_minutes %> min break</span><% } %>
-                  <% if (t.notes) { %><br><span class="muted small"><%= t.notes %></span><% } %></td>
+                  <% if (t.notes) { %><br><span class="muted small"><%= t.notes %></span><% } %>
+                  <% if (t.submission_id) { %><br><a class="small" href="/timesheets/submissions/<%= t.submission_id %>/pdf">Officer's PDF</a><% } %></td>
                 <td class="num"><%= fmtHours(t.hours) %></td>
                 <td><%- statusBadge(t.status) %>
                   <% if (t.approver_name && t.status !== 'pending') { %><br><span class="muted small">by <%= t.approver_name %></span><% } %>

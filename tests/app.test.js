@@ -415,68 +415,213 @@ test('conflict checker: finds problems, and "find cover" assigns someone who is 
   ids.conflictDay = day;
 });
 
-test('portal: a passphrase shows the right month, can be replaced or turned off, and guesses are limited', async () => {
-  const month = ids.conflictDay.slice(0, 7);
-  const makePassphrase = async (form) => {
-    const res = await admin.post('/portal-access', form, '/portal-access');
-    assert.equal(res.status, 200);
-    return res.text.match(/class="passphrase"[^>]*>([^<]+)</)[1].trim();
-  };
-  const signIn = async (client, passphrase) => client.post('/portal', { passphrase }, '/portal');
+// A tiny valid PNG picture, standing in for a drawn signature.
+const SIGNATURE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+const officer = makeClient();
+const signIn = async (client, email, password) => client.post('/login', { email, password }, '/login');
 
-  const officerPhrase = await makePassphrase({ scope: 'employee', employee_id: ids.employee, label: 'Phone' });
-  assert.match(officerPhrase, /^[a-z]+-[a-z]+-[a-z]+-\d{2}$/);
-  const row = await db.get('SELECT * FROM portal_access WHERE employee_id = ?', ids.employee);
-  assert.notEqual(row.passphrase_hash, officerPhrase, 'only a fingerprint is stored');
-
-  const officer = makeClient();
-  assert.match((await officer.get('/portal')).text, /Passphrase/);
-  let res = await signIn(officer, 'not-the-right-one-12');
-  assert.equal(res.status, 400);
-  res = await signIn(officer, `  ${officerPhrase.toUpperCase().replaceAll('-', ' ')} `);
+test('sign-up: new accounts wait for approval, then an admin makes them an officer', async () => {
+  const form = { requested_role: 'officer', name: 'Olivia Officer', email: 'olivia@example.com', phone: '555-0100', password: 'officer password 1', confirm: 'officer password 1' };
+  let res = await officer.post('/register', form, '/register');
   assert.equal(res.status, 302);
-  res = await officer.get(`/portal?month=${month}`);
+  assert.equal(res.location, '/waiting');
+  assert.match((await officer.get('/waiting')).text, /waiting for the office to approve/);
+  assert.equal((await officer.get('/')).location, '/waiting', 'a new account sees nothing yet');
+  assert.equal((await officer.get('/schedule')).location, '/waiting');
+  assert.equal((await officer.post('/staff', { first_name: 'X', last_name: 'Y' })).status, 403);
+
+  const copy = await makeClient().post('/register', { ...form, email: 'OLIVIA@example.com' }, '/register');
+  assert.equal(copy.status, 400, 'one account per email');
+
+  const userId = (await db.get("SELECT id FROM users WHERE email = 'olivia@example.com'")).id;
+  assert.match((await admin.get('/')).text, /waiting for a role/);
+  assert.match((await admin.get('/users')).text, /Approve/);
+  res = await admin.post(`/users/${userId}`, { name: 'Olivia Officer', email: 'olivia@example.com', phone: '555-0100', role: 'officer', employee_id: '', active: '1' });
+  assert.equal(res.status, 400, 'an officer must be linked to a staff record');
+  res = await admin.post(`/users/${userId}`, { name: 'Olivia Officer', email: 'olivia@example.com', phone: '555-0100', role: 'officer', employee_id: 'new', active: '1' });
+  assert.equal(res.status, 302);
+  const user = await db.get('SELECT * FROM users WHERE id = ?', userId);
+  assert.equal(user.role, 'officer');
+  const employee = await db.get('SELECT * FROM employees WHERE id = ?', user.employee_id);
+  assert.equal(`${employee.first_name} ${employee.last_name}`, 'Olivia Officer');
+  ids.officer = employee.id;
+
+  // Officers get their own pages, and nothing from the back office.
+  assert.equal((await officer.get('/')).location, '/my');
+  assert.equal((await officer.get('/my')).location, '/my/schedule');
+  for (const url of ['/staff', '/pay', '/timesheets', '/users', '/tax']) {
+    assert.equal((await officer.get(url)).location, '/my', url);
+  }
+  assert.equal((await officer.post('/schedule', { site_id: ids.site })).status, 403);
+});
+
+test('calendar: officers see their own month, clients see their sites with short names', async () => {
+  const today = time.todayStr();
+  const nextMonth = time.addMonths(`${today.slice(0, 7)}-01`, 1);
+  for (const date of [today, time.addDays(nextMonth, 2)]) {
+    await admin.post('/schedule', { site_id: ids.site, employee_id: ids.officer, date, start_time: '06:00', end_time: '14:00', break_minutes: '0' });
+  }
+  let res = await officer.get('/my/schedule');
   assert.equal(res.status, 200);
-  assert.match(res.text, /Sam Guard/);
+  assert.match(res.text, new RegExp(time.fmtMonth(today.slice(0, 7))));
   assert.match(res.text, /Main entrance/);
-  assert.match(res.text, /First Aid training/);
-  assert.doesNotMatch(res.text, /\$/, 'no pay shown');
-  assert.equal((await officer.get('/schedule')).status, 302, 'the portal is not a login to the admin site');
-  assert.ok((await db.get('SELECT last_used_at FROM portal_access WHERE id = ?', row.id)).last_used_at);
+  assert.match(res.text, /Your next shift/);
+  res = await officer.get(`/my/schedule?month=${nextMonth.slice(0, 7)}`);
+  assert.match(res.text, /06:00–14:00/);
 
-  // A site passphrase shows everyone at the site, with short names.
-  const sitePhrase = await makePassphrase({ scope: 'site', site_id: ids.site });
+  res = await admin.post('/users', { name: 'Carla Client', email: 'carla@example.com', role: 'client', client_id: ids.client, password: 'client password 1', confirm: 'client password 1' });
+  assert.equal(res.status, 302);
   const client = makeClient();
-  await signIn(client, sitePhrase);
-  res = await client.get(`/portal?month=${month}`);
-  assert.match(res.text, /Sam G\./);
-  assert.match(res.text, /Jo B\./);
-  assert.doesNotMatch(res.text, /Sam Guard/);
+  res = await signIn(client, 'carla@example.com', 'client password 1');
+  assert.equal(res.location, '/my');
+  res = await client.get('/my/schedule');
+  assert.match(res.text, /Olivia O\./);
+  assert.doesNotMatch(res.text, /Olivia Officer/);
+  assert.equal((await client.get('/my/timesheets')).status, 403, 'timesheets are for officers');
+  assert.equal((await client.get('/staff')).location, '/my');
+});
 
-  // A new passphrase signs out anyone using the old one.
-  res = await admin.post(`/portal-access/${row.id}/regenerate`, {}, '/portal-access');
-  const newPhrase = res.text.match(/class="passphrase"[^>]*>([^<]+)</)[1].trim();
-  assert.match((await officer.get('/portal')).text, /Type the passphrase/);
-  assert.equal((await signIn(officer, officerPhrase)).status, 400);
-  assert.equal((await signIn(officer, newPhrase)).status, 302);
+test('officer timesheet: sending it saves hours for approval and the filled-in DMI PDF', async () => {
+  const { periodStartFor } = require('../src/services/officerTimesheet');
+  const period = time.addDays(periodStartFor(time.todayStr()), -14);
+  const monday = time.addDays(period, 1);
+  await admin.post('/schedule', { site_id: ids.site, employee_id: ids.officer, date: monday, start_time: '08:00', end_time: '16:00', break_minutes: '0' });
 
-  // Turned off: stops working straight away.
-  await admin.post(`/portal-access/${row.id}/delete`, {}, '/portal-access');
-  assert.match((await officer.get('/portal')).text, /Type the passphrase/);
-  assert.equal((await signIn(officer, newPhrase)).status, 400);
+  const form = await officer.get(`/my/timesheets/new?period=${period}`);
+  assert.equal(form.status, 200);
+  assert.match(form.text, /Officer, Olivia/);
+  assert.match((await officer.get(`/my/timesheets/new?period=${period}&fill=schedule`)).text, /value="0800"/, 'can start from the schedule');
 
-  // Too many wrong guesses from one address: locked out for a while.
-  const guesser = makeClient();
-  for (let i = 0; i < 6 && res.status !== 429; i += 1) res = await signIn(guesser, `wrong-guess-${i}`);
-  assert.equal(res.status, 429);
-  assert.equal((await signIn(guesser, sitePhrase)).status, 429, 'even the right passphrase waits');
+  const sheet = { period, phone: '555-0100', location: 'Harbour Mall', in_1: '0800', out_1: '1600', comment_1: 'Main gate', in_2: '2200', out_2: '0600', confirm: '1' };
+  let res = await officer.post('/my/timesheets', sheet);
+  assert.equal(res.status, 400);
+  assert.match(res.text, /sign in the signature box/);
+  res = await officer.post('/my/timesheets', { ...sheet, out_2: '2500', signature: SIGNATURE });
+  assert.equal(res.status, 400);
+  assert.match(res.text, /Check the clock times/);
+
+  res = await officer.post('/my/timesheets', { ...sheet, signature: SIGNATURE });
+  assert.equal(res.status, 302);
+  const submission = await db.get("SELECT * FROM timesheet_submissions WHERE employee_id = ? AND status = 'submitted'", ids.officer);
+  assert.equal(submission.total_hours, 16);
+  const entries = await db.all('SELECT * FROM time_entries WHERE submission_id = ? ORDER BY start_at', submission.id);
+  assert.equal(entries.length, 2);
+  assert.ok(entries.every((e) => e.status === 'pending'));
+  assert.equal(entries[0].site_id, ids.site, 'linked to the scheduled shift');
+  assert.equal((await db.get('SELECT status FROM shifts WHERE id = ?', entries[0].shift_id)).status, 'completed');
+  assert.equal(entries[1].end_at, `${time.addDays(period, 3)}T06:00`, 'an overnight shift ends the next day');
+
+  const pdf = await officer.get(`/my/timesheets/${submission.id}/pdf`);
+  assert.equal(pdf.status, 200);
+  assert.ok(pdf.text.startsWith('%PDF'));
+  const office = await admin.get('/timesheets/submissions');
+  assert.match(office.text, /Olivia Officer/);
+  assert.ok((await admin.get(`/timesheets/submissions/${submission.id}/pdf`)).text.startsWith('%PDF'));
+  assert.match((await admin.get('/timesheets')).text, /Officer&#39;s PDF|Officer's PDF/);
+
+  // Sending again replaces the earlier one (while the office hasn't checked it).
+  res = await officer.post('/my/timesheets', { ...sheet, in_1: '0900', out_1: '1700', in_2: '', out_2: '', signature: SIGNATURE });
+  assert.equal(res.status, 302);
+  assert.equal((await db.get('SELECT status FROM timesheet_submissions WHERE id = ?', submission.id)).status, 'replaced');
+  const current = await db.all('SELECT * FROM time_entries WHERE employee_id = ?', ids.officer);
+  assert.equal(current.length, 1);
+
+  // Once the office approves it, it can't be changed from the officer's side.
+  await admin.post(`/timesheets/${current[0].id}/approve`);
+  res = await officer.post('/my/timesheets', { ...sheet, signature: SIGNATURE });
+  assert.equal(res.status, 400);
+  assert.match(res.text, /already checked/);
+});
+
+test('1099-NEC: W-9 details, company details, issuing and sharing online', async () => {
+  const year = Number(time.todayStr().slice(0, 4));
+  // Pay Olivia for her approved hours.
+  await db.run('UPDATE employees SET hourly_rate = 25 WHERE id = ?', ids.officer);
+  const { periodStartFor } = require('../src/services/officerTimesheet');
+  const period = time.addDays(periodStartFor(time.todayStr()), -14);
+  let res = await admin.post('/pay', { period_start: period, period_end: time.addDays(period, 13) });
+  const payRun = Number(res.location.split('/').pop());
+  await admin.post(`/pay/${payRun}/finalize`, { paid_on: time.todayStr() });
+  assert.equal((await db.get('SELECT paid_on FROM pay_runs WHERE id = ?', payRun)).paid_on, time.todayStr());
+
+  // Her W-9 details.
+  assert.match((await officer.get('/my/tax')).text, /Fill in now/);
+  const w9 = { legal_name: 'Olivia Officer', tax_classification: 'individual', address: '1 Test St', city: 'Los Angeles', state: 'ca', zip: '90012', tin_type: 'SSN', certify: '1', signed_name: 'Olivia Officer' };
+  res = await officer.post('/my/tax/w9', { ...w9, tin: '000-12-3456' });
+  assert.equal(res.status, 400);
+  res = await officer.post('/my/tax/w9', { ...w9, tin: '123-45-6789' });
+  assert.equal(res.status, 302);
+  const profile = await db.get('SELECT * FROM tax_profiles WHERE employee_id = ?', ids.officer);
+  assert.equal(profile.tin_last4, '6789');
+  assert.equal(profile.state, 'CA');
+  assert.ok(!profile.tin_encrypted.includes('123456789'), 'the number is stored encrypted');
+
+  // The company's details are needed first.
+  res = await admin.post('/tax/forms', { year, employee_id: ids.officer });
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM tax_forms')).n, 0);
+  res = await admin.post('/settings', {
+    company_name: 'Test Security', timezone: 'America/New_York', currency_symbol: '$', overtime_weekly_hours: '40', overtime_multiplier: '1.5', expiry_warning_days: '30', min_rest_hours: '8',
+    payer_name: 'Test Security LLC', payer_ein: '12 3456789', payer_address: '100 Main St', payer_city: 'Los Angeles', payer_state: 'CA', payer_zip: '90012', payer_phone: '(213) 555-0100',
+  });
+  assert.equal(res.status, 302);
+  assert.equal((await db.get("SELECT value FROM settings WHERE key = 'payer_ein'")).value, '12-3456789');
+
+  const list = await admin.get(`/tax?year=${year}`);
+  assert.match(list.text, /Olivia Officer/);
+  res = await admin.post('/tax/forms', { year, employee_id: ids.officer });
+  assert.equal(res.status, 302);
+  const formId = Number(res.location.split('/').pop());
+  const form = await db.get('SELECT * FROM tax_forms WHERE id = ?', formId);
+  assert.equal(form.box1, 8 * 25);
+  assert.equal(form.recipient.name, 'Olivia Officer');
+  const page = await admin.get(`/tax/forms/${formId}`);
+  assert.match(page.text, /\*\*\*-\*\*-6789/);
+  assert.doesNotMatch(page.text, /123-45-6789/);
+  for (const copy of ['', '?copy=payer']) {
+    const pdf = await admin.get(`/tax/forms/${formId}/pdf${copy}`);
+    assert.equal(pdf.status, 200);
+    assert.ok(pdf.text.startsWith('%PDF'));
+  }
+
+  // Not visible to her until it's issued, she agreed to get it online, and it's shared.
+  assert.equal((await officer.get(`/my/tax/1099/${formId}`)).status, 404);
+  await admin.post(`/tax/forms/${formId}/release`, { release: '1' });
+  assert.equal((await db.get('SELECT released FROM tax_forms WHERE id = ?', formId)).released, 0, 'drafts are never shared');
+  await admin.post(`/tax/forms/${formId}/issue`);
+  await admin.post(`/tax/forms/${formId}/release`, { release: '1' });
+  assert.equal((await db.get('SELECT released FROM tax_forms WHERE id = ?', formId)).released, 0, 'not without her agreement');
+  await officer.post('/my/tax/consent', { agree: '1' });
+  assert.equal((await db.get('SELECT electronic_consent FROM tax_profiles WHERE employee_id = ?', ids.officer)).electronic_consent, 0, 'she must tick that she read it');
+  await officer.post('/my/tax/consent', { agree: '1', understand: '1' });
+  await admin.post(`/tax/forms/${formId}/release`, { release: '1' });
+  assert.equal((await db.get('SELECT released FROM tax_forms WHERE id = ?', formId)).released, 1);
+  assert.match((await officer.get('/my/tax')).text, new RegExp(String(year)));
+  const download = await officer.get(`/my/tax/1099/${formId}`);
+  assert.equal(download.status, 200);
+  assert.ok(download.text.startsWith('%PDF'));
+
+  // Issued forms are locked; the filing summary has the full number for the IRS.
+  await admin.post(`/tax/forms/${formId}`, { box1: '1' });
+  assert.equal((await db.get('SELECT box1 FROM tax_forms WHERE id = ?', formId)).box1, 200);
+  const filing = await admin.get(`/tax/filing?year=${year}`);
+  assert.match(filing.text, /123-45-6789/);
+  assert.equal(filing.headers.get('cache-control'), 'no-store');
+
+  // Switching back to paper takes it out of her account.
+  await officer.post('/my/tax/consent', { agree: '0' });
+  assert.equal((await officer.get(`/my/tax/1099/${formId}`)).status, 404);
+
+  // A correction reopens it as a draft marked CORRECTED.
+  await admin.post(`/tax/forms/${formId}/correct`);
+  const corrected = await db.get('SELECT status, corrected FROM tax_forms WHERE id = ?', formId);
+  assert.deepEqual([corrected.status, corrected.corrected], ['draft', 1]);
 });
 
 test('every main page loads', async () => {
   for (const url of ['/', '/schedule', '/timesheets?status=all', '/pay', `/pay/${ids.payRun}`, '/staff', `/staff/${ids.employee}`,
     '/clients', `/clients/${ids.client}`, '/contracts', '/training', '/training/records', '/training/sessions',
     '/training/courses', '/training/sessions/new', '/training/records/new', '/schedule/conflicts', `/schedule/${ids.shift}/cover`,
-    '/portal-access', '/users', '/settings', '/activity', '/account']) {
+    '/timesheets/submissions', '/tax', '/tax/filing', '/users', '/settings', '/activity', '/account']) {
     const res = await admin.get(url);
     assert.equal(res.status, 200, url);
   }

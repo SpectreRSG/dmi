@@ -1,0 +1,74 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/my/timesheets">← Timesheets</a></p>
+    <h1>Timesheet</h1>
+    <p class="page-sub">Two weeks, Sunday to Saturday. Type Clock in and Clock out in 24-hour time (like 1000 and 1630); hours are worked out for you.</p>
+  </div>
+</div>
+
+<div class="toolbar">
+  <div class="btn-group">
+    <a class="btn" href="/my/timesheets/new?period=<%= prev %>" aria-label="Previous pay period">←</a>
+    <span class="btn period-label"><%= short(start) %> – <%= short(end) %></span>
+    <a class="btn" href="/my/timesheets/new?period=<%= next %>" aria-label="Next pay period">→</a>
+  </div>
+  <% if (start !== current) { %><a class="btn btn-ghost" href="/my/timesheets/new">This period</a><% } %>
+</div>
+
+<% if (existing) { %>
+  <div class="flash <%= locked ? 'flash-warning' : 'flash-info' %>">
+    You sent this period on <%= fmtDateTime(existing.submitted_at) %> (<a href="/my/timesheets/<%= existing.id %>/pdf">PDF</a>).
+    <%= locked ? 'The office has already checked it, so it can no longer be changed here. Please contact the office if something is wrong.' : 'Sending it again replaces it.' %>
+  </div>
+<% } %>
+<%- include('../partials/form-error') %>
+
+<% if (!locked) { %>
+<form method="post" action="/my/timesheets" class="card form-card" data-timesheet>
+  <%- include('../partials/csrf') %>
+  <input type="hidden" name="period" value="<%= start %>">
+  <div class="form-grid">
+    <label>Officer name <input value="<%= values.name %>" disabled></label>
+    <label>Primary contact number <input type="tel" name="phone" value="<%= values.phone %>" autocomplete="tel" maxlength="40"></label>
+    <label class="field-full">Location <input name="location" value="<%= values.location %>" placeholder="e.g. site name" maxlength="80"><span class="hint">Shown at the top of the PDF, and used as the comment for days you leave blank.</span></label>
+  </div>
+
+  <p class="fill-from"><a href="/my/timesheets/new?period=<%= start %>&fill=schedule">Fill in from my schedule</a> <span class="muted small">(then fix any times that were different)</span></p>
+
+  <div class="table-wrap">
+    <table class="table timesheet-table">
+      <thead><tr><th>Day</th><th>Clock in</th><th>Clock out</th><th class="num">Hours</th><th>Comment</th></tr></thead>
+      <tbody>
+        <% for (let i = 0; i < 14; i += 1) { const date = addDays(start, i); const row = values.rows[date] || {}; const label = `${fmtDay(date)}`; %>
+          <tr class="<%= [0, 6].includes((dayOfWeek(date) + 1) % 7) ? 'is-weekend' : '' %>" data-row>
+            <th scope="row" class="nowrap"><%= label %></th>
+            <td><input name="in_<%= i %>" value="<%= row.in || '' %>" inputmode="numeric" maxlength="5" placeholder="In" aria-label="Clock in <%= label %>" data-clock></td>
+            <td><input name="out_<%= i %>" value="<%= row.out || '' %>" inputmode="numeric" maxlength="5" placeholder="Out" aria-label="Clock out <%= label %>" data-clock></td>
+            <td class="num" data-hours>–</td>
+            <td><input name="comment_<%= i %>" value="<%= row.comment || '' %>" maxlength="120" aria-label="Comment <%= label %>"></td>
+          </tr>
+        <% } %>
+      </tbody>
+      <tfoot><tr><th scope="row">Total</th><td></td><td></td><td class="num" data-total>–</td><td></td></tr></tfoot>
+    </table>
+  </div>
+
+  <h2 class="spaced">Signature</h2>
+  <canvas class="sig-pad" width="600" height="160" aria-label="Draw your signature here" data-sig></canvas>
+  <input type="hidden" name="signature" data-sig-value>
+  <div class="sig-actions">
+    <button type="button" class="btn btn-sm" data-sig-clear>Clear signature</button>
+    <span class="muted small">Draw with your finger or mouse. It's remembered on this device.</span>
+  </div>
+  <noscript><p class="flash flash-warning">Signing needs JavaScript turned on in your browser.</p></noscript>
+
+  <label class="check confirm-line"><input type="checkbox" name="confirm" value="1" required> I confirm these hours are true and correct.</label>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Send timesheet</button>
+    <span class="muted small">The office gets the hours and a filled-in DMI timesheet PDF.</span>
+  </div>
+</form>
+<script src="/js/timesheet.js" defer></script>
+<% } %>
+<%- include('../partials/bottom') %>

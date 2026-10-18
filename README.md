@@ -7,7 +7,8 @@ A private website for running the business side of a security company:
 | **Dashboard** | One screen with everything that needs attention: unfilled shifts, hours to approve, expired licenses, contracts ending. |
 | **Schedule** | A weekly roster. Add shifts (including overnight ones), repeat them on chosen days of the week, see unfilled shifts in red. It stops you double-booking a guard and warns you if they aren't licensed or trained. |
 | **Conflict checker** | Scans the roster ahead of time for double bookings, too little rest between shifts, overtime, clashes with training, expired licenses and unfilled shifts. "Find cover" lists who is free (best choices first) and assigns them in one click. |
-| **Schedule portal** | A public page (`/portal`) where officers and clients type a passphrase to see a month of shifts: an officer sees their own, a client sees their site(s). No account needed, and no pay or phone numbers are shown. |
+| **Officer & client accounts** | Anyone can sign up at `/register`; an admin approves them and gives them a role. **Officers** see their shifts on a monthly calendar, send in two-week timesheets (the same DMI timesheet PDF as before, now saved in the app), fill in their W-9 details and download their 1099. **Clients** see the monthly schedule for their sites. Neither ever sees pay rates or other people's details. |
+| **1099 forms** | Works out what each contractor was paid in a year (from finalized pay runs), makes Form 1099-NEC (Copy B and 2 for the officer, C and 1 for the company), shares it in the officer's account if they agreed, and gives you a filing summary for sending Copy A to the IRS. Admins only. |
 | **Timesheets** | Hours actually worked. Press "Mark as worked" on a shift, or type hours in. Approve or reject them, one by one or in bulk. |
 | **Pay** | Turns approved hours into pay for a period: regular hours, weekly overtime, bonuses or deductions. Printable payslips and a spreadsheet download for your accountant. Admins only. |
 | **Staff** | Guard profiles: contact details, pay rate, security license, emergency contact, hours, training and contracts. |
@@ -17,7 +18,9 @@ A private website for running the business side of a security company:
 | **Admin** | User accounts (admin or manager), company settings, and an activity log of who changed what. |
 
 > **Live site:** https://dmi.codehound.org, hosted on Netlify (see section 4). The officers'
-> timesheet page is at https://dmi.codehound.org/timesheet/ until it's built into the app.
+> stand-alone timesheet page (https://dmi.codehound.org/timesheet/) still works, but officers with an
+> account should send timesheets from **Timesheets** in their account instead: that saves the hours
+> in the app for approval, with the same PDF.
 
 ---
 
@@ -71,21 +74,38 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
 3. **Check for conflicts:** press the **Check conflicts** button on the Schedule page (it turns
    orange and shows a number when there's a problem that week). Fix each one, or press
    **Find cover** to pick someone who is free, rested and qualified.
-4. **Share the schedule:** in **Portal access**, make a passphrase for an officer, a site or a
-   client and send it to them with the link `https://dmi.codehound.org/portal`. The passphrase
-   is only shown once; if it's lost, press **New passphrase** (the old one stops working).
-5. **After each shift:** press **Mark as worked**. This copies the shift into **Timesheets**.
-   If someone worked different hours, edit the entry there.
+4. **Officers and clients sign up** at `https://dmi.codehound.org/register`. Their account waits
+   (the dashboard tells you) until you open **User accounts**, press **Approve**, and choose a role:
+   for an officer, pick their staff record (or "make a new one"); for a client, pick the client.
+5. **Hours come in two ways:** officers send their two-week timesheet from their account (with
+   their signature; you get the hours *and* the filled-in DMI PDF), or you press **Mark as worked**
+   on a shift. Either way the hours land in **Timesheets** to approve. Officers' PDFs are under
+   **Timesheets → Sent by officers (PDF)**.
 6. **Approve hours** in Timesheets. Tick the rows, then press "Approve".
 7. **Pay day:** in **Pay**, create a pay run for the period. Check it, add any bonuses or
-   deductions, then press **Finalize**. Download the spreadsheet for your accountant, or print payslips.
+   deductions, then choose the **pay date** and press **Finalize**. Download the spreadsheet for
+   your accountant, or print payslips.
 8. **Keep an eye on the dashboard** for expiring licenses, training and contracts.
+9. **Every January (1099s):** fill in the company's legal name, EIN and address once under
+   **Settings → 1099 forms**. Make sure officers have filled in their W-9 details (**Tax forms** in
+   their account). Then in **1099 forms**, pick last year, press **Make 1099** for each contractor,
+   check the PDFs, and press **Mark as issued**. By **January 31**:
+   - give each officer Copy B: share it in their account (if they agreed to get it online) or
+     print it and give or mail it to them;
+   - file Copy A with the IRS: online through the IRS's free **IRIS** website, or on the official
+     red-ink paper forms (a printout from the app isn't accepted for Copy A). The **filing summary**
+     page has every number to type in. Filing 10 or more information returns in total means you must
+     file online.
+   - From 2026 payments on, a 1099-NEC is required for anyone paid **$2,000** or more in the year
+     (it was $600 before). Have your accountant check the first batch.
 
 ### Who can do what?
 
 - **Admin**: everything, including pay, pay rates, user accounts and settings.
-- **Manager**: schedule, timesheets, staff, clients, contracts, training and portal passphrases. Managers never see pay or pay rates.
-- **Officers and clients** don't get accounts. With a portal passphrase they can only *view* their schedule.
+- **Manager**: schedule, timesheets, staff, clients, contracts and training. Managers never see pay, pay rates or tax details.
+- **Officer**: their own monthly schedule, timesheets, W-9 details and 1099s. Nothing else.
+- **Client**: the monthly schedule for their own sites, with guards shown as "first name + last initial".
+- **Waiting for approval**: someone who signed up but hasn't been given a role yet. They see nothing.
 
 ### Important rules the app follows
 
@@ -134,16 +154,21 @@ src/
   csrf.js            protection against forged forms
   uploads.js         file uploads (contracts, certificates): Netlify Blobs live, data/uploads locally
   secrets.js         the app's own secret keys, kept in the database
-  passphrase.js      makes portal passphrases and checks them
+  secureData.js      encrypts Social Security / tax ID numbers
   time.js            date/time helpers
   viewHelpers.js     formatting helpers used by templates (dates, money, badges, icons)
   services/
     payroll.js       the pay & overtime maths
     compliance.js    "is this guard licensed and trained?"
     conflicts.js     the schedule conflict checker and "find cover"
-  routes/            one file per area: staff, schedule, timesheets, pay, contracts, training…
+    officerTimesheet.js  pay periods + filling in the DMI timesheet PDF
+    tax1099.js       who was paid what in a year, W-9 checks, payer details
+    form1099Pdf.js   draws Form 1099-NEC (Copies B, 2, C and 1)
+  routes/            one file per area: staff, schedule, timesheets, pay, contracts, training, tax…
+                     (my.js and myTax.js are the officers' and clients' own pages)
 views/               the HTML templates, one folder per area
-public/              CSS, browser JavaScript, icon, and the officers' timesheet page (timesheet/)
+public/              CSS, browser JavaScript, icon, and the old stand-alone timesheet page (timesheet/)
+assets/              the blank DMI timesheet PDF the app fills in
 netlify/
   database/migrations/   the database tables (like spreadsheet tabs), applied by Netlify
   functions/app.mjs      runs the whole app on Netlify
@@ -186,8 +211,14 @@ This app stores personal details and pay information, so treat it carefully.
 **Already built in:** scrambled (hashed) passwords; sign-in lockout after 5 wrong tries; automatic
 sign-out after 8 idle hours; protection against forged forms (CSRF) and other common attacks
 (security headers); uploaded files that only signed-in users can download; managers who can't see
-pay; and an activity log. Portal passphrases are stored only as a scrambled fingerprint, wrong
-guesses are limited (5 per 15 minutes), and turning one off or replacing it signs out anyone using it.
+pay; and an activity log. New sign-ups can't see anything until an admin approves them (and at most
+5 sign-ups per connection every 15 minutes). Officers and clients only ever reach their own pages.
+
+**Tax ID numbers** (from officers' W-9 details) are stored encrypted, and only the last 4 digits are
+shown, except on the company's own copies of the 1099 (Copy C and 1) and the admin-only filing
+summary (opening it is logged). For stronger protection, set a `TAX_ID_KEY` environment variable in Netlify
+(**Project configuration → Environment variables**) to a long random phrase *before* officers enter
+their details, and keep a copy of it somewhere safe: without it those numbers can't be read.
 
 **How the live site works (Netlify):**
 
@@ -218,7 +249,8 @@ spreadsheets as you go, and ask for help setting up regular database snapshots.
 
 ## 5. Ideas for later
 
-- Clock in/out from the officers' portal (replacing the separate timesheet page)
+- Clock in/out from the officer's phone (live times instead of a two-week sheet)
+- Retire the stand-alone /timesheet/ page once every officer has an account
 - Client invoicing (bill rates per site)
 - Email reminders for expiring licenses and unfilled shifts
 - Incident reports from sites

@@ -1,0 +1,77 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>1099 forms</h1>
+    <p class="page-sub">Form 1099-NEC for officers paid as independent contractors, based on finalized pay runs (by pay date).</p>
+  </div>
+  <div class="page-actions">
+    <form method="get" action="/tax" class="inline-form">
+      <label class="inline">Tax year
+        <select name="year" data-autosubmit>
+          <% for (const y of yearOptions) { %><option value="<%= y %>" <%= y === year ? 'selected' : '' %>><%= y %></option><% } %>
+        </select>
+      </label>
+      <noscript><button class="btn" type="submit">Show</button></noscript>
+    </form>
+    <a class="btn" href="/tax/filing?year=<%= year %>">Filing summary for the IRS</a>
+  </div>
+</div>
+
+<% if (payerMissing) { %>
+  <div class="flash flash-warning">Add the company's legal name, EIN and address under <a href="/settings">Settings → 1099 forms</a> before making forms.</div>
+<% } %>
+
+<div class="card card-pad">
+  <ul class="plain-list">
+    <li><strong>Who needs one:</strong> each contractor paid <strong><%= money(threshold) %> or more</strong> in <%= year %><%= year >= 2027 ? ' (this amount now rises with inflation each year – check the IRS instructions)' : '' %>. <%= year >= 2026 ? 'It was $600 for payments before 2026.' : '' %></li>
+    <li><strong>Deadline:</strong> January 31, <%= year + 1 %>, for both the officer's copy (Copy B) and the IRS copy (Copy A).</li>
+    <li><strong>Copy A goes to the IRS separately:</strong> online through the IRS's free IRIS website, or on the official red-ink paper form (a printout from here isn't accepted for Copy A). If you file 10 or more information returns in total for the year, the IRS requires filing online. The <a href="/tax/filing?year=<%= year %>">filing summary</a> has everything to type in.</li>
+  </ul>
+</div>
+
+<div class="card">
+  <% if (!rows.length) { %>
+    <p class="empty">Nobody was paid in a finalized pay run in <%= year %>.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Staff member</th><th>Paid as</th><th class="num">Paid in <%= year %></th><th>W-9 details</th><th>Gets it</th><th>1099-NEC</th></tr></thead>
+        <tbody>
+          <% for (const r of rows) { const e = r.employee; %>
+            <tr>
+              <td><a href="/staff/<%= e.id %>"><%= e.first_name %> <%= e.last_name %></a></td>
+              <td><%= e.tax_form === 'W-2' ? 'W-2 employee' : '1099 contractor' %></td>
+              <td class="num"><%= money(r.paid) %><% if (!r.overThreshold && e.tax_form !== 'W-2') { %><div class="muted small">under <%= money(threshold) %></div><% } %></td>
+              <td>
+                <% if (r.profile) { %><%- badge('On file', 'green') %> <span class="muted small"><%= r.profile.tin_type %> …<%= r.profile.tin_last4 %></span>
+                  <% if (r.profile.backup_withholding) { %><div><%- badge('Backup withholding', 'red') %></div><% } %>
+                  <% if (r.corporation) { %><div class="muted small">Corporation – usually no 1099 needed</div><% } %>
+                <% } else { %><%- badge('Missing', e.tax_form === 'W-2' ? 'gray' : 'red') %><% } %>
+              </td>
+              <td><%= r.profile ? (r.profile.electronic_consent ? 'Online' : 'Paper') : '—' %></td>
+              <td>
+                <% if (r.form) { %>
+                  <a href="/tax/forms/<%= r.form.id %>"><%- r.form.status === 'issued' ? badge('Issued', 'green') : badge('Draft', 'amber') %></a>
+                  <% if (r.form.corrected) { %><%- badge('Corrected', 'blue') %><% } %>
+                  <% if (r.form.released) { %><span class="muted small">shared online</span><% } %>
+                <% } else if (e.tax_form === 'W-2') { %>
+                  <span class="muted small">Not for W-2 employees</span>
+                <% } else { %>
+                  <form method="post" action="/tax/forms" class="inline-form">
+                    <%- include('../partials/csrf') %>
+                    <input type="hidden" name="year" value="<%= year %>">
+                    <input type="hidden" name="employee_id" value="<%= e.id %>">
+                    <button type="submit" class="btn btn-sm <%= r.overThreshold ? 'btn-primary' : '' %>" <%= r.profile && !payerMissing ? '' : 'disabled' %>>Make 1099</button>
+                  </form>
+                  <% if (!r.profile) { %><div class="muted small">Needs their W-9 details first</div><% } %>
+                <% } %>
+              </td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+<p class="muted small">Officers fill in their W-9 details themselves under <strong>Tax forms</strong> in their account. Mark someone as a W-2 employee on their staff page if they shouldn't get a 1099. Not sure who counts as a contractor? Ask your accountant.</p>
+<%- include('../partials/bottom') %>

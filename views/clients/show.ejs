@@ -6,7 +6,6 @@
   </div>
   <div class="page-actions">
     <a class="btn" href="/contracts/new?client=<%= client.id %>">Add contract</a>
-    <a class="btn" href="/portal-access?scope=client&client=<%= client.id %>">Portal passphrase</a>
     <a class="btn btn-primary" href="/clients/<%= client.id %>/edit">Edit</a>
   </div>
 </div>
@@ -54,7 +53,7 @@
               <td><%= s.address || '—' %></td>
               <td class="pre small"><%= s.instructions || '—' %></td>
               <td><%- s.active ? badge('Active', 'green') : badge('Inactive', 'gray') %></td>
-              <td class="actions nowrap"><a href="/schedule?site=<%= s.id %>">Schedule</a> · <a href="/portal-access?scope=site&site=<%= s.id %>">Passphrase</a> · <a href="/sites/<%= s.id %>/edit">Edit</a></td>
+              <td class="actions nowrap"><a href="/schedule?site=<%= s.id %>">Schedule</a> · <a href="/sites/<%= s.id %>/edit">Edit</a></td>
             </tr>
           <% } %>
         </tbody>

@@ -11,7 +11,7 @@ const time = require('./time');
 const PgSessionStore = require('./sessionStore');
 const csrfProtection = require('./csrf');
 const { upload, MAX_FILE_MB } = require('./uploads');
-const { loadUser, requireLogin, requireAdmin } = require('./auth');
+const { loadUser, requireLogin, requireAdmin, requireBackOffice, homeFor } = require('./auth');
 const { getSettings } = require('./settings');
 const { getSessionSecret } = require('./secrets');
 const viewHelpers = require('./viewHelpers');
@@ -24,7 +24,7 @@ const app = express();
 app.engine('ejs', require('ejs').__express);
 app.set('view engine', 'ejs');
 app.set('views', path.join(config.rootDir, 'views'));
-Object.assign(app.locals, viewHelpers, { maxFileMb: MAX_FILE_MB });
+Object.assign(app.locals, viewHelpers, { maxFileMb: MAX_FILE_MB, homeFor });
 
 // Behind Netlify (or another HTTPS proxy), trust its headers for the visitor's
 // address and for knowing the connection is secure.
@@ -94,12 +94,14 @@ app.use((req, res, next) => (req.user ? upload(req, res, next) : next()));
 app.use(csrfProtection);
 
 // ---- Pages ------------------------------------------------------------------
-app.use(require('./routes/auth')); // /setup, /login, /logout (no login needed)
-app.use('/portal', require('./routes/portal')); // schedule portal for officers and clients (passphrase, no login)
+app.use(require('./routes/auth')); // /setup, /login, /register, /logout (no login needed)
 app.use(requireLogin); // everything below needs a login
 
+app.use('/account', require('./routes/account')); // every kind of account
+app.use('/my', require('./routes/my')); // officers' and clients' own pages
+app.use(requireBackOffice); // everything below is for admins and managers
+
 app.use('/', require('./routes/dashboard'));
-app.use('/account', require('./routes/account'));
 app.use('/schedule', require('./routes/schedule'));
 app.use('/timesheets', require('./routes/timesheets'));
 app.use('/pay', requireAdmin, require('./routes/pay'));
@@ -108,8 +110,8 @@ app.use('/clients', require('./routes/clients').clientsRouter);
 app.use('/sites', require('./routes/clients').sitesRouter);
 app.use('/contracts', require('./routes/contracts'));
 app.use('/training', require('./routes/training'));
-app.use('/portal-access', require('./routes/portalAccess'));
 app.use('/users', requireAdmin, require('./routes/users'));
+app.use('/tax', requireAdmin, require('./routes/tax'));
 app.use('/settings', requireAdmin, require('./routes/settings'));
 app.use('/activity', requireAdmin, require('./routes/activity'));
 

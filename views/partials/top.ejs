@@ -12,9 +12,9 @@
 <% if (locals.currentUser) { %>
 <div class="layout">
   <aside class="sidebar" id="sidebar">
-    <a class="brand" href="/"><%- icon('shield') %><span><%= settings.company_name %></span></a>
+    <a class="brand" href="<%= homeFor(currentUser) %>"><%- icon('shield') %><span><%= settings.company_name %></span></a>
     <nav class="nav" aria-label="Main">
-      <% for (const item of NAV) { if (item.adminOnly && !locals.isAdmin) continue; %>
+      <% for (const item of NAV) { if (!item.roles.includes(currentUser.role)) continue; %>
         <a href="<%= item.href %>" class="<%= isActive(currentPath, item.href) ? 'active' : '' %>"><%- icon(item.icon) %><span><%= item.label %></span></a>
       <% } %>
       <% if (locals.isAdmin) { %>
@@ -27,7 +27,7 @@
     <div class="sidebar-user">
       <a href="/account" class="<%= isActive(currentPath, '/account') ? 'active' : '' %>">
         <%- icon('user') %>
-        <span><%= currentUser.name %><small><%= capitalize(currentUser.role) %></small></span>
+        <span><%= currentUser.name %><small><%= ROLE_NAMES[currentUser.role] %></small></span>
       </a>
       <form method="post" action="/logout">
         <input type="hidden" name="_csrf" value="<%= locals.csrfToken || '' %>">
@@ -38,7 +38,7 @@
   <div class="main">
     <header class="mobile-bar">
       <button type="button" class="icon-button" data-nav-toggle aria-controls="sidebar" aria-expanded="false"><%- icon('menu') %><span class="sr-only">Menu</span></button>
-      <a href="/" class="mobile-brand"><%= settings.company_name %></a>
+      <a href="<%= homeFor(currentUser) %>" class="mobile-brand"><%= settings.company_name %></a>
     </header>
     <main class="content">
       <%- include('flash') %>

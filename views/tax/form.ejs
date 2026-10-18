@@ -1,0 +1,103 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/tax?year=<%= form.tax_year %>">← 1099 forms <%= form.tax_year %></a></p>
+    <h1>1099-NEC <%= form.tax_year %>: <%= form.first_name %> <%= form.last_name %></h1>
+    <p class="page-sub">
+      <%- form.status === 'issued' ? badge('Issued', 'green') : badge('Draft', 'amber') %>
+      <% if (form.corrected) { %><%- badge('Corrected', 'blue') %><% } %>
+      <% if (form.released) { %><%- badge('Shared online', 'green') %><% } %>
+      <%= form.issued_at && form.status === 'issued' ? `Issued ${fmtDateTime(form.issued_at)}` : '' %>
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/tax/forms/<%= form.id %>/pdf"><%- icon('file') %> Officer's copies (B, 2)</a>
+    <a class="btn" href="/tax/forms/<%= form.id %>/pdf?copy=payer"><%- icon('file') %> Company copies (C, 1)</a>
+  </div>
+</div>
+
+<% if (form.status === 'draft' && Math.abs(paidNow - form.box1) > 0.004) { %>
+  <div class="flash flash-warning">Pay for <%= form.tax_year %> is now <%= money(paidNow) %>, but box 1 says <%= money(form.box1) %>. Press "Update from pay runs" if that's not on purpose.</div>
+<% } %>
+<% if (profile && profile.backup_withholding) { %>
+  <div class="flash flash-error">Their W-9 says the IRS told them they're subject to backup withholding. You should withhold 24% of their pay for the IRS, and put the amount withheld in box 4.</div>
+<% } %>
+<% if (form.box1 < threshold) { %>
+  <div class="flash flash-info">They were paid less than <%= money(threshold) %> in <%= form.tax_year %>, so a 1099-NEC isn't required (you may still give one).</div>
+<% } %>
+
+<div class="card">
+  <div class="card-head"><h2>What's on the form</h2><span class="muted small">Copied in when the draft was made<%= form.status === 'draft' ? '' : ' – locked' %></span></div>
+  <div class="box-grid">
+    <div><span>Payer</span><strong><%= form.payer.name %></strong><br><%= form.payer.address %>, <%= form.payer.city %>, <%= form.payer.state %> <%= form.payer.zip %><br><%= form.payer.phone %></div>
+    <div><span>Payer's TIN</span><strong><%= form.payer.tin %></strong></div>
+    <div><span>Recipient</span><strong><%= form.recipient.name %></strong><%= form.recipient.business_name ? ` (${form.recipient.business_name})` : '' %><br><%= form.recipient.address %>, <%= form.recipient.city %>, <%= form.recipient.state %> <%= form.recipient.zip %></div>
+    <div><span>Recipient's TIN</span><strong><%= maskedTin %></strong><br><span>Full number: in the PDFs and the filing summary</span></div>
+    <div><span>Account number</span><strong><%= form.recipient.account %></strong></div>
+    <div><span>1 Nonemployee compensation</span><strong><%= money(form.box1) %></strong></div>
+    <div><span>4 Federal income tax withheld</span><strong><%= money(form.box4) %></strong></div>
+    <div><span>5 State tax withheld</span><strong><%= money(form.box5) %></strong></div>
+    <div><span>6 State / payer's state no.</span><strong><%= form.box6 || '—' %></strong></div>
+    <div><span>7 State income</span><strong><%= money(form.box7) %></strong></div>
+  </div>
+</div>
+
+<% if (form.status === 'draft') { %>
+  <form method="post" action="/tax/forms/<%= form.id %>" class="card form-card">
+    <%- include('../partials/csrf') %>
+    <h2>Change amounts</h2>
+    <div class="form-grid">
+      <label>1 Nonemployee compensation <input type="number" name="box1" min="0" step="0.01" value="<%= form.box1 %>"></label>
+      <label>4 Federal income tax withheld <input type="number" name="box4" min="0" step="0.01" value="<%= form.box4 %>"><span class="hint">Only if you did backup withholding.</span></label>
+      <label>5 State tax withheld <input type="number" name="box5" min="0" step="0.01" value="<%= form.box5 %>"></label>
+      <label>6 State / payer's state no. <input name="box6" value="<%= form.box6 || '' %>" maxlength="40" placeholder="e.g. CA 123-4567-8"></label>
+      <label>7 State income <input type="number" name="box7" min="0" step="0.01" value="<%= form.box7 %>"></label>
+    </div>
+    <div class="form-actions">
+      <button type="submit" class="btn">Save amounts</button>
+      <button type="submit" class="btn btn-ghost" formaction="/tax/forms/<%= form.id %>/refresh">Update from pay runs and W-9</button>
+    </div>
+  </form>
+  <div class="card card-pad">
+    <h2>Ready?</h2>
+    <p>Check the PDFs, then mark the form as issued. After that it's locked: to change it you'd make a corrected form.</p>
+    <form method="post" action="/tax/forms/<%= form.id %>/issue" data-confirm="Issue this 1099-NEC? It will be locked.">
+      <%- include('../partials/csrf') %>
+      <button type="submit" class="btn btn-primary">Mark as issued</button>
+    </form>
+  </div>
+  <% if (!form.corrected) { %>
+    <details class="danger-zone">
+      <summary>Delete this draft</summary>
+      <form method="post" action="/tax/forms/<%= form.id %>/delete" data-confirm="Delete this draft 1099?">
+        <%- include('../partials/csrf') %>
+        <button type="submit" class="btn btn-danger">Delete draft</button>
+      </form>
+    </details>
+  <% } %>
+<% } else { %>
+  <div class="card card-pad">
+    <h2>Give <%= form.first_name %> their copy</h2>
+    <% if (form.electronic_consent) { %>
+      <p><%= form.first_name %> agreed to get it online.
+        <%= form.released ? 'It is in their account now.' : 'Share it to put it in their account (Tax forms).' %></p>
+      <form method="post" action="/tax/forms/<%= form.id %>/release">
+        <%- include('../partials/csrf') %>
+        <input type="hidden" name="release" value="<%= form.released ? '0' : '1' %>">
+        <button type="submit" class="btn <%= form.released ? '' : 'btn-primary' %>"><%= form.released ? 'Stop sharing online' : 'Share in their account' %></button>
+      </form>
+      <% if (form.released) { %><p class="muted small">Remember to tell them it's ready (email, text or in person).</p><% } %>
+    <% } else { %>
+      <p>They haven't agreed to get it online, so print the officer's copies (Copy B and Copy 2) and give or mail them by January 31.</p>
+    <% } %>
+  </div>
+  <details class="danger-zone">
+    <summary>Something's wrong? Make a corrected form</summary>
+    <p>This turns the form back into a draft marked CORRECTED. Fix it, issue it again, give them the new copy, and file the correction with the IRS too.</p>
+    <form method="post" action="/tax/forms/<%= form.id %>/correct" data-confirm="Make a corrected 1099-NEC?">
+      <%- include('../partials/csrf') %>
+      <button type="submit" class="btn btn-danger">Make corrected form</button>
+    </form>
+  </details>
+<% } %>
+<%- include('../partials/bottom') %>

@@ -1,0 +1,7 @@
+<%- include('../partials/top') %>
+<div class="page-head"><div><h1>Almost there</h1></div></div>
+<div class="card card-pad narrow">
+  <p>Your account isn't linked to <%= currentUser.role === 'officer' ? 'your staff record' : 'a client' %> yet, so there's no schedule to show.</p>
+  <p class="muted">Please ask the office to finish setting up your account.</p>
+</div>
+<%- include('../partials/bottom') %>

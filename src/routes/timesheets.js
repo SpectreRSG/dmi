@@ -4,6 +4,7 @@ const db = require('../db');
 const { clean, toId, toNumber, asArray, notFound, numericIdParam, logActivity, goBack, employeeName } = require('../helpers');
 const time = require('../time');
 const { entryHours, round2 } = require('../services/payroll');
+const { sendUpload } = require('../uploads');
 
 const router = express.Router();
 numericIdParam(router);
@@ -165,6 +166,27 @@ router.get('/', async (req, res) => {
     staff,
     isLocked,
   });
+});
+
+// ---- Timesheets officers sent in (with their PDF) ---------------------------------
+
+router.get('/submissions', async (req, res) => {
+  const submissions = await db.all(
+    `SELECT s.*, e.first_name, e.last_name,
+       (SELECT COUNT(*)::int FROM time_entries t WHERE t.submission_id = s.id AND t.status = 'pending') AS pending
+     FROM timesheet_submissions s JOIN employees e ON e.id = s.employee_id
+     WHERE s.status = 'submitted' ORDER BY s.submitted_at DESC LIMIT 200`
+  );
+  const counts = Object.fromEntries((await db.all('SELECT status, COUNT(*)::int AS n FROM time_entries GROUP BY status')).map((r) => [r.status, r.n]));
+  res.render('timesheets/submissions', { title: 'Officer timesheets', submissions, counts });
+});
+
+router.get('/submissions/:id/pdf', async (req, res) => {
+  const submission = await db.get('SELECT * FROM timesheet_submissions WHERE id = ?', req.params.id);
+  if (!submission?.file_name) return notFound(res, 'timesheet');
+  const employee = await db.get('SELECT last_name, first_name FROM employees WHERE id = ?', submission.employee_id);
+  const who = `${employee.last_name}_${employee.first_name}`.replace(/[^A-Za-z0-9_-]+/g, '');
+  await sendUpload(res, submission.file_name, `DMI_Timesheet_${who}_${submission.period_start}_to_${submission.period_end}.pdf`);
 });
 
 // ---- Add / edit -------------------------------------------------------------------

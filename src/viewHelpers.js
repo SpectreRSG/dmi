@@ -25,7 +25,6 @@ const ICONS = {
   menu: '<path d="M3 6h18M3 12h18M3 18h18"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   alert: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/>',
-  share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98M15.41 6.51l-6.82 3.98"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
 };
 
@@ -33,23 +32,32 @@ function icon(name) {
   return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
 }
 
-// The sidebar menu. adminOnly items are hidden from managers.
+// The sidebar menu. Each item lists which kinds of account see it.
+const OFFICE = ['admin', 'manager'];
 const NAV = [
-  { href: '/', label: 'Dashboard', icon: 'dashboard' },
-  { href: '/schedule', label: 'Schedule', icon: 'calendar' },
-  { href: '/timesheets', label: 'Timesheets', icon: 'clock' },
-  { href: '/pay', label: 'Pay', icon: 'money', adminOnly: true },
-  { href: '/staff', label: 'Staff', icon: 'users' },
-  { href: '/clients', label: 'Clients & sites', icon: 'building' },
-  { href: '/contracts', label: 'Contracts', icon: 'file' },
-  { href: '/training', label: 'Training', icon: 'cap' },
-  { href: '/portal-access', label: 'Portal access', icon: 'share' },
+  { href: '/', label: 'Dashboard', icon: 'dashboard', roles: OFFICE },
+  { href: '/schedule', label: 'Schedule', icon: 'calendar', roles: OFFICE },
+  { href: '/timesheets', label: 'Timesheets', icon: 'clock', roles: OFFICE },
+  { href: '/pay', label: 'Pay', icon: 'money', roles: ['admin'] },
+  { href: '/staff', label: 'Staff', icon: 'users', roles: OFFICE },
+  { href: '/clients', label: 'Clients & sites', icon: 'building', roles: OFFICE },
+  { href: '/contracts', label: 'Contracts', icon: 'file', roles: OFFICE },
+  { href: '/training', label: 'Training', icon: 'cap', roles: OFFICE },
+  { href: '/my/schedule', label: 'My schedule', icon: 'calendar', roles: ['officer'] },
+  { href: '/my/schedule', label: 'Schedule', icon: 'calendar', roles: ['client'] },
+  { href: '/my/timesheets', label: 'Timesheets', icon: 'clock', roles: ['officer'] },
+  { href: '/my/tax', label: 'Tax forms', icon: 'file', roles: ['officer'] },
+  { href: '/waiting', label: 'Getting started', icon: 'clock', roles: ['pending'] },
 ];
 const ADMIN_NAV = [
   { href: '/users', label: 'User accounts', icon: 'key' },
+  { href: '/tax', label: '1099 forms', icon: 'file' },
   { href: '/settings', label: 'Settings', icon: 'sliders' },
   { href: '/activity', label: 'Activity log', icon: 'list' },
 ];
+
+// What each role is called on screen.
+const ROLE_NAMES = { admin: 'Admin', manager: 'Manager', officer: 'Officer', client: 'Client', pending: 'Waiting for approval' };
 
 function isActive(currentPath, href) {
   if (href === '/') return currentPath === '/';
@@ -131,6 +139,7 @@ module.exports = {
   icon,
   NAV,
   ADMIN_NAV,
+  ROLE_NAMES,
   isActive,
   formatMoney,
   fmtHours,

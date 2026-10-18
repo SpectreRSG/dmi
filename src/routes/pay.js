@@ -228,9 +228,11 @@ router.post('/:id/finalize', async (req, res) => {
   const run = await findRun(req.params.id);
   if (!run) return notFound(res, 'pay run');
   if (!draftOnly(req, res, run)) return;
+  // The day the money goes out (1099s count pay by the year it was paid).
+  const paidOn = time.isValidDate(req.body.paid_on) ? req.body.paid_on : time.todayStr();
   // Recalculate first, so hours rejected or edited since the draft was made are never paid by mistake.
   await recalculate(run, res.locals.settings);
-  await db.run("UPDATE pay_runs SET status = 'finalized', finalized_at = app_now() WHERE id = ?", run.id);
+  await db.run("UPDATE pay_runs SET status = 'finalized', finalized_at = app_now(), paid_on = ? WHERE id = ?", paidOn, run.id);
   await logActivity(req, `Finalized pay run #${run.id} (${run.period_start} to ${run.period_end})`);
   req.flash('success', 'Pay run finalized using the latest approved hours. Those hours are now locked.');
   res.redirect(`/pay/${run.id}`);

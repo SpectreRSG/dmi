@@ -92,7 +92,7 @@ router.post('/setup', async (req, res, next) => {
 });
 
 router.get('/login', (req, res) => {
-  if (req.user) return res.redirect('/');
+  if (req.user) return res.redirect(auth.homeFor(req.user));
   res.render('auth/login', { title: 'Sign in', email: '', error: null, next: safeNext(req.query.next) });
 });
 
@@ -114,7 +114,62 @@ router.post('/login', async (req, res, next) => {
   }
 
   await auth.clearFailedLogins(key);
-  signIn(req, res, next, user.id, nextUrl);
+  signIn(req, res, next, user.id, nextUrl === '/' ? auth.homeFor(user) : nextUrl);
+});
+
+// ---- New accounts -----------------------------------------------------------
+// Anyone can sign up, but a new account can't see anything until an admin
+// gives it a role (Officer, Client, Manager or Admin) on the User accounts page.
+
+const SIGNUP_KINDS = { officer: 'Security officer', client: 'Client (I hire DMI)' };
+
+function renderRegister(res, values, error, status = 200) {
+  res.status(status).render('auth/register', { title: 'Create an account', values, error, SIGNUP_KINDS });
+}
+
+router.get('/register', (req, res) => {
+  if (req.user) return res.redirect(auth.homeFor(req.user));
+  renderRegister(res, { requested_role: 'officer' }, null);
+});
+
+router.post('/register', async (req, res, next) => {
+  const values = clean(req.body, ['name', 'email', 'phone', 'requested_role']);
+  if (!SIGNUP_KINDS[values.requested_role]) values.requested_role = 'officer';
+  // At most 5 new accounts from one address every 15 minutes (counted like wrong passwords).
+  const key = `register|${req.ip}`;
+  if (await auth.isLockedOut(key)) {
+    return renderRegister(res, values, 'Too many new accounts from this connection. Please try again later.', 429);
+  }
+  let error = null;
+  if (!values.name || !values.email) error = 'Please fill in your name and email.';
+  else if (!/^\S+@\S+\.\S+$/.test(values.email)) error = 'Please enter a valid email address.';
+  else error = auth.passwordProblem(req.body.password, req.body.confirm);
+  if (error) return renderRegister(res, values, error, 400);
+
+  let userId;
+  try {
+    userId = await db.insert(
+      "INSERT INTO users (name, email, phone, password_hash, role, requested_role) VALUES (?, ?, ?, ?, 'pending', ?)",
+      values.name.slice(0, 100),
+      values.email,
+      values.phone ? values.phone.slice(0, 40) : null,
+      auth.hashPassword(req.body.password),
+      values.requested_role
+    );
+  } catch (err) {
+    if (err?.code !== '23505') throw err;
+    return renderRegister(res, values, 'There is already an account with that email. Try signing in instead.', 400);
+  }
+  await auth.recordFailedLogin(key);
+  req.user = { id: userId };
+  await logActivity(req, `Signed up as a ${SIGNUP_KINDS[values.requested_role].toLowerCase()} (waiting for a role)`);
+  signIn(req, res, next, userId, '/waiting', 'Your account is created.');
+});
+
+router.get('/waiting', (req, res) => {
+  if (!req.user) return res.redirect('/login');
+  if (req.user.role !== 'pending') return res.redirect(auth.homeFor(req.user));
+  res.render('auth/waiting', { title: 'Waiting for approval' });
 });
 
 router.post('/logout', (req, res, next) => {

@@ -2,7 +2,7 @@
 <div class="page-head">
   <div>
     <h1>My account</h1>
-    <p class="page-sub"><%= currentUser.name %> · <%= currentUser.email %> · <%= capitalize(currentUser.role) %></p>
+    <p class="page-sub"><%= currentUser.name %> · <%= currentUser.email %> · <%= ROLE_NAMES[currentUser.role] %></p>
   </div>
 </div>
 <div class="card form-card narrow">

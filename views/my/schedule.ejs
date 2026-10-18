@@ -1,0 +1,102 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1><%= fmtMonth(month) %></h1>
+    <p class="page-sub"><%= heading %></p>
+  </div>
+  <div class="page-actions"><button type="button" class="btn" data-print>Print</button></div>
+</div>
+
+<% if (next) { %>
+  <div class="card card-pad next-shift">
+    <span class="muted small">Your next shift</span>
+    <strong><%= fmtDay(next.start_at) %> · <%= fmtRange(next.start_at, next.end_at) %></strong>
+    <span><%= next.site %> (<%= next.client %>)<%= next.address ? ` · ${next.address}` : '' %></span>
+  </div>
+<% } %>
+
+<div class="toolbar">
+  <div class="btn-group">
+    <a class="btn" href="/my/schedule?month=<%= prevMonth %>">← <%= fmtMonth(prevMonth).split(' ')[0] %></a>
+    <a class="btn <%= month === thisMonth ? 'btn-current' : '' %>" href="/my/schedule">This month</a>
+    <a class="btn" href="/my/schedule?month=<%= nextMonth %>"><%= fmtMonth(nextMonth).split(' ')[0] %> →</a>
+  </div>
+  <p class="muted small month-totals">
+    <%= totals.shifts %> shift<%= totals.shifts === 1 ? '' : 's' %> · <%= fmtHours(totals.hours) %> hours
+    <% if (!isOfficer && totals.unfilled) { %> · <%- badge(`${totals.unfilled} not yet assigned`, 'amber') %><% } %>
+  </p>
+</div>
+
+<% if (sites.length) { %>
+  <div class="site-cards">
+    <% for (const site of sites) { %>
+      <div class="card card-pad">
+        <h2><%= site.name %></h2>
+        <% if (site.address) { %><p class="muted small"><%= site.address %></p><% } %>
+        <% if (site.instructions) { %><p class="small pre-line"><%= site.instructions %></p><% } %>
+      </div>
+    <% } %>
+  </div>
+<% } %>
+
+<div class="card month-cal" role="table" aria-label="<%= fmtMonth(month) %> calendar">
+  <div class="month-row month-head" role="row">
+    <% for (const name of ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']) { %><div role="columnheader"><%= name %></div><% } %>
+  </div>
+  <% for (const week of weeks) { %>
+    <div class="month-row" role="row">
+      <% for (const day of week) { %>
+        <div role="cell" class="month-day <%= day.inMonth ? '' : 'is-other' %> <%= day.date === today ? 'is-today' : '' %>">
+          <span class="month-date"><%= Number(day.date.slice(8)) %></span>
+          <% const count = day.items.filter((i) => i.status !== 'cancelled').length; %>
+          <% if (count) { %><span class="month-count"><%= count %></span><% } %>
+          <% for (const item of day.items) { %>
+            <div class="cal-item <%= item.kind === 'training' ? 'is-training' : '' %> <%= item.status === 'cancelled' ? 'is-cancelled' : '' %> <%= item.kind === 'shift' && !item.guard ? 'is-open' : '' %>">
+              <span class="cal-time"><%= fmtRange(item.start_at, item.end_at) %></span>
+              <span class="cal-what">
+                <% if (item.kind === 'training') { %><%= item.course %> training<% } else if (isOfficer) { %><%= item.site %><% } else { %><%= item.guard || 'Not yet assigned' %><% } %>
+              </span>
+            </div>
+          <% } %>
+        </div>
+      <% } %>
+    </div>
+  <% } %>
+</div>
+
+<h2 class="section-title">Details</h2>
+<% if (!monthItems.length) { %>
+  <div class="card"><p class="empty">Nothing scheduled in <%= fmtMonth(month) %>.</p></div>
+<% } %>
+<% let lastDate = null; %>
+<% if (monthItems.length) { %>
+<div class="card agenda-card">
+  <ul class="agenda">
+    <% for (const item of monthItems) { const date = item.start_at.slice(0, 10); %>
+      <li class="agenda-item <%= item.status === 'cancelled' ? 'is-cancelled' : '' %> <%= date < today ? 'is-past' : '' %>">
+        <div class="agenda-time"><% if (date !== lastDate) { %><span class="agenda-day"><%= fmtDay(date) %></span><% } lastDate = date; %><%= fmtRange(item.start_at, item.end_at) %></div>
+        <div class="agenda-body">
+          <% if (item.kind === 'training') { %>
+            <strong><%= item.course %> training</strong> <%- badge('Training', 'blue') %>
+            <% if (item.location) { %><div class="muted small"><%= item.location %></div><% } %>
+          <% } else if (isOfficer) { %>
+            <strong><%= item.site %></strong> <span class="muted">· <%= item.client %></span>
+            <% if (item.status === 'cancelled') { %><%- badge('Cancelled', 'gray') %><% } %>
+            <% if (item.address) { %><div class="muted small"><%= item.address %></div><% } %>
+            <% if (item.notes) { %><div class="small pre-line"><%= item.notes %></div><% } %>
+            <% if (item.instructions) { %>
+              <details class="small"><summary>Site instructions</summary><p class="pre-line"><%= item.instructions %></p></details>
+            <% } %>
+          <% } else { %>
+            <% if (item.guard) { %><strong><%= item.guard %></strong><% } else { %><%- badge('Not yet assigned', 'amber') %><% } %>
+            <span class="muted">· <%= item.site %></span>
+            <% if (item.status === 'cancelled') { %><%- badge('Cancelled', 'gray') %><% } %>
+          <% } %>
+        </div>
+      </li>
+    <% } %>
+  </ul>
+</div>
+<% } %>
+<p class="muted small center-note">Schedules can change, so check back before each shift.</p>
+<%- include('../partials/bottom') %>

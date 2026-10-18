@@ -1,0 +1,80 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Tax forms</h1>
+    <p class="page-sub">As an independent contractor you get a Form 1099-NEC from <%= settings.company_name %> each year, showing what you were paid.</p>
+  </div>
+</div>
+
+<section class="card card-pad">
+  <div class="card-title-row">
+    <h2>1. Your W-9 details</h2>
+    <a class="btn btn-sm <%= profile ? '' : 'btn-primary' %>" href="/my/tax/w9"><%= profile ? 'Update' : 'Fill in now' %></a>
+  </div>
+  <% if (!profile) { %>
+    <p>We need these (the same as IRS Form W-9) to make your 1099. It takes about two minutes. Your Social Security number is stored encrypted and only the office's admins can see it.</p>
+  <% } else { %>
+    <dl class="dl">
+      <dt>Name</dt><dd><%= profile.legal_name %><%= profile.business_name ? ` (${profile.business_name})` : '' %></dd>
+      <dt>Tax classification</dt><dd><%= TAX_CLASSIFICATIONS[profile.tax_classification] %><%= profile.llc_classification ? ` – taxed as ${LLC_CLASSIFICATIONS[profile.llc_classification]}` : '' %></dd>
+      <dt>Address</dt><dd><%= profile.address %>, <%= profile.city %>, <%= profile.state %> <%= profile.zip %></dd>
+      <dt><%= profile.tin_type === 'EIN' ? 'EIN' : 'Social Security number' %></dt><dd><%= maskedTin %></dd>
+      <dt>Signed</dt><dd><%= profile.signed_name %>, <%= fmtDateTime(profile.signed_at) %></dd>
+    </dl>
+  <% } %>
+</section>
+
+<section class="card card-pad">
+  <h2>2. How you get your 1099</h2>
+  <% if (!profile) { %>
+    <p class="muted">Fill in your W-9 details first.</p>
+  <% } else if (profile.electronic_consent) { %>
+    <p><%- badge('Online', 'green') %> You agreed on <%= fmtDateTime(profile.consent_at) %> to get your 1099 here instead of on paper.</p>
+    <form method="post" action="/my/tax/consent" data-confirm="Switch to getting your 1099 on paper?">
+      <%- include('../partials/csrf') %>
+      <input type="hidden" name="agree" value="0">
+      <button type="submit" class="btn btn-sm">Switch to paper</button>
+    </form>
+  <% } else { %>
+    <p><%- badge('On paper', 'gray') %> The office will give or mail you a paper copy. You can choose to get it online here instead:</p>
+    <form method="post" action="/my/tax/consent" class="consent-box">
+      <%- include('../partials/csrf') %>
+      <input type="hidden" name="agree" value="1">
+      <ul class="plain-list small">
+        <li>If you agree, your Form 1099-NEC will be put in this account instead of being given to you on paper. If you don't agree, you'll get it on paper.</li>
+        <li>This covers every 1099-NEC from <%= settings.company_name %>, until you change your mind.</li>
+        <li>You can still ask the office for a paper copy at any time, even after agreeing.</li>
+        <li>You can stop at any time with the "Switch to paper" button here, or by telling the office in writing. We'll confirm the change.</li>
+        <li>Online copies stop if you no longer work with <%= settings.company_name %> or your account is closed; you'll get paper instead.</li>
+        <li>The office will tell you when your form is ready. Each form stays available here until at least October 15 of the following year.</li>
+        <li>Keep your email and phone number up to date with the office so they can reach you.</li>
+        <li>You need a phone or computer with a web browser and a PDF viewer (almost all have one), and a way to save or print the file.</li>
+      </ul>
+      <label class="check"><input type="checkbox" name="understand" value="1"> I have read this and agree to get my 1099-NEC online.</label>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Get my 1099 online</button></div>
+    </form>
+  <% } %>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>3. Your 1099s</h2></div>
+  <% if (!forms.length) { %>
+    <p class="empty"><%= profile && profile.electronic_consent ? 'Nothing here yet. Forms are usually ready by January 31.' : 'Forms you get online will appear here.' %></p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Year</th><th class="num">Box 1 – Nonemployee compensation</th><th></th></tr></thead>
+        <tbody>
+          <% for (const f of forms) { %>
+            <tr>
+              <td><strong><%= f.tax_year %></strong><%= f.corrected ? ' (corrected)' : '' %></td>
+              <td class="num"><%= money(f.box1) %></td>
+              <td class="actions"><a href="/my/tax/1099/<%= f.id %>"><%- icon('file') %> Download PDF</a></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</section>
+<%- include('../partials/bottom') %>

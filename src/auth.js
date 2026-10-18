@@ -75,7 +75,10 @@ async function clearFailedLogins(key) {
 async function loadUser(req, res, next) {
   req.user = null;
   if (req.session.userId) {
-    const user = await db.get('SELECT id, name, email, role FROM users WHERE id = ? AND active = 1', req.session.userId);
+    const user = await db.get(
+      'SELECT id, name, email, phone, role, employee_id, client_id FROM users WHERE id = ? AND active = 1',
+      req.session.userId
+    );
     if (user) req.user = user;
     else delete req.session.userId; // account was removed or deactivated
   }
@@ -84,10 +87,25 @@ async function loadUser(req, res, next) {
   next();
 }
 
+// Where each kind of account starts after signing in.
+function homeFor(user) {
+  if (user.role === 'officer' || user.role === 'client') return '/my';
+  if (user.role === 'pending') return '/waiting';
+  return '/';
+}
+
 function requireLogin(req, res, next) {
   if (req.user) return next();
   if (req.method === 'GET') return res.redirect(`/login?next=${encodeURIComponent(req.originalUrl)}`);
   return res.redirect('/login');
+}
+
+// The back office (everything except /my and /account) is for admins and managers.
+// Officers and clients are sent to their own pages; new accounts wait for a role.
+function requireBackOffice(req, res, next) {
+  if (req.user.role === 'admin' || req.user.role === 'manager') return next();
+  if (req.method === 'GET') return res.redirect(homeFor(req.user));
+  res.status(403).render('error', { title: 'Not allowed', message: "Your account can't do that." });
 }
 
 function requireAdmin(req, res, next) {
@@ -108,6 +126,8 @@ module.exports = {
   recordFailedLogin,
   clearFailedLogins,
   loadUser,
+  homeFor,
+  requireBackOffice,
   requireLogin,
   requireAdmin,
 };

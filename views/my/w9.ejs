@@ -1,0 +1,71 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/my/tax">← Tax forms</a></p>
+    <h1>W-9 details</h1>
+    <p class="page-sub">The same questions as IRS Form W-9 (Request for Taxpayer Identification Number and Certification). <%= settings.company_name %> uses them only to prepare your 1099-NEC.</p>
+  </div>
+</div>
+<%- include('../partials/form-error') %>
+<form method="post" action="/my/tax/w9" class="card form-card narrow" autocomplete="off">
+  <%- include('../partials/csrf') %>
+  <div class="form-grid">
+    <label class="field-full">1. Name (as shown on your income tax return) <input name="legal_name" value="<%= values.legal_name || '' %>" required maxlength="100"></label>
+    <label class="field-full">2. Business name, if different from above (optional) <input name="business_name" value="<%= values.business_name || '' %>" maxlength="100"></label>
+    <fieldset class="field-full choice-list">
+      <legend>3. Federal tax classification</legend>
+      <% for (const [key, label] of Object.entries(TAX_CLASSIFICATIONS)) { %>
+        <label class="check"><input type="radio" name="tax_classification" value="<%= key %>" <%= values.tax_classification === key ? 'checked' : '' %>> <%= label %></label>
+      <% } %>
+      <label class="llc-class">If LLC, it is taxed as
+        <select name="llc_classification">
+          <option value="">Choose…</option>
+          <% for (const [key, label] of Object.entries(LLC_CLASSIFICATIONS)) { %><option value="<%= key %>" <%= values.llc_classification === key ? 'selected' : '' %>><%= key %> – <%= label %></option><% } %>
+        </select>
+      </label>
+      <span class="hint">Most officers working for themselves choose "Individual / sole proprietor".</span>
+    </fieldset>
+    <label class="field-full">5. Street address (number, street, and apt. or suite no.) <input name="address" value="<%= values.address || '' %>" required maxlength="120" autocomplete="street-address"></label>
+    <label>6. City <input name="city" value="<%= values.city || '' %>" required maxlength="60" autocomplete="address-level2"></label>
+    <div class="field-pair">
+      <label>State <input name="state" value="<%= values.state || '' %>" required maxlength="2" placeholder="CA" autocomplete="address-level1"></label>
+      <label>ZIP <input name="zip" value="<%= values.zip || '' %>" required maxlength="10" autocomplete="postal-code"></label>
+    </div>
+  </div>
+
+  <h2 class="spaced">Part I – Taxpayer Identification Number</h2>
+  <div class="form-grid">
+    <fieldset class="choice-row field-full">
+      <legend>Which number?</legend>
+      <label class="check"><input type="radio" name="tin_type" value="SSN" <%= values.tin_type !== 'EIN' ? 'checked' : '' %>> Social Security number</label>
+      <label class="check"><input type="radio" name="tin_type" value="EIN" <%= values.tin_type === 'EIN' ? 'checked' : '' %>> Employer identification number (EIN)</label>
+    </fieldset>
+    <label class="field-full">Number
+      <input name="tin" inputmode="numeric" maxlength="11" autocomplete="off" spellcheck="false" placeholder="<%= values.has_tin ? values.masked : '123-45-6789' %>" <%= values.has_tin ? '' : 'required' %>>
+      <span class="hint"><%= values.has_tin ? `We have ${values.masked} on file. Leave this empty to keep it.` : 'Use your SSN if you work for yourself, or your EIN if you have a business that has one.' %> It is stored encrypted.</span>
+    </label>
+  </div>
+
+  <h2>Part II – Certification</h2>
+  <div class="cert-text small">
+    <p>Under penalties of perjury, I certify that:</p>
+    <ol>
+      <li>The number shown on this form is my correct taxpayer identification number; and</li>
+      <li>I am not subject to backup withholding because (a) I am exempt from backup withholding, or (b) I have not been notified by the Internal Revenue Service (IRS) that I am subject to backup withholding as a result of a failure to report all interest or dividends, or (c) the IRS has notified me that I am no longer subject to backup withholding; and</li>
+      <li>I am a U.S. citizen or other U.S. person; and</li>
+      <li>The FATCA code(s) entered on this form (if any) indicating that I am exempt from FATCA reporting is correct.</li>
+    </ol>
+    <p class="muted">The Internal Revenue Service does not require your consent to any provision of this document other than the certifications required to avoid backup withholding.</p>
+  </div>
+  <div class="form-grid">
+    <label class="check field-full"><input type="checkbox" name="backup_withholding" value="1" <%= values.backup_withholding ? 'checked' : '' %>> <span>The IRS has told me I am <strong>currently</strong> subject to backup withholding (this crosses out item 2)</span></label>
+    <label class="check field-full"><input type="checkbox" name="certify" value="1" required> I certify the statements above are true, under penalties of perjury.</label>
+    <label>Signature (type your full name) <input name="signed_name" value="<%= values.signed_name || '' %>" required maxlength="100" autocomplete="name"></label>
+    <label>Date <input value="<%= fmtDate(todayStr()) %>" disabled></label>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Sign and save</button>
+    <a class="btn btn-ghost" href="/my/tax">Cancel</a>
+  </div>
+</form>
+<%- include('../partials/bottom') %>

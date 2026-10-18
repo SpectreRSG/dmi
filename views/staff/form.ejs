@@ -37,6 +37,13 @@
         <input type="number" name="hourly_rate" min="0" step="0.01" value="<%= employee.hourly_rate ?? '' %>">
         <span class="hint">Used to calculate pay. Only admins can see this.</span>
       </label>
+      <label>Paid as
+        <select name="tax_form">
+          <option value="1099" <%= employee.tax_form !== 'W-2' ? 'selected' : '' %>>1099 independent contractor</option>
+          <option value="W-2" <%= employee.tax_form === 'W-2' ? 'selected' : '' %>>W-2 employee</option>
+        </select>
+        <span class="hint">Contractors get a 1099-NEC from this app. W-2s are done by your payroll provider.</span>
+      </label>
     <% } %>
     <label>Status
       <select name="status">

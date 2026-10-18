@@ -24,7 +24,7 @@ const EMPLOYMENT_TYPES = ['Full-time', 'Part-time', 'Casual', 'Contractor'];
 const FIELDS = [
   'first_name', 'last_name', 'email', 'phone', 'address', 'position', 'employment_type', 'hourly_rate',
   'start_date', 'end_date', 'license_number', 'license_expiry', 'emergency_contact_name',
-  'emergency_contact_phone', 'status', 'notes', 'license_required',
+  'emergency_contact_phone', 'status', 'notes', 'license_required', 'tax_form',
 ];
 
 function readForm(req, existing) {
@@ -33,6 +33,8 @@ function readForm(req, existing) {
   v.status = v.status === 'inactive' ? 'inactive' : 'active';
   // Only admins can see or change pay rates.
   v.hourly_rate = req.user.role === 'admin' ? toNumber(v.hourly_rate, 0) : (existing?.hourly_rate ?? 0);
+  // 1099 contractor or W-2 employee (admins only, like pay).
+  v.tax_form = req.user.role === 'admin' ? (v.tax_form === 'W-2' ? 'W-2' : '1099') : (existing?.tax_form ?? '1099');
 
   let error = null;
   if (!v.first_name || !v.last_name) error = 'First name and last name are required.';
@@ -139,10 +141,16 @@ router.get('/:id', async (req, res) => {
     db.all('SELECT * FROM contracts WHERE employee_id = ? ORDER BY start_date DESC', employee.id),
     complianceForEmployee(employee, res.locals.settings.expiry_warning_days),
   ]);
+  const account = await db.get('SELECT id, email, role, last_login_at FROM users WHERE employee_id = ?', employee.id);
+  const taxProfile = res.locals.isAdmin
+    ? await db.get('SELECT tin_type, tin_last4, signed_at, electronic_consent, backup_withholding FROM tax_profiles WHERE employee_id = ?', employee.id)
+    : null;
 
   res.render('staff/show', {
     title: employeeName(employee),
     employee,
+    account,
+    taxProfile,
     compliance,
     upcomingShifts,
     recentEntries,

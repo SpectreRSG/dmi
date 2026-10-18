@@ -1,0 +1,39 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Timesheets</h1>
+    <p class="page-sub">Send in your hours every two weeks (Sunday to Saturday). The office checks them before pay day.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/my/timesheets/new?period=<%= previousPeriod %>">Last period</a>
+    <a class="btn btn-primary" href="/my/timesheets/new?period=<%= currentPeriod %>"><%- icon('plus') %> This period</a>
+  </div>
+</div>
+<div class="card">
+  <% if (!submissions.length) { %>
+    <p class="empty">You haven't sent any timesheets yet. Press <strong>This period</strong> to fill one in.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Pay period</th><th class="num">Hours</th><th>Sent</th><th>Checked by the office</th><th></th></tr></thead>
+        <tbody>
+          <% for (const s of submissions) { const c = s.counts; %>
+            <tr>
+              <td><a href="/my/timesheets/new?period=<%= s.period_start %>"><%= fmtDate(s.period_start) %> – <%= fmtDate(s.period_end) %></a></td>
+              <td class="num"><%= fmtHours(s.total_hours) %></td>
+              <td class="nowrap"><%= fmtDateTime(s.submitted_at) %></td>
+              <td>
+                <% if (c.paid) { %><%- badge('Paid', 'green') %><% } else if (c.approved && !c.pending && !c.rejected) { %><%- badge('Approved', 'green') %><% } %>
+                <% if (c.pending) { %><%- badge(`${c.pending} day(s) waiting`, 'amber') %><% } %>
+                <% if (c.rejected) { %><%- badge(`${c.rejected} day(s) not accepted`, 'red') %><% } %>
+                <% if (c.approved && (c.pending || c.rejected)) { %><%- badge(`${c.approved} approved`, 'green') %><% } %>
+              </td>
+              <td class="actions"><a href="/my/timesheets/<%= s.id %>/pdf"><%- icon('file') %> PDF</a></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+<%- include('../partials/bottom') %>

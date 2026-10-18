@@ -9,6 +9,15 @@ const DEFAULTS = {
   overtime_multiplier: '1.5', // overtime pays this many times the normal rate
   expiry_warning_days: '30', // warn this many days before licenses/training/contracts expire
   min_rest_hours: '8', // the conflict checker warns if someone has less rest than this between shifts
+  // The company as it appears in the PAYER boxes of 1099 forms.
+  payer_name: '', // legal name
+  payer_ein: '',
+  payer_address: '',
+  payer_city: '',
+  payer_state: '',
+  payer_zip: '',
+  payer_phone: '',
+  payer_state_id: '', // state payer number (box 6), if your state has one
 };
 
 // The time zones you can pick on the Settings page.
@@ -34,6 +43,14 @@ async function getSettings() {
     overtime_multiplier: Number(s.overtime_multiplier),
     expiry_warning_days: Number(s.expiry_warning_days),
     min_rest_hours: Number(s.min_rest_hours),
+    payer_name: s.payer_name,
+    payer_ein: s.payer_ein,
+    payer_address: s.payer_address,
+    payer_city: s.payer_city,
+    payer_state: s.payer_state,
+    payer_zip: s.payer_zip,
+    payer_phone: s.payer_phone,
+    payer_state_id: s.payer_state_id,
   };
 }
 

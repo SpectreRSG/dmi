@@ -1,0 +1,16 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Thanks, <%= currentUser.name.split(' ')[0] %>!</h1>
+    <p class="page-sub">Your account is waiting for the office to approve it.</p>
+  </div>
+</div>
+<div class="card card-pad narrow">
+  <p>Someone at <%= settings.company_name %> will check your account and give it the right access:</p>
+  <ul class="plain-list">
+    <li><strong>Officers</strong> can see their shifts on a monthly calendar, send in timesheets and get their tax forms.</li>
+    <li><strong>Clients</strong> can see the schedule for their sites.</li>
+  </ul>
+  <p class="muted">You don't need to do anything else. Sign in again later, or refresh this page once the office tells you you're set up.</p>
+</div>
+<%- include('../partials/bottom') %>
