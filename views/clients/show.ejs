@@ -1,0 +1,108 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/clients">← Clients</a></p>
+    <h1><%= client.name %></h1>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/contracts/new?client=<%= client.id %>">Add contract</a>
+    <a class="btn btn-primary" href="/clients/<%= client.id %>/edit">Edit</a>
+  </div>
+</div>
+
+<div class="grid-2">
+  <section class="card">
+    <div class="card-head"><h2>Details</h2></div>
+    <dl class="dl">
+      <dt>Contact</dt><dd><%= client.contact_name || '—' %></dd>
+      <dt>Email</dt><dd><%= client.contact_email || '—' %></dd>
+      <dt>Phone</dt><dd><%= client.contact_phone || '—' %></dd>
+      <dt>Address</dt><dd><%= client.address || '—' %></dd>
+      <% if (client.notes) { %><dt>Notes</dt><dd class="pre"><%= client.notes %></dd><% } %>
+    </dl>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Contracts</h2><a href="/contracts/new?client=<%= client.id %>">Add →</a></div>
+    <% if (!contracts.length) { %>
+      <p class="empty">No contracts on file.</p>
+    <% } else { %>
+      <ul class="list">
+        <% for (const k of contracts) { %>
+          <li>
+            <a href="/contracts/<%= k.id %>"><strong><%= k.title %></strong></a>
+            <span class="muted"><%= k.end_date ? `Ends ${fmtDate(k.end_date)}` : 'No end date' %></span>
+            <%- contractBadge(k, settings.expiry_warning_days) %>
+          </li>
+        <% } %>
+      </ul>
+    <% } %>
+  </section>
+</div>
+
+<section class="card">
+  <div class="card-head"><h2>Sites</h2></div>
+  <% if (sites.length) { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Site</th><th>Address</th><th>Guard instructions</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <% for (const s of sites) { %>
+            <tr>
+              <td><strong><%= s.name %></strong></td>
+              <td><%= s.address || '—' %></td>
+              <td class="pre small"><%= s.instructions || '—' %></td>
+              <td><%- s.active ? badge('Active', 'green') : badge('Inactive', 'gray') %></td>
+              <td class="actions nowrap"><a href="/schedule?site=<%= s.id %>">Schedule</a> · <a href="/sites/<%= s.id %>/edit">Edit</a></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } else { %>
+    <p class="empty">No sites yet. Add the first one below; you need a site before you can schedule shifts.</p>
+  <% } %>
+  <form method="post" action="/clients/<%= client.id %>/sites" class="add-row">
+    <%- include('../partials/csrf') %>
+    <h3>Add a site</h3>
+    <div class="form-grid">
+      <label>Site name <input name="name" required placeholder="e.g. Main warehouse"></label>
+      <label>Address <input name="address"></label>
+      <label class="field-full">Guard instructions <textarea name="instructions" rows="2" placeholder="Access codes, patrol routes, who to call…"></textarea></label>
+    </div>
+    <div class="form-actions"><button type="submit" class="btn">Add site</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Shifts in the next 7 days</h2></div>
+  <% if (!upcomingShifts.length) { %>
+    <p class="empty">No shifts booked.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Date</th><th>Time</th><th>Site</th><th>Who</th></tr></thead>
+        <tbody>
+          <% for (const s of upcomingShifts) { %>
+            <tr>
+              <td class="nowrap"><a href="/schedule/<%= s.id %>/edit"><%= fmtDay(s.start_at) %></a></td>
+              <td class="nowrap"><%= fmtRange(s.start_at, s.end_at) %></td>
+              <td><%= s.site_name %></td>
+              <td><% if (s.employee_id) { %><%= s.first_name %> <%= s.last_name %><% } else { %><%- badge('Unfilled', 'red') %><% } %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</section>
+
+<details class="danger-zone">
+  <summary>Delete this client</summary>
+  <p>Only possible once all of their sites and contracts have been removed.</p>
+  <form method="post" action="/clients/<%= client.id %>/delete" data-confirm="Delete <%= client.name %> permanently?">
+    <%- include('../partials/csrf') %>
+    <button type="submit" class="btn btn-danger">Delete permanently</button>
+  </form>
+</details>
+<%- include('../partials/bottom') %>

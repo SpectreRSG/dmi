@@ -1,0 +1,47 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/contracts">← Contracts</a></p>
+    <h1><%= contract.title %> <%- contractBadge(contract, settings.expiry_warning_days) %></h1>
+    <p class="page-sub"><%= contract.contract_type %></p>
+  </div>
+  <div class="page-actions"><a class="btn btn-primary" href="/contracts/<%= contract.id %>/edit">Edit</a></div>
+</div>
+
+<div class="grid-2">
+  <section class="card">
+    <div class="card-head"><h2>Details</h2></div>
+    <dl class="dl">
+      <dt>With</dt>
+      <dd>
+        <% if (contract.party_type === 'client') { %>Client: <a href="/clients/<%= contract.client_id %>"><%= contract.client_name %></a>
+        <% } else if (contract.party_type === 'employee') { %>Staff: <a href="/staff/<%= contract.employee_id %>"><%= contract.first_name %> <%= contract.last_name %></a>
+        <% } else { %><%= contract.other_party %><% } %>
+      </dd>
+      <dt>Status</dt><dd><%= capitalize(contract.status) %></dd>
+      <dt>Signed</dt><dd><%= contract.signed_on ? fmtDate(contract.signed_on) : '—' %></dd>
+      <dt>Starts</dt><dd><%= contract.start_date ? fmtDate(contract.start_date) : '—' %></dd>
+      <dt>Ends</dt><dd><%= contract.end_date ? fmtDate(contract.end_date) : 'No end date' %></dd>
+      <dt>Value</dt><dd><%= contract.value !== null ? money(contract.value) : '—' %></dd>
+      <% if (contract.notes) { %><dt>Notes</dt><dd class="pre"><%= contract.notes %></dd><% } %>
+    </dl>
+  </section>
+  <section class="card">
+    <div class="card-head"><h2>Document</h2></div>
+    <% if (contract.file_name) { %>
+      <p><a class="btn" href="/contracts/<%= contract.id %>/file"><%- icon('paperclip') %> Download <%= contract.file_original %></a></p>
+    <% } else { %>
+      <p class="empty">No signed copy uploaded. <a href="/contracts/<%= contract.id %>/edit">Upload one</a>.</p>
+    <% } %>
+  </section>
+</div>
+
+<details class="danger-zone">
+  <summary>Delete this contract</summary>
+  <p>This also deletes the uploaded document. To keep a record, set the status to <strong>Ended</strong> or <strong>Terminated</strong> instead.</p>
+  <form method="post" action="/contracts/<%= contract.id %>/delete" data-confirm="Delete this contract and its document permanently?">
+    <%- include('../partials/csrf') %>
+    <button type="submit" class="btn btn-danger">Delete permanently</button>
+  </form>
+</details>
+<%- include('../partials/bottom') %>

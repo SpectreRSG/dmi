@@ -1,0 +1,6 @@
+<nav class="tabs" aria-label="Training sections">
+  <a href="/training" class="<%= currentPath === '/training' || currentPath === '/training/' ? 'active' : '' %>">Overview</a>
+  <a href="/training/records" class="<%= currentPath.startsWith('/training/records') ? 'active' : '' %>">Records</a>
+  <a href="/training/sessions" class="<%= currentPath.startsWith('/training/sessions') ? 'active' : '' %>">Sessions</a>
+  <a href="/training/courses" class="<%= currentPath.startsWith('/training/courses') ? 'active' : '' %>">Courses</a>
+</nav>

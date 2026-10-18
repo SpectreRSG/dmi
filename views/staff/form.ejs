@@ -1,0 +1,66 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1><%= title %></h1>
+    <% if (employee.id) { %><p class="page-sub"><a href="/staff/<%= employee.id %>">← Back to profile</a></p><% } %>
+  </div>
+</div>
+<%- include('../partials/form-error') %>
+<form method="post" action="<%= employee.id ? `/staff/${employee.id}` : '/staff' %>" class="card form-card">
+  <%- include('../partials/csrf') %>
+
+  <h2>Personal details</h2>
+  <div class="form-grid">
+    <label>First name <input name="first_name" value="<%= employee.first_name || '' %>" required></label>
+    <label>Last name <input name="last_name" value="<%= employee.last_name || '' %>" required></label>
+    <label>Email <input type="email" name="email" value="<%= employee.email || '' %>"></label>
+    <label>Phone <input type="tel" name="phone" value="<%= employee.phone || '' %>"></label>
+    <label class="field-full">Address <input name="address" value="<%= employee.address || '' %>"></label>
+    <label>Emergency contact name <input name="emergency_contact_name" value="<%= employee.emergency_contact_name || '' %>"></label>
+    <label>Emergency contact phone <input type="tel" name="emergency_contact_phone" value="<%= employee.emergency_contact_phone || '' %>"></label>
+  </div>
+
+  <h2>Job</h2>
+  <div class="form-grid">
+    <label>Position
+      <input name="position" list="positions" value="<%= employee.position || '' %>" placeholder="Pick or type">
+      <datalist id="positions"><% for (const p of POSITIONS) { %><option value="<%= p %>"><% } %></datalist>
+    </label>
+    <label>Employment type
+      <select name="employment_type">
+        <option value="">—</option>
+        <% for (const t of EMPLOYMENT_TYPES) { %><option <%= employee.employment_type === t ? 'selected' : '' %>><%= t %></option><% } %>
+      </select>
+    </label>
+    <% if (locals.isAdmin) { %>
+      <label>Hourly pay rate (<%= settings.currency_symbol %>)
+        <input type="number" name="hourly_rate" min="0" step="0.01" value="<%= employee.hourly_rate ?? '' %>">
+        <span class="hint">Used to calculate pay. Only admins can see this.</span>
+      </label>
+    <% } %>
+    <label>Status
+      <select name="status">
+        <option value="active" <%= employee.status !== 'inactive' ? 'selected' : '' %>>Active</option>
+        <option value="inactive" <%= employee.status === 'inactive' ? 'selected' : '' %>>Inactive (left / on leave)</option>
+      </select>
+    </label>
+    <label>Start date <input type="date" name="start_date" value="<%= employee.start_date || '' %>"></label>
+    <label>End date <input type="date" name="end_date" value="<%= employee.end_date || '' %>"><span class="hint">Leave empty if still employed.</span></label>
+  </div>
+
+  <h2>Security license</h2>
+  <div class="form-grid">
+    <label class="check field-full"><input type="checkbox" name="license_required" value="1" <%= employee.license_required ? 'checked' : '' %>> This person needs a security license to work</label>
+    <label>License number <input name="license_number" value="<%= employee.license_number || '' %>"></label>
+    <label>License expiry <input type="date" name="license_expiry" value="<%= employee.license_expiry || '' %>"></label>
+  </div>
+
+  <h2>Notes</h2>
+  <label class="field-full"><span class="sr-only">Notes</span><textarea name="notes" rows="3"><%= employee.notes || '' %></textarea></label>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save</button>
+    <a class="btn btn-ghost" href="<%= employee.id ? `/staff/${employee.id}` : '/staff' %>">Cancel</a>
+  </div>
+</form>
+<%- include('../partials/bottom') %>

@@ -1,0 +1,51 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Contracts &amp; agreements</h1>
+    <p class="page-sub">Client agreements, employment contracts, NDAs and more, with their signed copies.</p>
+  </div>
+  <div class="page-actions"><a class="btn btn-primary" href="/contracts/new"><%- icon('plus') %> Add contract</a></div>
+</div>
+
+<form class="filters" method="get" action="/contracts">
+  <input type="search" name="q" value="<%= q %>" placeholder="Search title or party…" aria-label="Search">
+  <select name="status" data-autosubmit aria-label="Status">
+    <option value="all" <%= status === 'all' ? 'selected' : '' %>>Any status</option>
+    <option value="ending" <%= status === 'ending' ? 'selected' : '' %>>Ending soon / expired</option>
+    <% for (const s of STATUSES) { %><option value="<%= s %>" <%= status === s ? 'selected' : '' %>><%= capitalize(s) %></option><% } %>
+  </select>
+  <select name="type" data-autosubmit aria-label="Type">
+    <option value="">Any type</option>
+    <% for (const t of CONTRACT_TYPES) { %><option <%= type === t ? 'selected' : '' %>><%= t %></option><% } %>
+  </select>
+  <button class="btn" type="submit">Search</button>
+</form>
+
+<div class="card">
+  <% if (!contracts.length) { %>
+    <p class="empty">No contracts found. <a href="/contracts/new">Add one</a>.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Title</th><th>With</th><th>Type</th><th>Start</th><th>End</th><th>Status</th></tr></thead>
+        <tbody>
+          <% for (const k of contracts) { %>
+            <tr>
+              <td><a href="/contracts/<%= k.id %>"><strong><%= k.title %></strong></a><% if (k.file_name) { %> <span class="muted" title="Signed copy attached"><%- icon('paperclip') %></span><% } %></td>
+              <td>
+                <% if (k.party_type === 'client') { %><a href="/clients/<%= k.client_id %>"><%= k.client_name %></a>
+                <% } else if (k.party_type === 'employee') { %><a href="/staff/<%= k.employee_id %>"><%= k.first_name %> <%= k.last_name %></a>
+                <% } else { %><%= k.other_party %><% } %>
+              </td>
+              <td><%= k.contract_type %></td>
+              <td class="nowrap"><%= k.start_date ? fmtDate(k.start_date) : '—' %></td>
+              <td class="nowrap"><%= k.end_date ? fmtDate(k.end_date) : '—' %></td>
+              <td><%- contractBadge(k, settings.expiry_warning_days) %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+<%- include('../partials/bottom') %>

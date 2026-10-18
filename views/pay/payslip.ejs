@@ -1,0 +1,43 @@
+<%- include('../partials/top') %>
+<div class="page-head no-print">
+  <div><p class="page-sub"><a href="/pay/<%= run.id %>">← Back to pay run</a></p></div>
+  <div class="page-actions"><button type="button" class="btn btn-primary" data-print>Print / save as PDF</button></div>
+</div>
+<article class="card payslip">
+  <header class="payslip-head">
+    <div>
+      <h1><%= settings.company_name %></h1>
+      <p class="muted">Payslip<%= run.status === 'draft' ? ' (DRAFT – not final)' : '' %></p>
+    </div>
+    <dl class="dl compact">
+      <dt>Employee</dt><dd><strong><%= item.first_name %> <%= item.last_name %></strong></dd>
+      <dt>Position</dt><dd><%= item.position || '—' %></dd>
+      <dt>Pay period</dt><dd><%= fmtDate(run.period_start) %> – <%= fmtDate(run.period_end) %></dd>
+    </dl>
+  </header>
+
+  <table class="table">
+    <thead><tr><th>Description</th><th class="num">Hours</th><th class="num">Rate</th><th class="num">Amount</th></tr></thead>
+    <tbody>
+      <tr><td>Regular hours</td><td class="num"><%= fmtHours(item.regular_hours) %></td><td class="num"><%= money(item.hourly_rate) %></td><td class="num"><%= money(item.regular_pay) %></td></tr>
+      <% if (item.overtime_hours) { %>
+        <tr><td>Overtime (<%= item.overtime_multiplier %>×)</td><td class="num"><%= fmtHours(item.overtime_hours) %></td><td class="num"><%= money(item.hourly_rate * item.overtime_multiplier) %></td><td class="num"><%= money(item.overtime_pay) %></td></tr>
+      <% } %>
+      <% if (item.adjustment) { %>
+        <tr><td>Adjustment<%= item.adjustment_note ? `: ${item.adjustment_note}` : '' %></td><td></td><td></td><td class="num"><%= money(item.adjustment) %></td></tr>
+      <% } %>
+    </tbody>
+    <tfoot><tr><td colspan="3"><strong>Gross pay</strong> <span class="muted small">(before tax and deductions)</span></td><td class="num"><strong><%= money(item.gross_pay) %></strong></td></tr></tfoot>
+  </table>
+
+  <h2>Hours worked</h2>
+  <table class="table compact">
+    <thead><tr><th>Date</th><th>Site</th><th>Time</th><th class="num">Break</th><th class="num">Hours</th></tr></thead>
+    <tbody>
+      <% for (const e of entries) { %>
+        <tr><td><%= fmtDay(e.start_at) %></td><td><%= e.site_name || '—' %></td><td><%= fmtRange(e.start_at, e.end_at) %></td><td class="num"><%= e.break_minutes ? `${e.break_minutes} min` : '—' %></td><td class="num"><%= fmtHours(e.hours) %></td></tr>
+      <% } %>
+    </tbody>
+  </table>
+</article>
+<%- include('../partials/bottom') %>

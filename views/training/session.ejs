@@ -1,0 +1,78 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/training/sessions">← Sessions</a></p>
+    <h1><%= session.course_name %> <%- statusBadge(session.status) %></h1>
+    <p class="page-sub"><%= fmtDateTime(session.starts_at) %><%= session.location ? ` · ${session.location}` : '' %><%= session.trainer ? ` · Trainer: ${session.trainer}` : '' %></p>
+  </div>
+  <div class="page-actions"><a class="btn" href="/training/sessions/<%= session.id %>/edit">Edit details</a></div>
+</div>
+<% if (session.notes) { %><p class="card card-pad pre"><%= session.notes %></p><% } %>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Attendees (<%= attendees.length %><%= session.capacity ? ` of ${session.capacity}` : '' %>)</h2>
+  </div>
+  <% if (!attendees.length) { %>
+    <p class="empty">Nobody booked yet.</p>
+  <% } else { %>
+    <form method="post" action="/training/sessions/<%= session.id %>/complete" data-confirm="Mark this session as completed? Everyone ticked will get a training record.">
+      <%- include('../partials/csrf') %>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <% if (session.status === 'scheduled') { %><th class="check-col">Attended</th><% } %>
+              <th>Staff member</th><th>Current status for this course</th>
+              <% if (session.status !== 'scheduled') { %><th>Attended</th><% } else { %><th></th><% } %>
+            </tr>
+          </thead>
+          <tbody>
+            <% for (const a of attendees) { %>
+              <tr>
+                <% if (session.status === 'scheduled') { %><td class="check-col"><input type="checkbox" name="attended" value="<%= a.id %>" checked aria-label="Attended"></td><% } %>
+                <td><a href="/staff/<%= a.id %>"><%= a.first_name %> <%= a.last_name %></a></td>
+                <td><%- complianceBadge(a.current, a.current_expiry) %></td>
+                <% if (session.status === 'scheduled') { %>
+                  <td class="actions"><button type="submit" class="btn btn-sm btn-ghost" formaction="/training/sessions/<%= session.id %>/attendees/<%= a.id %>/remove" formnovalidate data-skip-confirm>Remove</button></td>
+                <% } else { %>
+                  <td><%- a.attended ? badge('Yes', 'green') : (a.attended === 0 ? badge('No', 'gray') : '—') %></td>
+                <% } %>
+              </tr>
+            <% } %>
+          </tbody>
+        </table>
+      </div>
+      <% if (session.status === 'scheduled') { %>
+        <div class="bulk-bar">
+          <span class="muted">After the session: untick anyone who didn't attend, then</span>
+          <button type="submit" class="btn btn-success">Mark as completed</button>
+        </div>
+      <% } %>
+    </form>
+  <% } %>
+
+  <% if (session.status === 'scheduled') { %>
+    <div class="add-row">
+      <h3>Book people in</h3>
+      <form method="post" action="/training/sessions/<%= session.id %>/attendees" class="filters">
+        <%- include('../partials/csrf') %>
+        <select name="employee_id" required aria-label="Staff member">
+          <option value="">Choose a staff member…</option>
+          <% for (const e of available) { %>
+            <option value="<%= e.id %>"><%= e.first_name %> <%= e.last_name %> – <%= e.current === 'valid' || e.current === 'no-expiry' ? 'already valid' : e.current %></option>
+          <% } %>
+        </select>
+        <button type="submit" class="btn">Add</button>
+      </form>
+      <% if (dueCount) { %>
+        <form method="post" action="/training/sessions/<%= session.id %>/add-due" class="inline-form">
+          <%- include('../partials/csrf') %>
+          <button type="submit" class="btn btn-primary">Add everyone who needs it (<%= dueCount %>)</button>
+          <span class="hint">People whose certificate is missing, expired or expiring soon.</span>
+        </form>
+      <% } %>
+    </div>
+  <% } %>
+</section>
+<%- include('../partials/bottom') %>

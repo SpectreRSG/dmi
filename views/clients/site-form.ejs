@@ -1,0 +1,30 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/clients/<%= site.client_id %>">← <%= site.client_name %></a></p>
+    <h1><%= title %></h1>
+  </div>
+</div>
+<%- include('../partials/form-error') %>
+<form method="post" action="/sites/<%= site.id %>" class="card form-card">
+  <%- include('../partials/csrf') %>
+  <div class="form-grid">
+    <label>Site name <input name="name" value="<%= site.name || '' %>" required></label>
+    <label>Address <input name="address" value="<%= site.address || '' %>"></label>
+    <label class="field-full">Guard instructions <textarea name="instructions" rows="4"><%= site.instructions || '' %></textarea></label>
+    <label class="check field-full"><input type="checkbox" name="active" value="1" <%= site.active ? 'checked' : '' %>> Active (untick when you no longer service this site)</label>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save</button>
+    <a class="btn btn-ghost" href="/clients/<%= site.client_id %>">Cancel</a>
+  </div>
+</form>
+<details class="danger-zone">
+  <summary>Delete this site</summary>
+  <p>Only possible if no shifts or hours were ever recorded here.</p>
+  <form method="post" action="/sites/<%= site.id %>/delete" data-confirm="Delete this site permanently?">
+    <%- include('../partials/csrf') %>
+    <button type="submit" class="btn btn-danger">Delete permanently</button>
+  </form>
+</details>
+<%- include('../partials/bottom') %>

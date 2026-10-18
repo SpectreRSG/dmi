@@ -1,0 +1,9 @@
+# Installed libraries (re-created by "npm install")
+node_modules/
+
+# Your database, uploaded files and secrets – never put these on GitHub
+data/
+.env
+
+*.log
+.DS_Store

@@ -1,0 +1,45 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Training records</h1>
+    <p class="page-sub">Every certificate and completed course.</p>
+  </div>
+  <div class="page-actions"><a class="btn btn-primary" href="/training/records/new"><%- icon('plus') %> Add training record</a></div>
+</div>
+<%- include('nav') %>
+<form class="filters" method="get" action="/training/records">
+  <select name="employee" data-autosubmit aria-label="Staff member">
+    <option value="">All staff</option>
+    <% for (const e of staff) { %><option value="<%= e.id %>" <%= employeeId === e.id ? 'selected' : '' %>><%= e.first_name %> <%= e.last_name %></option><% } %>
+  </select>
+  <select name="course" data-autosubmit aria-label="Course">
+    <option value="">All courses</option>
+    <% for (const c of courses) { %><option value="<%= c.id %>" <%= courseId === c.id ? 'selected' : '' %>><%= c.name %></option><% } %>
+  </select>
+  <noscript><button class="btn" type="submit">Filter</button></noscript>
+</form>
+<div class="card">
+  <% if (!records.length) { %>
+    <p class="empty">No training records found.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Staff member</th><th>Course</th><th>Completed</th><th>Expiry</th><th>Certificate</th><th></th></tr></thead>
+        <tbody>
+          <% for (const r of records) { %>
+            <tr class="<%= r.superseded ? 'is-faded' : '' %>">
+              <td><a href="/staff/<%= r.employee_id %>"><%= r.first_name %> <%= r.last_name %></a></td>
+              <td><%= r.course_name %><% if (r.provider) { %><br><span class="muted small"><%= r.provider %></span><% } %></td>
+              <td class="nowrap"><%= fmtDate(r.completed_on) %></td>
+              <td><% if (r.superseded) { %><span class="muted small">Replaced by newer record</span><% } else { %><%- r.expires_on ? expiryBadge(r.expires_on, settings.expiry_warning_days) : badge('No expiry', 'gray') %><% } %></td>
+              <td><%= r.certificate_number || '' %>
+                <% if (r.file_name) { %><a href="/training/records/<%= r.id %>/file" class="file-link"><%- icon('paperclip') %> File</a><% } %></td>
+              <td class="actions"><a href="/training/records/<%= r.id %>/edit">Edit</a></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+<%- include('../partials/bottom') %>

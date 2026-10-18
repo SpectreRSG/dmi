@@ -1,0 +1,86 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Schedule</h1>
+    <p class="page-sub">Week of <%= fmtDate(week) %>
+      <% if (unfilled) { %> · <%- badge(`${unfilled} unfilled`, 'red') %><% } %>
+    </p>
+  </div>
+  <div class="page-actions"><a class="btn btn-primary" href="/schedule/new?date=<%= week < today && today < addDays(week, 7) ? today : week %>"><%- icon('plus') %> Add shift</a></div>
+</div>
+
+<%
+  const filterQuery = [siteId ? `site=${siteId}` : '', employeeId ? `employee=${employeeId}` : ''].filter(Boolean).join('&');
+  const weekLink = (w) => `/schedule?week=${w}${filterQuery ? `&${filterQuery}` : ''}`;
+%>
+<div class="toolbar">
+  <div class="btn-group">
+    <a class="btn" href="<%= weekLink(prevWeek) %>">← Previous</a>
+    <a class="btn <%= week === thisWeek ? 'btn-current' : '' %>" href="<%= weekLink(thisWeek) %>">This week</a>
+    <a class="btn" href="<%= weekLink(nextWeek) %>">Next →</a>
+  </div>
+  <form class="filters" method="get" action="/schedule">
+    <input type="hidden" name="week" value="<%= week %>">
+    <select name="site" data-autosubmit aria-label="Filter by site">
+      <option value="">All sites</option>
+      <% for (const s of sites) { %><option value="<%= s.id %>" <%= siteId === s.id ? 'selected' : '' %>><%= s.client_name %> – <%= s.name %></option><% } %>
+    </select>
+    <select name="employee" data-autosubmit aria-label="Filter by staff member">
+      <option value="">All staff</option>
+      <% for (const e of staff) { %><option value="<%= e.id %>" <%= employeeId === e.id ? 'selected' : '' %>><%= e.first_name %> <%= e.last_name %></option><% } %>
+    </select>
+    <noscript><button class="btn" type="submit">Filter</button></noscript>
+  </form>
+</div>
+
+<div class="week">
+  <% for (const day of days) { %>
+    <div class="day <%= day.date === today ? 'is-today' : '' %>">
+      <div class="day-head">
+        <span><%= fmtDay(day.date) %></span>
+        <a href="/schedule/new?date=<%= day.date %><%= siteId ? `&site=${siteId}` : '' %><%= employeeId ? `&employee=${employeeId}` : '' %>" title="Add shift on <%= fmtDay(day.date) %>" class="day-add"><%- icon('plus') %><span class="sr-only">Add shift</span></a>
+      </div>
+      <% if (!day.shifts.length) { %><p class="day-empty">—</p><% } %>
+      <% for (const s of day.shifts) { %>
+        <div class="shift <%= !s.employee_id ? 'is-open' : '' %> is-<%= s.status %>">
+          <a href="/schedule/<%= s.id %>/edit" class="shift-link">
+            <span class="shift-time"><%= fmtRange(s.start_at, s.end_at) %></span>
+            <span class="shift-who"><%= s.employee_id ? `${s.first_name} ${s.last_name}` : 'Unfilled' %></span>
+            <span class="shift-where"><%= s.site_name %> · <%= s.client_name %></span>
+            <% if (s.status !== 'scheduled') { %><span class="shift-status"><%= capitalize(s.status) %></span><% } %>
+          </a>
+          <% if (s.status === 'scheduled' && s.employee_id && s.end_at <= nowStr()) { %>
+            <form method="post" action="/schedule/<%= s.id %>/complete" class="shift-action">
+              <%- include('../partials/csrf') %>
+              <button type="submit" class="btn btn-sm">Mark as worked</button>
+            </form>
+          <% } %>
+        </div>
+      <% } %>
+    </div>
+  <% } %>
+</div>
+
+<section class="card">
+  <div class="card-head"><h2>Scheduled hours this week</h2></div>
+  <% if (!totals.length) { %>
+    <p class="empty">Nobody is scheduled this week.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Staff member</th><th class="num">Shifts</th><th class="num">Hours</th><th></th></tr></thead>
+        <tbody>
+          <% for (const t of totals) { %>
+            <tr>
+              <td><a href="/staff/<%= t.id %>"><%= t.name %></a></td>
+              <td class="num"><%= t.shifts %></td>
+              <td class="num"><%= fmtHours(t.hours) %></td>
+              <td><% if (settings.overtime_weekly_hours > 0 && t.hours > settings.overtime_weekly_hours) { %><%- badge(`${fmtHours(t.hours - settings.overtime_weekly_hours)} h overtime`, 'amber') %><% } %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</section>
+<%- include('../partials/bottom') %>

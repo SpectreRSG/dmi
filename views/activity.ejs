@@ -1,0 +1,24 @@
+<%- include('partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Activity log</h1>
+    <p class="page-sub">The latest 300 changes, newest first.</p>
+  </div>
+</div>
+<div class="card">
+  <% if (!entries.length) { %>
+    <p class="empty">Nothing recorded yet.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>When</th><th>Who</th><th>What</th></tr></thead>
+        <tbody>
+          <% for (const a of entries) { %>
+            <tr><td class="nowrap"><%= fmtDateTime(a.created_at) %></td><td class="nowrap"><%= a.user_name || 'System' %></td><td><%= a.action %></td></tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+<%- include('partials/bottom') %>

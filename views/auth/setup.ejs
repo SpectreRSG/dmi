@@ -1,0 +1,28 @@
+<%- include('../partials/top') %>
+<div class="auth-card">
+  <div class="auth-logo"><%- icon('shield') %></div>
+  <h1>Welcome! Let's set things up</h1>
+  <p class="muted">Create the first administrator account. You can add more people later under <strong>User accounts</strong>.</p>
+  <%- include('../partials/form-error') %>
+  <form method="post" action="/setup" class="stack">
+    <%- include('../partials/csrf') %>
+    <label>Company name
+      <input name="company_name" value="<%= values.company_name || '' %>" required autofocus>
+    </label>
+    <label>Your name
+      <input name="name" value="<%= values.name || '' %>" required autocomplete="name">
+    </label>
+    <label>Your email
+      <input type="email" name="email" value="<%= values.email || '' %>" required autocomplete="email">
+    </label>
+    <label>Password
+      <input type="password" name="password" required minlength="10" autocomplete="new-password">
+      <span class="hint">At least 10 characters. A short sentence is easy to remember and hard to guess.</span>
+    </label>
+    <label>Type the password again
+      <input type="password" name="confirm" required minlength="10" autocomplete="new-password">
+    </label>
+    <button type="submit" class="btn btn-primary btn-block">Create admin account</button>
+  </form>
+</div>
+<%- include('../partials/bottom') %>

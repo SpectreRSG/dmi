@@ -1,0 +1,35 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>User accounts</h1>
+    <p class="page-sub">People who can sign in to this admin site.</p>
+  </div>
+  <div class="page-actions"><a class="btn btn-primary" href="/users/new"><%- icon('plus') %> Add user</a></div>
+</div>
+<div class="card">
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Last sign-in</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        <% for (const u of users) { %>
+          <tr class="<%= u.active ? '' : 'is-faded' %>">
+            <td><strong><%= u.name %></strong><%= u.id === currentUser.id ? ' (you)' : '' %></td>
+            <td><%= u.email %></td>
+            <td><%- u.role === 'admin' ? badge('Admin', 'blue') : badge('Manager', 'gray') %></td>
+            <td class="nowrap"><%= u.last_login_at ? fmtDateTime(u.last_login_at) : 'Never' %></td>
+            <td><%- u.active ? badge('Active', 'green') : badge('Deactivated', 'gray') %></td>
+            <td class="actions"><a href="/users/<%= u.id %>/edit">Edit</a></td>
+          </tr>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
+</div>
+<div class="card card-pad">
+  <h2>What can each role do?</h2>
+  <ul class="plain-list">
+    <li><strong>Admin</strong>: everything, including pay, pay rates, user accounts and settings.</li>
+    <li><strong>Manager</strong>: schedule, timesheets, staff, clients, contracts and training. Cannot see pay or pay rates.</li>
+  </ul>
+</div>
+<%- include('../partials/bottom') %>

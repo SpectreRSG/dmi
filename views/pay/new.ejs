@@ -1,0 +1,25 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/pay">← Pay</a></p>
+    <h1>New pay run</h1>
+  </div>
+</div>
+<%- include('../partials/form-error') %>
+<form method="post" action="/pay" class="card form-card narrow">
+  <%- include('../partials/csrf') %>
+  <p class="muted">Every <strong>approved</strong> timesheet entry that starts between these dates (and isn't already in another pay run) will be included.
+    It starts as a draft, so you can check it before finalizing.</p>
+  <div class="form-grid">
+    <label>First day <input type="date" name="period_start" value="<%= values.period_start %>" required></label>
+    <label>Last day <input type="date" name="period_end" value="<%= values.period_end %>" required></label>
+    <label class="field-full">Notes (optional) <input name="notes" value="<%= values.notes || '' %>"></label>
+  </div>
+  <p class="hint">Overtime: hours over <strong><%= settings.overtime_weekly_hours %></strong> in a week (Monday–Sunday) are paid at <strong><%= settings.overtime_multiplier %>×</strong>.
+    <% if (locals.isAdmin) { %>Change this in <a href="/settings">Settings</a>.<% } %></p>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Create draft pay run</button>
+    <a class="btn btn-ghost" href="/pay">Cancel</a>
+  </div>
+</form>
+<%- include('../partials/bottom') %>

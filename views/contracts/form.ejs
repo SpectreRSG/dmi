@@ -1,0 +1,65 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="<%= contract.id ? `/contracts/${contract.id}` : '/contracts' %>">← Back</a></p>
+    <h1><%= title %></h1>
+  </div>
+</div>
+<%- include('../partials/form-error') %>
+<form method="post" action="<%= contract.id ? `/contracts/${contract.id}` : '/contracts' %>" class="card form-card" enctype="multipart/form-data">
+  <%- include('../partials/csrf') %>
+  <div class="form-grid">
+    <label class="field-full">Title <input name="title" value="<%= contract.title || '' %>" required placeholder="e.g. Static guarding – Harbour Mall 2026"></label>
+    <label>Type
+      <select name="contract_type" required>
+        <% for (const t of CONTRACT_TYPES) { %><option <%= contract.contract_type === t ? 'selected' : '' %>><%= t %></option><% } %>
+      </select>
+    </label>
+    <label>Status
+      <select name="status">
+        <% for (const s of STATUSES) { %><option value="<%= s %>" <%= contract.status === s ? 'selected' : '' %>><%= capitalize(s) %></option><% } %>
+      </select>
+    </label>
+    <label>Contract is with
+      <select name="party_type" data-party-select>
+        <option value="client" <%= contract.party_type === 'client' ? 'selected' : '' %>>A client</option>
+        <option value="employee" <%= contract.party_type === 'employee' ? 'selected' : '' %>>A staff member</option>
+        <option value="other" <%= contract.party_type === 'other' ? 'selected' : '' %>>Someone else (subcontractor, supplier…)</option>
+      </select>
+    </label>
+    <label data-party="client">Client
+      <select name="client_id">
+        <option value="">Choose…</option>
+        <% for (const c of clients) { %><option value="<%= c.id %>" <%= contract.client_id === c.id ? 'selected' : '' %>><%= c.name %></option><% } %>
+      </select>
+    </label>
+    <label data-party="employee">Staff member
+      <select name="employee_id">
+        <option value="">Choose…</option>
+        <% for (const e of staff) { %><option value="<%= e.id %>" <%= contract.employee_id === e.id ? 'selected' : '' %>><%= e.first_name %> <%= e.last_name %></option><% } %>
+      </select>
+    </label>
+    <label data-party="other">Name of the other party <input name="other_party" value="<%= contract.other_party || '' %>"></label>
+    <label>Date signed <input type="date" name="signed_on" value="<%= contract.signed_on || '' %>"></label>
+    <label>Start date <input type="date" name="start_date" value="<%= contract.start_date || '' %>"></label>
+    <label>End date <input type="date" name="end_date" value="<%= contract.end_date || '' %>"><span class="hint">You'll be warned <%= settings.expiry_warning_days %> days before it ends.</span></label>
+    <label>Value (<%= settings.currency_symbol %>, optional) <input type="number" step="0.01" name="value" value="<%= contract.value ?? '' %>"></label>
+    <label class="field-full">Signed copy
+      <input type="file" name="file" accept=".pdf,.doc,.docx,.odt,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.gif,.webp">
+      <% if (contract.file_name) { %>
+        <span class="hint">Current file: <a href="/contracts/<%= contract.id %>/file"><%= contract.file_original %></a>. Choosing a new file replaces it.</span>
+      <% } else { %>
+        <span class="hint">PDF, Word, Excel or a photo. Max 10 MB.</span>
+      <% } %>
+    </label>
+    <% if (contract.file_name) { %>
+      <label class="check field-full"><input type="checkbox" name="remove_file" value="1"> Remove the current file</label>
+    <% } %>
+    <label class="field-full">Notes <textarea name="notes" rows="3" placeholder="Key terms, renewal notice period, rates…"><%= contract.notes || '' %></textarea></label>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save</button>
+    <a class="btn btn-ghost" href="<%= contract.id ? `/contracts/${contract.id}` : '/contracts' %>">Cancel</a>
+  </div>
+</form>
+<%- include('../partials/bottom') %>

@@ -1,0 +1,124 @@
+// Builds the web app: security settings, logins, and which code handles which page.
+const path = require('path');
+const express = require('express');
+const session = require('express-session');
+const helmet = require('helmet');
+const multer = require('multer');
+
+const config = require('./config');
+const db = require('./db');
+const SqliteSessionStore = require('./sessionStore');
+const csrfProtection = require('./csrf');
+const { upload, MAX_FILE_MB } = require('./uploads');
+const { loadUser, requireLogin, requireAdmin } = require('./auth');
+const { getSettings } = require('./settings');
+const viewHelpers = require('./viewHelpers');
+
+const app = express();
+
+// Pages are built from the templates in the "views" folder.
+app.set('view engine', 'ejs');
+app.set('views', path.join(config.rootDir, 'views'));
+Object.assign(app.locals, viewHelpers);
+
+// When running behind an HTTPS proxy (most hosting), trust its headers.
+if (config.https) app.set('trust proxy', 1);
+
+// Security headers: tell browsers to block common attacks.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: { upgradeInsecureRequests: config.https ? [] : null },
+    },
+    strictTransportSecurity: config.https,
+    // Send the "page you came from" only within this site (used to return you there after actions).
+    referrerPolicy: { policy: 'same-origin' },
+  })
+);
+
+// Files in "public" (CSS, JavaScript, images) are sent as-is.
+app.use(express.static(path.join(config.rootDir, 'public'), { maxAge: '1h' }));
+
+// Sessions remember who is logged in. Idle for 8 hours = logged out.
+app.use(
+  session({
+    name: 'dmi.sid',
+    secret: config.sessionSecret,
+    store: new SqliteSessionStore(db),
+    resave: false,
+    saveUninitialized: false,
+    rolling: true,
+    cookie: { httpOnly: true, sameSite: 'lax', secure: config.https, maxAge: 8 * 60 * 60 * 1000 },
+  })
+);
+
+// Read submitted form data into req.body.
+app.use(express.urlencoded({ extended: false, limit: '200kb' }));
+app.use(loadUser);
+
+// Values every page needs.
+app.use((req, res, next) => {
+  const settings = getSettings();
+  res.locals.settings = settings;
+  res.locals.currentPath = req.path;
+  res.locals.title = '';
+  res.locals.money = (amount) => viewHelpers.formatMoney(amount, settings.currency_symbol);
+  next();
+});
+
+// "Flash" messages: a one-time note shown on the next page, like "Shift saved".
+app.use((req, res, next) => {
+  res.locals.flash = req.session.flash || [];
+  if (req.session.flash) delete req.session.flash;
+  req.flash = (type, message) => {
+    req.session.flash = req.session.flash || [];
+    req.session.flash.push({ type, message });
+  };
+  next();
+});
+
+// Forms with a file attached are read here (only for logged-in users).
+app.use((req, res, next) => (req.user ? upload(req, res, next) : next()));
+app.use(csrfProtection);
+
+// ---- Pages ------------------------------------------------------------------
+app.use(require('./routes/auth')); // /setup, /login, /logout (no login needed)
+app.use(requireLogin); // everything below needs a login
+
+app.use('/', require('./routes/dashboard'));
+app.use('/account', require('./routes/account'));
+app.use('/schedule', require('./routes/schedule'));
+app.use('/timesheets', require('./routes/timesheets'));
+app.use('/pay', requireAdmin, require('./routes/pay'));
+app.use('/staff', require('./routes/staff'));
+app.use('/clients', require('./routes/clients').clientsRouter);
+app.use('/sites', require('./routes/clients').sitesRouter);
+app.use('/contracts', require('./routes/contracts'));
+app.use('/training', require('./routes/training'));
+app.use('/users', requireAdmin, require('./routes/users'));
+app.use('/settings', requireAdmin, require('./routes/settings'));
+app.use('/activity', requireAdmin, require('./routes/activity'));
+
+// No page matched.
+app.use((req, res) => {
+  res.status(404).render('error', { title: 'Not found', message: 'Sorry, that page could not be found.' });
+});
+
+// Something went wrong.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    const message =
+      err.code === 'LIMIT_FILE_SIZE'
+        ? `That file is too big. The limit is ${MAX_FILE_MB} MB.`
+        : 'There was a problem with the uploaded file.';
+    return res.status(400).render('error', { title: 'Upload problem', message });
+  }
+  console.error(err);
+  res.status(500).render('error', {
+    title: 'Something went wrong',
+    message: 'An unexpected error happened. It has been logged. Please try again.',
+  });
+});
+
+module.exports = app;

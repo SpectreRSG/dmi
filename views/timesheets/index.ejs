@@ -1,0 +1,83 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Timesheets</h1>
+    <p class="page-sub">Hours actually worked. Approve them so they can be paid.</p>
+  </div>
+  <div class="page-actions"><a class="btn btn-primary" href="/timesheets/new"><%- icon('plus') %> Add hours</a></div>
+</div>
+
+<%
+  const baseQuery = [employeeId ? `employee=${employeeId}` : '', from ? `from=${from}` : '', to ? `to=${to}` : ''].filter(Boolean).join('&');
+  const tabLink = (s) => `/timesheets?status=${s}${baseQuery ? `&${baseQuery}` : ''}`;
+%>
+<nav class="tabs" aria-label="Filter by status">
+  <a href="<%= tabLink('pending') %>" class="<%= status === 'pending' ? 'active' : '' %>">Waiting for approval <span class="count"><%= counts.pending || 0 %></span></a>
+  <a href="<%= tabLink('approved') %>" class="<%= status === 'approved' ? 'active' : '' %>">Approved</a>
+  <a href="<%= tabLink('rejected') %>" class="<%= status === 'rejected' ? 'active' : '' %>">Rejected</a>
+  <a href="<%= tabLink('all') %>" class="<%= status === 'all' ? 'active' : '' %>">All</a>
+</nav>
+
+<form class="filters" method="get" action="/timesheets">
+  <input type="hidden" name="status" value="<%= status %>">
+  <select name="employee" aria-label="Staff member">
+    <option value="">All staff</option>
+    <% for (const e of staff) { %><option value="<%= e.id %>" <%= employeeId === e.id ? 'selected' : '' %>><%= e.first_name %> <%= e.last_name %></option><% } %>
+  </select>
+  <label class="inline">From <input type="date" name="from" value="<%= from || '' %>"></label>
+  <label class="inline">To <input type="date" name="to" value="<%= to || '' %>"></label>
+  <button class="btn" type="submit">Filter</button>
+  <% if (baseQuery) { %><a class="btn btn-ghost" href="/timesheets?status=<%= status %>">Clear</a><% } %>
+</form>
+
+<div class="card">
+  <% if (!entries.length) { %>
+    <p class="empty"><%= status === 'pending' ? 'Nothing waiting for approval. All caught up!' : 'No hours found.' %></p>
+  <% } else { %>
+    <form method="post" action="/timesheets/bulk" id="bulk-form">
+      <%- include('../partials/csrf') %>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th class="check-col"><input type="checkbox" data-select-all="ids" aria-label="Select all"></th>
+              <th>Date</th><th>Staff member</th><th>Site</th><th>Time</th><th class="num">Hours</th><th>Status</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <% for (const t of entries) { const locked = isLocked(t); %>
+              <tr>
+                <td class="check-col"><% if (!locked) { %><input type="checkbox" name="ids" value="<%= t.id %>" aria-label="Select"><% } %></td>
+                <td class="nowrap"><%= fmtDay(t.start_at) %> <span class="muted"><%= t.start_at.slice(0, 4) %></span></td>
+                <td><a href="/staff/<%= t.employee_id %>"><%= t.first_name %> <%= t.last_name %></a></td>
+                <td><%= t.site_name || '—' %></td>
+                <td class="nowrap"><%= fmtRange(t.start_at, t.end_at) %><% if (t.break_minutes) { %><br><span class="muted"><%= t.break_minutes %> min break</span><% } %>
+                  <% if (t.notes) { %><br><span class="muted small"><%= t.notes %></span><% } %></td>
+                <td class="num"><%= fmtHours(t.hours) %></td>
+                <td><%- statusBadge(t.status) %>
+                  <% if (t.approver_name && t.status !== 'pending') { %><br><span class="muted small">by <%= t.approver_name %></span><% } %>
+                  <% if (locked) { %><br><span class="muted small">Paid</span><% } else if (t.pay_run_id) { %><br><span class="muted small">In draft pay run</span><% } %></td>
+                <td class="actions nowrap">
+                  <% if (!locked) { %>
+                    <% if (t.status !== 'approved') { %><button type="submit" class="btn btn-sm btn-success" formaction="/timesheets/<%= t.id %>/approve">Approve</button><% } %>
+                    <% if (t.status !== 'rejected') { %><button type="submit" class="btn btn-sm" formaction="/timesheets/<%= t.id %>/reject">Reject</button><% } %>
+                    <a class="btn btn-sm btn-ghost" href="/timesheets/<%= t.id %>/edit">Edit</a>
+                  <% } %>
+                </td>
+              </tr>
+            <% } %>
+          </tbody>
+          <tfoot>
+            <tr><td></td><td colspan="4"><strong>Total</strong> (<%= entries.length %> entr<%= entries.length === 1 ? 'y' : 'ies' %><%= entries.length === 500 ? ', showing the latest 500' : '' %>)</td><td class="num"><strong><%= fmtHours(totalHours) %></strong></td><td colspan="2"></td></tr>
+          </tfoot>
+        </table>
+      </div>
+      <div class="bulk-bar">
+        <span class="muted">With ticked rows:</span>
+        <button type="submit" name="action" value="approve" class="btn btn-success">Approve</button>
+        <button type="submit" name="action" value="reject" class="btn">Reject</button>
+      </div>
+    </form>
+  <% } %>
+</div>
+<%- include('../partials/bottom') %>

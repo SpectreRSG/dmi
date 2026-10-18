@@ -1,0 +1,50 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/timesheets">← Timesheets</a></p>
+    <h1><%= title %> <% if (entry.id) { %><%- statusBadge(entry.status) %><% } %></h1>
+  </div>
+</div>
+<%- include('../partials/form-error') %>
+<form method="post" action="<%= entry.id ? `/timesheets/${entry.id}` : '/timesheets' %>" class="card form-card">
+  <%- include('../partials/csrf') %>
+  <div class="form-grid">
+    <label>Staff member
+      <select name="employee_id" required>
+        <option value="">Choose…</option>
+        <% for (const e of staff) { %><option value="<%= e.id %>" <%= entry.employee_id === e.id ? 'selected' : '' %>><%= e.first_name %> <%= e.last_name %></option><% } %>
+      </select>
+    </label>
+    <label>Site
+      <select name="site_id">
+        <option value="">— None / office —</option>
+        <% for (const s of sites) { %><option value="<%= s.id %>" <%= entry.site_id === s.id ? 'selected' : '' %>><%= s.client_name %> – <%= s.name %></option><% } %>
+      </select>
+    </label>
+    <label>Date work started <input type="date" name="date" value="<%= entry.date || '' %>" required></label>
+    <div class="field-pair">
+      <label>Start time <input type="time" name="start_time" value="<%= entry.start_time || '' %>" required></label>
+      <label>End time <input type="time" name="end_time" value="<%= entry.end_time || '' %>" required></label>
+    </div>
+    <p class="hint field-full">If the end time is earlier than the start time, it counts as finishing the next day.</p>
+    <label>Unpaid break (minutes) <input type="number" name="break_minutes" min="0" max="600" step="1" value="<%= entry.break_minutes ?? 0 %>"></label>
+    <% if (!entry.id) { %>
+      <label class="check"><input type="checkbox" name="approve_now" value="1" <%= entry.approve_now ? 'checked' : '' %>> Approve straight away</label>
+    <% } %>
+    <label class="field-full">Notes <textarea name="notes" rows="2"><%= entry.notes || '' %></textarea></label>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save hours</button>
+    <a class="btn btn-ghost" href="/timesheets">Cancel</a>
+  </div>
+</form>
+<% if (entry.id) { %>
+  <details class="danger-zone">
+    <summary>Delete these hours</summary>
+    <form method="post" action="/timesheets/<%= entry.id %>/delete" data-confirm="Delete these hours?">
+      <%- include('../partials/csrf') %>
+      <button type="submit" class="btn btn-danger">Delete</button>
+    </form>
+  </details>
+<% } %>
+<%- include('../partials/bottom') %>

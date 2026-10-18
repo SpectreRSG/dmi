@@ -1,0 +1,26 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>My account</h1>
+    <p class="page-sub"><%= currentUser.name %> · <%= currentUser.email %> · <%= capitalize(currentUser.role) %></p>
+  </div>
+</div>
+<div class="card form-card narrow">
+  <h2>Change password</h2>
+  <%- include('../partials/form-error') %>
+  <form method="post" action="/account/password" class="stack">
+    <%- include('../partials/csrf') %>
+    <label>Current password
+      <input type="password" name="current" required autocomplete="current-password">
+    </label>
+    <label>New password
+      <input type="password" name="password" required minlength="10" autocomplete="new-password">
+      <span class="hint">At least 10 characters. Changing it signs you out on other devices.</span>
+    </label>
+    <label>Type the new password again
+      <input type="password" name="confirm" required minlength="10" autocomplete="new-password">
+    </label>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Change password</button></div>
+  </form>
+</div>
+<%- include('../partials/bottom') %>

@@ -1,0 +1,152 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/staff">← Staff</a></p>
+    <h1><%= employee.first_name %> <%= employee.last_name %> <%- statusBadge(employee.status) %></h1>
+    <p class="page-sub"><%= [employee.position, employee.employment_type].filter(Boolean).join(' · ') || 'No position set' %></p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/schedule/new?employee=<%= employee.id %>">Add shift</a>
+    <a class="btn" href="/timesheets/new?employee=<%= employee.id %>">Add hours</a>
+    <a class="btn btn-primary" href="/staff/<%= employee.id %>/edit">Edit</a>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="stat"><span class="stat-label">Scheduled this week</span><span class="stat-value"><%= fmtHours(scheduledThisWeek) %></span><span class="stat-note">hours</span></div>
+  <div class="stat"><span class="stat-label">Worked this week</span><span class="stat-value"><%= fmtHours(hoursThisWeek) %></span><span class="stat-note">hours in timesheets</span></div>
+  <% if (locals.isAdmin) { %>
+    <div class="stat"><span class="stat-label">Hourly rate</span><span class="stat-value"><%= money(employee.hourly_rate) %></span><span class="stat-note">per hour</span></div>
+  <% } %>
+  <div class="stat <%= compliance.level === 'bad' ? 'is-bad' : (compliance.level === 'warn' ? 'is-warn' : '') %>">
+    <span class="stat-label">Compliance</span>
+    <span class="stat-value"><%= compliance.level === 'ok' ? 'OK' : (compliance.level === 'warn' ? 'Expiring' : 'Problem') %></span>
+    <span class="stat-note"><%= compliance.problems.length %> problem(s), <%= compliance.warnings.length %> expiring</span>
+  </div>
+</div>
+
+<div class="grid-2">
+  <section class="card">
+    <div class="card-head"><h2>Details</h2></div>
+    <dl class="dl">
+      <dt>Email</dt><dd><%= employee.email || '—' %></dd>
+      <dt>Phone</dt><dd><%= employee.phone || '—' %></dd>
+      <dt>Address</dt><dd><%= employee.address || '—' %></dd>
+      <dt>Emergency contact</dt><dd><%= [employee.emergency_contact_name, employee.emergency_contact_phone].filter(Boolean).join(' · ') || '—' %></dd>
+      <dt>Started</dt><dd><%= employee.start_date ? fmtDate(employee.start_date) : '—' %></dd>
+      <% if (employee.end_date) { %><dt>Finished</dt><dd><%= fmtDate(employee.end_date) %></dd><% } %>
+      <dt>License number</dt><dd><%= employee.license_number || '—' %></dd>
+      <dt>License expiry</dt><dd><%= employee.license_expiry ? fmtDate(employee.license_expiry) : '—' %></dd>
+      <% if (employee.notes) { %><dt>Notes</dt><dd class="pre"><%= employee.notes %></dd><% } %>
+    </dl>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Compliance</h2><a href="/training/records/new?employee=<%= employee.id %>">Add training record →</a></div>
+    <% if (!compliance.items.length) { %>
+      <p class="empty">Nothing required. Mark courses as "required" under Training → Courses.</p>
+    <% } else { %>
+      <ul class="list">
+        <% for (const item of compliance.items) { %>
+          <li><span><%= item.label %></span><%- complianceBadge(item.status, item.expires_on) %></li>
+        <% } %>
+      </ul>
+    <% } %>
+  </section>
+</div>
+
+<section class="card">
+  <div class="card-head"><h2>Upcoming shifts</h2><a href="/schedule?employee=<%= employee.id %>">See in schedule →</a></div>
+  <% if (!upcomingShifts.length) { %>
+    <p class="empty">No upcoming shifts.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Date</th><th>Time</th><th>Site</th><th>Client</th></tr></thead>
+        <tbody>
+          <% for (const s of upcomingShifts) { %>
+            <tr>
+              <td class="nowrap"><a href="/schedule/<%= s.id %>/edit"><%= fmtDay(s.start_at) %></a></td>
+              <td class="nowrap"><%= fmtRange(s.start_at, s.end_at) %></td>
+              <td><%= s.site_name %></td>
+              <td><%= s.client_name %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Recent hours</h2><a href="/timesheets?status=all&employee=<%= employee.id %>">All hours →</a></div>
+  <% if (!recentEntries.length) { %>
+    <p class="empty">No hours recorded yet.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Date</th><th>Time</th><th>Site</th><th class="num">Hours</th><th>Status</th></tr></thead>
+        <tbody>
+          <% for (const t of recentEntries) { %>
+            <tr>
+              <td class="nowrap"><%= fmtDay(t.start_at) %></td>
+              <td class="nowrap"><%= fmtRange(t.start_at, t.end_at) %><%= t.break_minutes ? ` (${t.break_minutes} min break)` : '' %></td>
+              <td><%= t.site_name || '—' %></td>
+              <td class="num"><%= fmtHours(hoursBetween(t.start_at, t.end_at, t.break_minutes)) %></td>
+              <td><%- statusBadge(t.status) %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Training records</h2><a href="/training/records/new?employee=<%= employee.id %>">Add →</a></div>
+  <% if (!training.length) { %>
+    <p class="empty">No training recorded yet.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Course</th><th>Completed</th><th>Expiry</th><th>Certificate</th><th></th></tr></thead>
+        <tbody>
+          <% for (const r of training) { %>
+            <tr>
+              <td><strong><%= r.course_name %></strong><% if (r.provider) { %><br><span class="muted"><%= r.provider %></span><% } %></td>
+              <td class="nowrap"><%= fmtDate(r.completed_on) %></td>
+              <td><%- r.expires_on ? expiryBadge(r.expires_on, settings.expiry_warning_days) : badge('No expiry', 'gray') %></td>
+              <td><%= r.certificate_number || '' %>
+                <% if (r.file_name) { %><a href="/training/records/<%= r.id %>/file" class="file-link"><%- icon('paperclip') %> <%= r.file_original %></a><% } %>
+              </td>
+              <td class="actions"><a href="/training/records/<%= r.id %>/edit">Edit</a></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Contracts &amp; agreements</h2><a href="/contracts/new?employee=<%= employee.id %>">Add →</a></div>
+  <% if (!contracts.length) { %>
+    <p class="empty">No contracts on file.</p>
+  <% } else { %>
+    <ul class="list">
+      <% for (const k of contracts) { %>
+        <li><a href="/contracts/<%= k.id %>"><strong><%= k.title %></strong></a><span class="muted"><%= k.contract_type %></span><%- contractBadge(k, settings.expiry_warning_days) %></li>
+      <% } %>
+    </ul>
+  <% } %>
+</section>
+
+<details class="danger-zone">
+  <summary>Delete this staff member</summary>
+  <p>Only possible if they have no shifts, hours, training or contracts on record. Usually it's better to set their status to <strong>Inactive</strong>.</p>
+  <form method="post" action="/staff/<%= employee.id %>/delete" data-confirm="Delete <%= employee.first_name %> <%= employee.last_name %> permanently?">
+    <%- include('../partials/csrf') %>
+    <button type="submit" class="btn btn-danger">Delete permanently</button>
+  </form>
+</details>
+<%- include('../partials/bottom') %>

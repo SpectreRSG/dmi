@@ -1,0 +1,152 @@
+<%- include('partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Dashboard</h1>
+    <p class="page-sub">Today is <%= fmtDay(today) %> <%= today.slice(0, 4) %></p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/timesheets/new">Add hours</a>
+    <a class="btn btn-primary" href="/schedule/new"><%- icon('plus') %> Add shift</a>
+  </div>
+</div>
+
+<div class="stats">
+  <a class="stat" href="/staff">
+    <span class="stat-label">Active staff</span>
+    <span class="stat-value"><%= stats.activeStaff %></span>
+    <span class="stat-note">on the books</span>
+  </a>
+  <a class="stat <%= stats.unfilled ? 'is-warn' : '' %>" href="/schedule">
+    <span class="stat-label">Shifts, next 7 days</span>
+    <span class="stat-value"><%= stats.shiftsNext7 %></span>
+    <span class="stat-note"><%= stats.unfilled ? `${stats.unfilled} still unfilled` : 'all filled' %></span>
+  </a>
+  <a class="stat <%= stats.pendingCount ? 'is-warn' : '' %>" href="/timesheets">
+    <span class="stat-label">Hours to approve</span>
+    <span class="stat-value"><%= fmtHours(stats.pendingHours) %></span>
+    <span class="stat-note"><%= stats.pendingCount %> timesheet entr<%= stats.pendingCount === 1 ? 'y' : 'ies' %></span>
+  </a>
+  <a class="stat <%= stats.complianceProblems ? 'is-bad' : (stats.complianceWarnings ? 'is-warn' : '') %>" href="/training">
+    <span class="stat-label">Compliance problems</span>
+    <span class="stat-value"><%= stats.complianceProblems %></span>
+    <span class="stat-note"><%= stats.complianceWarnings %> more expiring soon</span>
+  </a>
+  <a class="stat <%= stats.endingContracts ? 'is-warn' : '' %>" href="/contracts?status=ending">
+    <span class="stat-label">Contracts ending</span>
+    <span class="stat-value"><%= stats.endingContracts %></span>
+    <span class="stat-note">within <%= settings.expiry_warning_days %> days</span>
+  </a>
+</div>
+
+<% if (stats.overdueShifts) { %>
+  <div class="flash flash-warning">
+    <%= stats.overdueShifts %> finished shift<%= stats.overdueShifts === 1 ? ' has' : 's have' %> not been marked as worked yet.
+    Open them in the <a href="/schedule">schedule</a> and press <strong>Mark as worked</strong> so the hours go to timesheets.
+  </div>
+<% } %>
+
+<div class="grid-2">
+  <section class="card">
+    <div class="card-head">
+      <h2>Coming up</h2>
+      <a href="/schedule">Full schedule →</a>
+    </div>
+    <% if (!upcomingShifts.length) { %>
+      <p class="empty">No shifts in the next 7 days. <a href="/schedule/new">Add one</a>.</p>
+    <% } else { %>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>When</th><th>Site</th><th>Who</th></tr></thead>
+          <tbody>
+            <% for (const s of upcomingShifts) { %>
+              <tr>
+                <td class="nowrap"><a href="/schedule/<%= s.id %>/edit"><%= fmtDay(s.start_at) %></a><br><span class="muted"><%= fmtRange(s.start_at, s.end_at) %></span></td>
+                <td><%= s.site_name %><br><span class="muted"><%= s.client_name %></span></td>
+                <td><% if (s.employee_id) { %><%= s.first_name %> <%= s.last_name %><% } else { %><%- badge('Unfilled', 'red') %><% } %></td>
+              </tr>
+            <% } %>
+          </tbody>
+        </table>
+      </div>
+    <% } %>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Compliance alerts</h2>
+      <a href="/training">Training overview →</a>
+    </div>
+    <% if (!complianceIssues.length) { %>
+      <p class="empty">Everyone's licenses and required training are up to date.</p>
+    <% } else { %>
+      <ul class="list">
+        <% for (const c of complianceIssues) { %>
+          <li>
+            <a href="/staff/<%= c.employee.id %>"><strong><%= c.employee.first_name %> <%= c.employee.last_name %></strong></a>
+            <div class="badges">
+              <% for (const item of [...c.problems, ...c.warnings]) { %>
+                <span class="badge-group"><span class="muted"><%= item.label %>:</span> <%- complianceBadge(item.status, item.expires_on) %></span>
+              <% } %>
+            </div>
+          </li>
+        <% } %>
+      </ul>
+    <% } %>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Contracts ending soon</h2>
+      <a href="/contracts">All contracts →</a>
+    </div>
+    <% if (!endingContracts.length) { %>
+      <p class="empty">No active contracts end in the next <%= settings.expiry_warning_days %> days.</p>
+    <% } else { %>
+      <ul class="list">
+        <% for (const k of endingContracts) { %>
+          <li>
+            <a href="/contracts/<%= k.id %>"><strong><%= k.title %></strong></a>
+            <span class="muted"><%= k.client_name || (k.first_name ? `${k.first_name} ${k.last_name}` : k.other_party) %></span>
+            <%- badge(`${k.state === 'expired' ? 'Ended' : 'Ends'} ${fmtDate(k.end_date)}`, k.state === 'expired' ? 'red' : 'amber') %>
+          </li>
+        <% } %>
+      </ul>
+    <% } %>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Upcoming training</h2>
+      <a href="/training/sessions/new">Schedule a session →</a>
+    </div>
+    <% if (!trainingSessions.length) { %>
+      <p class="empty">No training sessions booked.</p>
+    <% } else { %>
+      <ul class="list">
+        <% for (const t of trainingSessions) { %>
+          <li>
+            <a href="/training/sessions/<%= t.id %>"><strong><%= t.course_name %></strong></a>
+            <span class="muted"><%= fmtDateTime(t.starts_at) %><%= t.location ? ` · ${t.location}` : '' %> · <%= t.attendee_count %> booked</span>
+          </li>
+        <% } %>
+      </ul>
+    <% } %>
+  </section>
+</div>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Recent activity</h2>
+    <% if (locals.isAdmin) { %><a href="/activity">Full log →</a><% } %>
+  </div>
+  <% if (!recentActivity.length) { %>
+    <p class="empty">Nothing yet.</p>
+  <% } else { %>
+    <ul class="list compact">
+      <% for (const a of recentActivity) { %>
+        <li><span><%= a.action %></span><span class="muted nowrap"><%= a.user_name || 'System' %> · <%= fmtDateTime(a.created_at) %></span></li>
+      <% } %>
+    </ul>
+  <% } %>
+</section>
+<%- include('partials/bottom') %>

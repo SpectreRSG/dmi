@@ -1,0 +1,24 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1><%= title %></h1>
+    <p class="page-sub"><a href="<%= client.id ? `/clients/${client.id}` : '/clients' %>">← Back</a></p>
+  </div>
+</div>
+<%- include('../partials/form-error') %>
+<form method="post" action="<%= client.id ? `/clients/${client.id}` : '/clients' %>" class="card form-card">
+  <%- include('../partials/csrf') %>
+  <div class="form-grid">
+    <label class="field-full">Client / company name <input name="name" value="<%= client.name || '' %>" required></label>
+    <label>Contact person <input name="contact_name" value="<%= client.contact_name || '' %>"></label>
+    <label>Contact email <input type="email" name="contact_email" value="<%= client.contact_email || '' %>"></label>
+    <label>Contact phone <input type="tel" name="contact_phone" value="<%= client.contact_phone || '' %>"></label>
+    <label>Billing / head office address <input name="address" value="<%= client.address || '' %>"></label>
+    <label class="field-full">Notes <textarea name="notes" rows="3"><%= client.notes || '' %></textarea></label>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save</button>
+    <a class="btn btn-ghost" href="<%= client.id ? `/clients/${client.id}` : '/clients' %>">Cancel</a>
+  </div>
+</form>
+<%- include('../partials/bottom') %>

@@ -1,0 +1,37 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/users">← User accounts</a></p>
+    <h1><%= title %></h1>
+  </div>
+</div>
+<%- include('../partials/form-error') %>
+<form method="post" action="<%= user.id ? `/users/${user.id}` : '/users' %>" class="card form-card narrow">
+  <%- include('../partials/csrf') %>
+  <div class="form-grid">
+    <label>Name <input name="name" value="<%= user.name || '' %>" required></label>
+    <label>Email (used to sign in) <input type="email" name="email" value="<%= user.email || '' %>" required autocomplete="off"></label>
+    <label>Role
+      <select name="role">
+        <option value="manager" <%= user.role !== 'admin' ? 'selected' : '' %>>Manager</option>
+        <option value="admin" <%= user.role === 'admin' ? 'selected' : '' %>>Admin</option>
+      </select>
+    </label>
+    <% if (user.id) { %>
+      <label class="check"><input type="checkbox" name="active" value="1" <%= user.active ? 'checked' : '' %>> Account is active (untick to block sign-in)</label>
+    <% } %>
+  </div>
+  <h2><%= user.id ? 'Reset password (optional)' : 'Password' %></h2>
+  <div class="form-grid">
+    <label><%= user.id ? 'New password' : 'Password' %>
+      <input type="password" name="password" minlength="10" autocomplete="new-password" <%= user.id ? '' : 'required' %>>
+      <span class="hint">At least 10 characters.<%= user.id ? ' Leave empty to keep the current password.' : '' %></span>
+    </label>
+    <label>Type it again <input type="password" name="confirm" minlength="10" autocomplete="new-password" <%= user.id ? '' : 'required' %>></label>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save</button>
+    <a class="btn btn-ghost" href="/users">Cancel</a>
+  </div>
+</form>
+<%- include('../partials/bottom') %>

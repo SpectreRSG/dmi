@@ -1,0 +1,48 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="<%= session.id ? `/training/sessions/${session.id}` : '/training' %>">← Back</a></p>
+    <h1><%= title %></h1>
+  </div>
+</div>
+<%- include('../partials/form-error') %>
+<form method="post" action="<%= session.id ? `/training/sessions/${session.id}` : '/training/sessions' %>" class="card form-card">
+  <%- include('../partials/csrf') %>
+  <div class="form-grid">
+    <label class="field-full">Course
+      <select name="course_id" required>
+        <option value="">Choose…</option>
+        <% for (const c of courses) { %><option value="<%= c.id %>" <%= session.course_id === c.id ? 'selected' : '' %>><%= c.name %></option><% } %>
+      </select>
+    </label>
+    <label>Date <input type="date" name="date" value="<%= session.date || '' %>" required></label>
+    <label>Start time <input type="time" name="start_time" value="<%= session.start_time || '' %>" required></label>
+    <label>Location <input name="location" value="<%= session.location || '' %>"></label>
+    <label>Trainer / provider <input name="trainer" value="<%= session.trainer || '' %>"></label>
+    <label>Maximum places <input type="number" name="capacity" min="1" step="1" value="<%= session.capacity ?? '' %>"><span class="hint">Leave empty for no limit.</span></label>
+    <% if (session.id) { %>
+      <label>Status
+        <select name="status">
+          <% for (const st of ['scheduled', 'completed', 'cancelled']) { %><option value="<%= st %>" <%= session.status === st ? 'selected' : '' %>><%= capitalize(st) %></option><% } %>
+        </select>
+        <span class="hint">To record attendance, use "Mark as completed" on the session page instead.</span>
+      </label>
+    <% } %>
+    <label class="field-full">Notes <textarea name="notes" rows="2"><%= session.notes || '' %></textarea></label>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save</button>
+    <a class="btn btn-ghost" href="<%= session.id ? `/training/sessions/${session.id}` : '/training' %>">Cancel</a>
+  </div>
+</form>
+<% if (session.id) { %>
+  <details class="danger-zone">
+    <summary>Delete this session</summary>
+    <p>Training records already created from it are kept.</p>
+    <form method="post" action="/training/sessions/<%= session.id %>/delete" data-confirm="Delete this training session?">
+      <%- include('../partials/csrf') %>
+      <button type="submit" class="btn btn-danger">Delete session</button>
+    </form>
+  </details>
+<% } %>
+<%- include('../partials/bottom') %>

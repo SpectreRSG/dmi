@@ -1,0 +1,80 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/schedule?week=<%= startOfWeek(shift.date || todayStr()) %>">← Schedule</a></p>
+    <h1><%= title %> <% if (shift.id) { %><%- statusBadge(shift.status) %><% } %></h1>
+  </div>
+</div>
+<% if (!sites.length) { %>
+  <div class="flash flash-warning">You need at least one site before you can add shifts. <a href="/clients">Add a client and site first</a>.</div>
+<% } %>
+<%- include('../partials/form-error') %>
+<form method="post" action="<%= shift.id ? `/schedule/${shift.id}` : '/schedule' %>" class="card form-card">
+  <%- include('../partials/csrf') %>
+  <div class="form-grid">
+    <label>Site
+      <select name="site_id" required>
+        <option value="">Choose a site…</option>
+        <% for (const s of sites) { %><option value="<%= s.id %>" <%= shift.site_id === s.id ? 'selected' : '' %>><%= s.client_name %> – <%= s.name %></option><% } %>
+      </select>
+    </label>
+    <label>Staff member
+      <select name="employee_id">
+        <option value="">— Unfilled (assign later) —</option>
+        <% for (const e of staff) { %><option value="<%= e.id %>" <%= shift.employee_id === e.id ? 'selected' : '' %>><%= e.first_name %> <%= e.last_name %></option><% } %>
+      </select>
+    </label>
+    <label>Date <input type="date" name="date" value="<%= shift.date || '' %>" required></label>
+    <div class="field-pair">
+      <label>Start time <input type="time" name="start_time" value="<%= shift.start_time || '' %>" required></label>
+      <label>End time <input type="time" name="end_time" value="<%= shift.end_time || '' %>" required></label>
+    </div>
+    <p class="hint field-full">If the end time is earlier than the start time, the shift finishes the next day (for example, a night shift from 22:00 to 06:00).</p>
+    <label>Unpaid break (minutes) <input type="number" name="break_minutes" min="0" max="600" step="1" value="<%= shift.break_minutes ?? 0 %>"></label>
+    <% if (shift.id) { %>
+      <label>Status
+        <select name="status">
+          <% for (const st of ['scheduled', 'completed', 'cancelled']) { %><option value="<%= st %>" <%= shift.status === st ? 'selected' : '' %>><%= capitalize(st) %></option><% } %>
+        </select>
+      </label>
+    <% } else { %>
+      <label>Repeat weekly
+        <select name="repeat_weeks">
+          <option value="0">Don't repeat</option>
+          <% for (let w = 1; w <= maxRepeat; w++) { %><option value="<%= w %>" <%= Number(shift.repeat_weeks) === w ? 'selected' : '' %>>For <%= w %> more week<%= w === 1 ? '' : 's' %></option><% } %>
+        </select>
+      </label>
+    <% } %>
+    <label class="field-full">Notes <textarea name="notes" rows="2" placeholder="Anything the guard should know for this shift"><%= shift.notes || '' %></textarea></label>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save shift</button>
+    <a class="btn btn-ghost" href="/schedule?week=<%= startOfWeek(shift.date || todayStr()) %>">Cancel</a>
+  </div>
+</form>
+
+<% if (shift.id) { %>
+  <div class="card form-card">
+    <h2>Worked this shift?</h2>
+    <% if (shift.time_entry_id) { %>
+      <p>This shift is already in <a href="/timesheets?status=all&employee=<%= shift.employee_id %>">timesheets</a>.</p>
+    <% } else if (!shift.employee_id) { %>
+      <p class="muted">Assign someone first, then you can mark it as worked.</p>
+    <% } else { %>
+      <p class="muted">Copies this shift's times into timesheets, ready for approval. You can adjust the hours there if they were different.</p>
+      <form method="post" action="/schedule/<%= shift.id %>/complete">
+        <%- include('../partials/csrf') %>
+        <button type="submit" class="btn">Mark as worked</button>
+      </form>
+    <% } %>
+  </div>
+  <details class="danger-zone">
+    <summary>Delete this shift</summary>
+    <p>If it simply isn't happening any more, you can set its status to <strong>Cancelled</strong> instead, which keeps a record.</p>
+    <form method="post" action="/schedule/<%= shift.id %>/delete" data-confirm="Delete this shift?">
+      <%- include('../partials/csrf') %>
+      <button type="submit" class="btn btn-danger">Delete shift</button>
+    </form>
+  </details>
+<% } %>
+<%- include('../partials/bottom') %>

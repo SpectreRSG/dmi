@@ -1,0 +1,61 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="<%= record.employee_id ? `/staff/${record.employee_id}` : '/training' %>">← Back</a></p>
+    <h1><%= title %></h1>
+  </div>
+</div>
+<% if (!courses.length) { %>
+  <div class="flash flash-warning">There are no courses yet. <a href="/training/courses/new">Add a course first</a>.</div>
+<% } %>
+<%- include('../partials/form-error') %>
+<form method="post" action="<%= record.id ? `/training/records/${record.id}` : '/training/records' %>" class="card form-card" enctype="multipart/form-data">
+  <%- include('../partials/csrf') %>
+  <div class="form-grid">
+    <label>Staff member
+      <select name="employee_id" required>
+        <option value="">Choose…</option>
+        <% for (const e of staff) { %><option value="<%= e.id %>" <%= record.employee_id === e.id ? 'selected' : '' %>><%= e.first_name %> <%= e.last_name %></option><% } %>
+      </select>
+    </label>
+    <label>Course
+      <select name="course_id" required>
+        <option value="">Choose…</option>
+        <% for (const c of courses) { %><option value="<%= c.id %>" <%= record.course_id === c.id ? 'selected' : '' %>><%= c.name %><%= c.validity_months ? ` (valid ${c.validity_months} months)` : '' %></option><% } %>
+      </select>
+    </label>
+    <label>Date completed <input type="date" name="completed_on" value="<%= record.completed_on || '' %>" required></label>
+    <label>Expiry date
+      <input type="date" name="expires_on" value="<%= record.expires_on || '' %>">
+      <span class="hint">Leave empty to work it out from the course's validity.</span>
+    </label>
+    <label>Training provider <input name="provider" value="<%= record.provider || '' %>"></label>
+    <label>Certificate number <input name="certificate_number" value="<%= record.certificate_number || '' %>"></label>
+    <label class="field-full">Certificate file
+      <input type="file" name="file" accept=".pdf,.doc,.docx,.odt,.png,.jpg,.jpeg,.gif,.webp">
+      <% if (record.file_name) { %>
+        <span class="hint">Current file: <a href="/training/records/<%= record.id %>/file"><%= record.file_original %></a>. Choosing a new file replaces it.</span>
+      <% } else { %>
+        <span class="hint">PDF or a photo of the certificate. Max 10 MB.</span>
+      <% } %>
+    </label>
+    <% if (record.file_name) { %>
+      <label class="check field-full"><input type="checkbox" name="remove_file" value="1"> Remove the current file</label>
+    <% } %>
+    <label class="field-full">Notes <textarea name="notes" rows="2"><%= record.notes || '' %></textarea></label>
+  </div>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save</button>
+    <a class="btn btn-ghost" href="<%= record.employee_id ? `/staff/${record.employee_id}` : '/training' %>">Cancel</a>
+  </div>
+</form>
+<% if (record.id) { %>
+  <details class="danger-zone">
+    <summary>Delete this record</summary>
+    <form method="post" action="/training/records/<%= record.id %>/delete" data-confirm="Delete this training record?">
+      <%- include('../partials/csrf') %>
+      <button type="submit" class="btn btn-danger">Delete record</button>
+    </form>
+  </details>
+<% } %>
+<%- include('../partials/bottom') %>

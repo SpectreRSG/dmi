@@ -1,0 +1,33 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Training courses</h1>
+    <p class="page-sub">The types of training and certification you track.</p>
+  </div>
+  <div class="page-actions"><a class="btn btn-primary" href="/training/courses/new"><%- icon('plus') %> Add course</a></div>
+</div>
+<%- include('nav') %>
+<div class="card">
+  <% if (!courses.length) { %>
+    <p class="empty">No courses yet. <a href="/training/courses/new">Add your first course</a>, for example "First Aid" valid for 36 months.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Course</th><th>Valid for</th><th>Required for everyone?</th><th class="num">Records</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          <% for (const c of courses) { %>
+            <tr>
+              <td><strong><%= c.name %></strong><% if (c.description) { %><br><span class="muted small"><%= c.description %></span><% } %></td>
+              <td><%= c.validity_months ? `${c.validity_months} months` : 'Never expires' %></td>
+              <td><%- c.required ? badge('Required', 'blue') : badge('Optional', 'gray') %></td>
+              <td class="num"><a href="/training/records?course=<%= c.id %>"><%= c.record_count %></a></td>
+              <td><%- c.active ? badge('Active', 'green') : badge('Inactive', 'gray') %></td>
+              <td class="actions nowrap"><a href="/training/sessions/new?course=<%= c.id %>">Schedule</a> · <a href="/training/courses/<%= c.id %>/edit">Edit</a></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+<%- include('../partials/bottom') %>

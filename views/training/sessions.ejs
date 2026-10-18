@@ -1,0 +1,33 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Training sessions</h1>
+    <p class="page-sub">Classes you've planned or run.</p>
+  </div>
+  <div class="page-actions"><a class="btn btn-primary" href="/training/sessions/new"><%- icon('plus') %> Schedule a session</a></div>
+</div>
+<%- include('nav') %>
+<div class="card">
+  <% if (!sessions.length) { %>
+    <p class="empty">No sessions yet.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>When</th><th>Course</th><th>Location</th><th>Trainer</th><th class="num">Booked</th><th>Status</th></tr></thead>
+        <tbody>
+          <% for (const s of sessions) { %>
+            <tr>
+              <td class="nowrap"><a href="/training/sessions/<%= s.id %>"><%= fmtDateTime(s.starts_at) %></a></td>
+              <td><%= s.course_name %></td>
+              <td><%= s.location || '—' %></td>
+              <td><%= s.trainer || '—' %></td>
+              <td class="num"><%= s.attendee_count %><%= s.capacity ? ` / ${s.capacity}` : '' %></td>
+              <td><%- statusBadge(s.status) %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+<%- include('../partials/bottom') %>

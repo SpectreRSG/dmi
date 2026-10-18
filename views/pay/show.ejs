@@ -1,0 +1,112 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/pay">← Pay</a></p>
+    <h1>Pay run: <%= fmtDate(run.period_start) %> – <%= fmtDate(run.period_end) %> <%- statusBadge(run.status) %></h1>
+    <p class="page-sub">
+      Created <%= fmtDateTime(run.created_at) %><%= run.created_by_name ? ` by ${run.created_by_name}` : '' %>
+      <% if (run.finalized_at) { %> · Finalized <%= fmtDateTime(run.finalized_at) %><% } %>
+      <% if (run.notes) { %> · <%= run.notes %><% } %>
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/pay/<%= run.id %>/export.csv">Download spreadsheet (CSV)</a>
+    <% if (run.status === 'draft') { %>
+      <form method="post" action="/pay/<%= run.id %>/recalculate" class="inline-form">
+        <%- include('../partials/csrf') %>
+        <button type="submit" class="btn">Recalculate</button>
+      </form>
+      <form method="post" action="/pay/<%= run.id %>/finalize" class="inline-form" data-confirm="Finalize this pay run? The hours in it will be locked and can't be changed afterwards.">
+        <%- include('../partials/csrf') %>
+        <button type="submit" class="btn btn-primary">Finalize</button>
+      </form>
+    <% } %>
+  </div>
+</div>
+
+<% if (run.status === 'draft') { %>
+  <% if (pendingCount) { %>
+    <div class="flash flash-warning"><%= pendingCount %> timesheet entr<%= pendingCount === 1 ? 'y' : 'ies' %> in this period <%= pendingCount === 1 ? 'is' : 'are' %> still waiting for approval and <strong>not included</strong>.
+      <a href="/timesheets?status=pending&from=<%= run.period_start %>&to=<%= run.period_end %>">Review them</a>, then press Recalculate.</div>
+  <% } %>
+  <% if (changedCount) { %>
+    <div class="flash flash-warning"><%= changedCount %> timesheet entr<%= changedCount === 1 ? 'y' : 'ies' %> in this draft <%= changedCount === 1 ? 'is' : 'are' %> no longer approved. Press <strong>Recalculate</strong> to update the numbers.</div>
+  <% } %>
+  <% if (approvedNotIncluded) { %>
+    <div class="flash flash-info"><%= approvedNotIncluded %> more approved entr<%= approvedNotIncluded === 1 ? 'y has' : 'ies have' %> been added since this was calculated. Press <strong>Recalculate</strong> to include them.</div>
+  <% } %>
+<% } %>
+
+<div class="stats">
+  <div class="stat"><span class="stat-label">People</span><span class="stat-value"><%= items.length %></span></div>
+  <div class="stat"><span class="stat-label">Regular hours</span><span class="stat-value"><%= fmtHours(totals.regular_hours) %></span></div>
+  <div class="stat"><span class="stat-label">Overtime hours</span><span class="stat-value"><%= fmtHours(totals.overtime_hours) %></span></div>
+  <div class="stat"><span class="stat-label">Total gross pay</span><span class="stat-value"><%= money(totals.gross_pay) %></span></div>
+</div>
+
+<div class="card">
+  <% if (!items.length) { %>
+    <p class="empty">No approved hours in this period yet. Approve hours in <a href="/timesheets">Timesheets</a>, then press Recalculate.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Staff member</th><th class="num">Regular hrs</th><th class="num">Overtime hrs</th><th class="num">Rate</th>
+            <th class="num">Regular pay</th><th class="num">Overtime pay</th><th>Adjustment</th><th class="num">Gross pay</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% for (const i of items) { %>
+            <tr>
+              <td><a href="/staff/<%= i.employee_id %>"><%= i.first_name %> <%= i.last_name %></a><br><span class="muted small"><%= i.position || '' %></span></td>
+              <td class="num"><%= fmtHours(i.regular_hours) %></td>
+              <td class="num"><%= fmtHours(i.overtime_hours) %></td>
+              <td class="num"><%= money(i.hourly_rate) %></td>
+              <td class="num"><%= money(i.regular_pay) %></td>
+              <td class="num"><%= money(i.overtime_pay) %><% if (i.overtime_hours) { %><br><span class="muted small">at <%= i.overtime_multiplier %>×</span><% } %></td>
+              <td>
+                <% if (run.status === 'draft') { %>
+                  <form method="post" action="/pay/<%= run.id %>/items/<%= i.id %>" class="adjust-form">
+                    <%- include('../partials/csrf') %>
+                    <input type="number" step="0.01" name="adjustment" value="<%= i.adjustment || '' %>" placeholder="0.00" aria-label="Adjustment amount">
+                    <input name="adjustment_note" value="<%= i.adjustment_note || '' %>" placeholder="Reason (e.g. bonus)" aria-label="Adjustment reason">
+                    <button type="submit" class="btn btn-sm">Save</button>
+                  </form>
+                <% } else if (i.adjustment) { %>
+                  <%= money(i.adjustment) %><% if (i.adjustment_note) { %><br><span class="muted small"><%= i.adjustment_note %></span><% } %>
+                <% } else { %>—<% } %>
+              </td>
+              <td class="num"><strong><%= money(i.gross_pay) %></strong></td>
+              <td class="actions"><a href="/pay/<%= run.id %>/payslips/<%= i.id %>">Payslip</a></td>
+            </tr>
+          <% } %>
+        </tbody>
+        <tfoot>
+          <tr>
+            <td><strong>Total</strong></td>
+            <td class="num"><strong><%= fmtHours(totals.regular_hours) %></strong></td>
+            <td class="num"><strong><%= fmtHours(totals.overtime_hours) %></strong></td>
+            <td colspan="3"></td>
+            <td><strong><%= money(totals.adjustment) %></strong></td>
+            <td class="num"><strong><%= money(totals.gross_pay) %></strong></td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  <% } %>
+</div>
+<p class="hint">Gross pay is before tax and other deductions. Give the spreadsheet to your accountant or payroll provider to handle tax.</p>
+
+<% if (run.status === 'draft') { %>
+  <details class="danger-zone">
+    <summary>Delete this draft</summary>
+    <p>The hours in it go back to "approved, not yet paid" so they can be included in another pay run.</p>
+    <form method="post" action="/pay/<%= run.id %>/delete" data-confirm="Delete this draft pay run?">
+      <%- include('../partials/csrf') %>
+      <button type="submit" class="btn btn-danger">Delete draft</button>
+    </form>
+  </details>
+<% } %>
+<%- include('../partials/bottom') %>

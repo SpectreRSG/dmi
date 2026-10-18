@@ -1,0 +1,92 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Training</h1>
+    <p class="page-sub">Who is qualified, what's expiring, and upcoming classes.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/training/sessions/new">Schedule a session</a>
+    <a class="btn btn-primary" href="/training/records/new"><%- icon('plus') %> Add training record</a>
+  </div>
+</div>
+<%- include('nav') %>
+
+<% if (!courseCount) { %>
+  <div class="flash flash-info">Start by adding the courses and certifications your guards need (e.g. First Aid, Fire Safety) under <a href="/training/courses/new">Courses</a>.</div>
+<% } else if (!courses.length) { %>
+  <div class="flash flash-info">No courses are marked as <strong>required</strong> yet, so only security licenses are checked. <a href="/training/courses">Edit your courses</a> to mark the must-haves.</div>
+<% } %>
+
+<section class="card">
+  <div class="card-head"><h2>Compliance overview</h2><span class="muted small">Active staff × licenses and required courses</span></div>
+  <% if (!employees.length) { %>
+    <p class="empty">No active staff yet.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table matrix">
+        <thead>
+          <tr>
+            <th>Staff member</th>
+            <th>Security license</th>
+            <% for (const c of courses) { %><th><%= c.name %></th><% } %>
+          </tr>
+        </thead>
+        <tbody>
+          <% for (const e of employees) { const result = byEmployee.get(e.id); %>
+            <tr>
+              <td class="nowrap"><a href="/staff/<%= e.id %>"><%= e.first_name %> <%= e.last_name %></a></td>
+              <% const license = result.items.find((i) => !i.course_id); %>
+              <td><%- license ? complianceBadge(license.status, license.expires_on) : badge('Not needed', 'gray') %></td>
+              <% for (const c of courses) { const item = result.items.find((i) => i.course_id === c.id); %>
+                <td>
+                  <% if (item.status === 'valid' || item.status === 'no-expiry') { %>
+                    <%- complianceBadge(item.status, item.expires_on) %>
+                  <% } else { %>
+                    <a href="/training/records/new?employee=<%= e.id %>&course=<%= c.id %>" title="Add a record"><%- complianceBadge(item.status, item.expires_on) %></a>
+                  <% } %>
+                </td>
+              <% } %>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</section>
+
+<div class="grid-2">
+  <section class="card">
+    <div class="card-head"><h2>Needs attention</h2></div>
+    <% if (!attention.length) { %>
+      <p class="empty">Nothing expired, expiring or missing.</p>
+    <% } else { %>
+      <ul class="list">
+        <% for (const a of attention.slice(0, 20)) { %>
+          <li>
+            <span><a href="/staff/<%= a.employee.id %>"><%= a.employee.first_name %> <%= a.employee.last_name %></a> <span class="muted">· <%= a.label %></span></span>
+            <%- complianceBadge(a.status, a.expires_on) %>
+          </li>
+        <% } %>
+      </ul>
+      <% if (attention.length > 20) { %><p class="muted small card-pad">…and <%= attention.length - 20 %> more. See the table above.</p><% } %>
+    <% } %>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Upcoming sessions</h2><a href="/training/sessions/new">Schedule →</a></div>
+    <% if (!sessions.length) { %>
+      <p class="empty">No sessions scheduled.</p>
+    <% } else { %>
+      <ul class="list">
+        <% for (const s of sessions) { %>
+          <li>
+            <a href="/training/sessions/<%= s.id %>"><strong><%= s.course_name %></strong></a>
+            <span class="muted"><%= fmtDateTime(s.starts_at) %><%= s.location ? ` · ${s.location}` : '' %></span>
+            <%- badge(`${s.attendee_count}${s.capacity ? ` / ${s.capacity}` : ''} booked`, 'blue') %>
+          </li>
+        <% } %>
+      </ul>
+    <% } %>
+  </section>
+</div>
+<%- include('../partials/bottom') %>
