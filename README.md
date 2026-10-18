@@ -23,7 +23,7 @@ A private website for running the business side of a security company:
 
 You only need to do steps 1–3 once.
 
-1. **Install Node.js** (version 20 or newer) from <https://nodejs.org>. Pick the "LTS" version.
+1. **Install Node.js** (version 22 or newer) from <https://nodejs.org>. Pick the "LTS" version.
    Node.js is the program that runs the website's code.
 2. **Get the code**: download this repository (green "Code" button → "Download ZIP") and unzip it,
    or use `git clone`.

@@ -1,6 +1,5 @@
-// Tests the Netlify Function that runs the app on Netlify (netlify/functions/app.mjs).
-// It's in its own file because the function changes some of Express's internals
-// for good, which would confuse the ordinary server used in app.test.js.
+// Tests the Netlify Function that runs the app on Netlify (netlify/functions/app.mjs),
+// by handing it requests the way Netlify does.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
