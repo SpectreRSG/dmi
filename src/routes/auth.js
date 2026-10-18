@@ -3,7 +3,7 @@ const express = require('express');
 const crypto = require('crypto');
 const db = require('../db');
 const auth = require('../auth');
-const config = require('../config');
+const { getSetupCode } = require('../secrets');
 const { saveSettings } = require('../settings');
 const { clean, logActivity } = require('../helpers');
 
@@ -45,8 +45,14 @@ function signIn(req, res, next, userId, redirectTo, flashMessage) {
   });
 }
 
-function renderSetup(res, values, error, status = 200) {
-  res.status(status).render('auth/setup', { title: 'Welcome', values, error, needsCode: Boolean(config.setupCode) });
+// Shows the setup page. If the setup code was made by the app (not set in
+// Netlify), it's written to the function logs, which only you can see.
+async function renderSetup(res, values, error, status = 200) {
+  const setup = await getSetupCode();
+  if (setup && !setup.fromEnvironment) {
+    console.log(`Setup code for the first admin account: ${setup.code}`);
+  }
+  res.status(status).render('auth/setup', { title: 'Welcome', values, error, needsCode: Boolean(setup) });
 }
 
 // Until the first admin account exists, send everyone to the setup page.
@@ -57,14 +63,15 @@ router.use(async (req, res, next) => {
 
 router.get('/setup', async (req, res) => {
   if (await hasUsers()) return res.redirect('/login');
-  renderSetup(res, {}, null);
+  await renderSetup(res, {}, null);
 });
 
 router.post('/setup', async (req, res, next) => {
   if (await hasUsers()) return res.redirect('/login');
   const values = clean(req.body, ['company_name', 'name', 'email']);
+  const setup = await getSetupCode();
   let error = null;
-  if (config.setupCode && !sameText(String(req.body.setup_code || '').trim(), config.setupCode)) {
+  if (setup && !sameText(String(req.body.setup_code || '').trim(), setup.code)) {
     error = 'That setup code is not right.';
   } else if (!values.company_name || !values.name || !values.email) error = 'Please fill in every box.';
   else if (!/^\S+@\S+\.\S+$/.test(values.email)) error = 'Please enter a valid email address.';

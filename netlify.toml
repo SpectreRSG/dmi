@@ -7,8 +7,9 @@
 # - The database tables come from netlify/database/migrations/. Netlify applies
 #   new migration files automatically on each deploy.
 #
-# The app also needs two environment variables, set in the Netlify dashboard
-# (never in this file): SESSION_SECRET and SETUP_CODE.
+# No environment variables are required: the app keeps its own secrets in the
+# database (see src/secrets.js). SESSION_SECRET and SETUP_CODE can override them,
+# set in the Netlify dashboard (never in this file).
 
 [build]
   publish = "public"

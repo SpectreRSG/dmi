@@ -183,10 +183,13 @@ pay; and an activity log.
 - Only the `main` branch can update the live site (a lock in `netlify.toml`). Work on the
   `netlify-app` branch is previewed first at https://netlify-app--directmeasures.netlify.app
   (you need to be signed in to Netlify to see it). The preview has its own copy of the database.
-- Two secret settings live in Netlify (**Project configuration → Environment variables**), never in the code:
-  - `SESSION_SECRET` – a long random value that protects login cookies.
-  - `SETUP_CODE` – needed once, to create the first admin account on a brand-new database,
-    so a stranger can't claim the site first.
+- The app looks after its own secrets, so there's nothing to set up by hand:
+  - The key that protects login cookies is created automatically and kept in the database.
+  - Creating the first admin account on a brand-new database needs a one-time **setup code**,
+    so a stranger can't claim the site first. When you open the setup page, the code is written
+    to the site's logs, which only you can see: Netlify → **Logs → Functions → app**.
+  - To choose your own instead, set `SETUP_CODE` (and/or `SESSION_SECRET`) in
+    **Project configuration → Environment variables**.
 - **Give everyone their own account.** Never share logins. Deactivate accounts when people leave.
 
 **Running it somewhere else:** any host that can run Node.js and a Postgres database works. Set

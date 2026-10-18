@@ -13,6 +13,7 @@ const csrfProtection = require('./csrf');
 const { upload, MAX_FILE_MB } = require('./uploads');
 const { loadUser, requireLogin, requireAdmin } = require('./auth');
 const { getSettings } = require('./settings');
+const { getSessionSecret } = require('./secrets');
 const viewHelpers = require('./viewHelpers');
 
 const app = express();
@@ -47,17 +48,20 @@ app.use(
 app.use(express.static(path.join(config.rootDir, 'public'), { maxAge: '1h' }));
 
 // Sessions remember who is logged in. Idle for 8 hours = logged out.
-app.use(
-  session({
+// (Set up on the first request, because the cookie key is read from the database.)
+let sessions = null;
+app.use(async (req, res, next) => {
+  sessions ??= session({
     name: 'dmi.sid',
-    secret: config.sessionSecret,
+    secret: await getSessionSecret(),
     store: new PgSessionStore(db),
     resave: false,
     saveUninitialized: false,
     rolling: true,
     cookie: { httpOnly: true, sameSite: 'lax', secure: config.https, maxAge: 8 * 60 * 60 * 1000 },
-  })
-);
+  });
+  sessions(req, res, next);
+});
 
 // Read submitted form data into req.body.
 app.use(express.urlencoded({ extended: false, limit: '200kb' }));

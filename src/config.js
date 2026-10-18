@@ -3,7 +3,6 @@
 // On Netlify they come from the project's environment variables.
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 
 // The project folder (the one holding "views"). Netlify may move files around
 // when it packages the app, so check the likely places.
@@ -24,16 +23,6 @@ const onNetlify = Boolean(globalThis.Netlify || process.env.NETLIFY_BLOBS_CONTEX
 const dataDir = path.resolve(process.env.DATA_DIR || path.join(rootDir, 'data'));
 if (!onNetlify) fs.mkdirSync(path.join(dataDir, 'uploads'), { recursive: true });
 
-// The session secret signs login cookies so nobody can forge one. On Netlify it
-// must be set as an environment variable; on your computer one is made for you.
-function loadSessionSecret() {
-  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
-  if (onNetlify) throw new Error('Set the SESSION_SECRET environment variable in Netlify.');
-  const file = path.join(dataDir, '.session-secret');
-  if (!fs.existsSync(file)) fs.writeFileSync(file, crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
-  return fs.readFileSync(file, 'utf8').trim();
-}
-
 module.exports = {
   rootDir,
   dataDir,
@@ -44,7 +33,5 @@ module.exports = {
   port: Number(process.env.PORT) || 3000,
   // Netlify always uses https://. Elsewhere, set HTTPS=true once the site is served over https.
   https: onNetlify || process.env.HTTPS === 'true',
-  sessionSecret: loadSessionSecret(),
-  // Needed to create the first admin account on Netlify, so a stranger can't claim the new site.
-  setupCode: process.env.SETUP_CODE || null,
+  // (The key for login cookies and the setup code are in src/secrets.js.)
 };

@@ -1,5 +1,5 @@
 // Tests the Netlify Function that runs the app on Netlify (netlify/functions/app.mjs),
-// by handing it requests the way Netlify does.
+// by handing it requests the way Netlify does, with the app believing it's on Netlify.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -8,19 +8,27 @@ const path = require('path');
 const { startLocalDatabase } = require('../scripts/local-db');
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'dmi-fn-test-'));
+process.env.AWS_LAMBDA_FUNCTION_NAME = 'app'; // makes the app behave as it does on Netlify
+delete process.env.SETUP_CODE;
+delete process.env.SESSION_SECRET;
 
 let localDb;
 let db;
 let handler;
 const context = { ip: '203.0.113.9' };
 const site = (url, options) => new Request(`https://dmi.codehound.org${url}`, options);
+const cookieOf = (response) => response.headers.getSetCookie()[0].split(';')[0];
+const tokenOf = async (response) => (await response.text()).match(/name="_csrf" value="([^"]+)"/)[1];
+const form = (cookie, fields) => ({
+  method: 'POST',
+  headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+  body: new URLSearchParams(fields),
+});
 
 test.before(async () => {
   localDb = await startLocalDatabase();
   process.env.DATABASE_URL = localDb.url;
   db = require('../src/db');
-  const { hashPassword } = require('../src/auth');
-  await db.run("INSERT INTO users (name, email, password_hash, role) VALUES ('Alex', 'alex@example.com', ?, 'admin')", hashPassword('correct horse battery'));
   ({ default: handler } = await import('../netlify/functions/app.mjs'));
 });
 
@@ -30,41 +38,50 @@ test.after(async () => {
   fs.rmSync(process.env.DATA_DIR, { recursive: true, force: true });
 });
 
+test('with no SETUP_CODE set, the app makes one, and setup needs it', async () => {
+  const page = await handler(site('/setup'), context);
+  assert.equal(page.status, 200);
+  const cookie = cookieOf(page);
+  const _csrf = await tokenOf(page);
+  const { value: code } = await db.get("SELECT value FROM settings WHERE key = 'setup_code'");
+  assert.match(code, /^[a-z2-9]{4}-[a-z2-9]{4}-[a-z2-9]{4}$/);
+
+  const account = { _csrf, company_name: 'DMI', name: 'Alex', email: 'alex@example.com', password: 'correct horse battery', confirm: 'correct horse battery' };
+  const wrong = await handler(site('/setup', form(cookie, { ...account, setup_code: 'aaaa-bbbb-cccc' })), context);
+  assert.equal(wrong.status, 400);
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM users')).n, 0);
+
+  const right = await handler(site('/setup', form(cookie, { ...account, setup_code: code })), context);
+  assert.equal(right.status, 302);
+  assert.equal(right.headers.get('location'), '/');
+});
+
+test('the login-cookie key is made once and kept in the database', async () => {
+  const { getSessionSecret } = require('../src/secrets');
+  const first = await getSessionSecret();
+  assert.match(first, /^[0-9a-f]{64}$/);
+  assert.equal(await getSessionSecret(), first);
+});
+
 test('pages, cookies and form posts pass through the function', async () => {
   const page = await handler(site('/login'), context);
   assert.equal(page.status, 200);
-  const cookie = page.headers.getSetCookie()[0].split(';')[0];
-  const _csrf = (await page.text()).match(/name="_csrf" value="([^"]+)"/)[1];
+  const cookie = cookieOf(page);
+  const _csrf = await tokenOf(page);
 
-  const login = await handler(
-    site('/login', {
-      method: 'POST',
-      headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ _csrf, email: 'ALEX@example.com', password: 'correct horse battery' }),
-    }),
-    context
-  );
+  const login = await handler(site('/login', form(cookie, { _csrf, email: 'ALEX@example.com', password: 'correct horse battery' })), context);
   assert.equal(login.status, 302);
   assert.equal(login.headers.get('location'), '/');
-  const signedIn = login.headers.getSetCookie()[0].split(';')[0];
+  assert.match(login.headers.get('set-cookie'), /; Secure/i, 'login cookies are https-only on Netlify');
 
-  const dashboard = await handler(site('/', { headers: { cookie: signedIn } }), context);
+  const dashboard = await handler(site('/', { headers: { cookie: cookieOf(login) } }), context);
   assert.equal(dashboard.status, 200);
   assert.match(await dashboard.text(), /Dashboard/);
 });
 
 test('wrong passwords are counted per visitor address', async () => {
   const page = await handler(site('/login'), context);
-  const cookie = page.headers.getSetCookie()[0].split(';')[0];
-  const _csrf = (await page.text()).match(/name="_csrf" value="([^"]+)"/)[1];
-  await handler(
-    site('/login', {
-      method: 'POST',
-      headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ _csrf, email: 'alex@example.com', password: 'wrong password' }),
-    }),
-    context
-  );
+  await handler(site('/login', form(cookieOf(page), { _csrf: await tokenOf(page), email: 'alex@example.com', password: 'wrong password' })), context);
   const row = await db.get('SELECT key FROM login_attempts');
   assert.equal(row.key, '203.0.113.9|alex@example.com');
 });
