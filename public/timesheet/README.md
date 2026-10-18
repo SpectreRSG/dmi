@@ -31,8 +31,9 @@ page. Nudge those numbers if anything prints slightly off.
 
 ## Hosting
 
-This page is the temporary placeholder at dmi.codehound.org while the DMI admin
-app is being moved onto Netlify. It was copied from the `dmi/` folder of the
-SpectreRSG/CodeHound repository (branch `dmi-timesheet`, commit `ec878c1`).
-Netlify publishes this folder because of the `netlify.toml` at the root of this
-repository.
+Served at dmi.codehound.org/timesheet/ as plain files from the `public/`
+folder, alongside the admin app. It was the temporary placeholder for the site
+while the admin app moved to Netlify, and stays until officers' timesheets are
+built into the admin app itself. Originally copied from the `dmi/` folder of
+the SpectreRSG/CodeHound repository (branch `dmi-timesheet`, commit `ec878c1`).
+Its security headers are set in the root `netlify.toml`.

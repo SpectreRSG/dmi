@@ -36,7 +36,7 @@
       <% if (record.file_name) { %>
         <span class="hint">Current file: <a href="/training/records/<%= record.id %>/file"><%= record.file_original %></a>. Choosing a new file replaces it.</span>
       <% } else { %>
-        <span class="hint">PDF or a photo of the certificate. Max 10 MB.</span>
+        <span class="hint">PDF or a photo of the certificate. Max <%= maxFileMb %> MB.</span>
       <% } %>
     </label>
     <% if (record.file_name) { %>

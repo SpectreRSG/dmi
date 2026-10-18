@@ -6,8 +6,14 @@
   <%- include('../partials/form-error') %>
   <form method="post" action="/setup" class="stack">
     <%- include('../partials/csrf') %>
+    <% if (needsCode) { %>
+      <label>Setup code
+        <input name="setup_code" required autofocus autocomplete="off">
+        <span class="hint">The one-time code you were given for this site. It stops strangers creating the first account.</span>
+      </label>
+    <% } %>
     <label>Company name
-      <input name="company_name" value="<%= values.company_name || '' %>" required autofocus>
+      <input name="company_name" value="<%= values.company_name || '' %>" required <%= needsCode ? '' : 'autofocus' %>>
     </label>
     <label>Your name
       <input name="name" value="<%= values.name || '' %>" required autocomplete="name">

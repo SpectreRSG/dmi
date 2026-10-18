@@ -22,6 +22,7 @@ const FIELDS = [
   'title', 'contract_type', 'party_type', 'client_id', 'employee_id', 'other_party', 'status',
   'signed_on', 'start_date', 'end_date', 'value', 'notes',
 ];
+const COLUMNS = [...FIELDS, 'file_name', 'file_original'];
 
 const CONTRACT_SELECT = `
   SELECT k.*, c.name AS client_name, e.first_name, e.last_name
@@ -30,10 +31,10 @@ const CONTRACT_SELECT = `
   LEFT JOIN employees e ON e.id = k.employee_id`;
 
 function findContract(id) {
-  return db.prepare(`${CONTRACT_SELECT} WHERE k.id = ?`).get(id);
+  return db.get(`${CONTRACT_SELECT} WHERE k.id = ?`, id);
 }
 
-function readForm(body) {
+async function readForm(body) {
   const v = clean(body, FIELDS);
   v.party_type = ['client', 'employee', 'other'].includes(v.party_type) ? v.party_type : 'client';
   v.client_id = v.party_type === 'client' ? toId(v.client_id) : null;
@@ -45,9 +46,11 @@ function readForm(body) {
   let error = null;
   if (!v.title) error = 'Please give the contract a title.';
   else if (!CONTRACT_TYPES.includes(v.contract_type)) error = 'Please choose a contract type.';
-  else if (v.party_type === 'client' && !v.client_id) error = 'Please choose the client.';
-  else if (v.party_type === 'employee' && !v.employee_id) error = 'Please choose the staff member.';
-  else if (v.party_type === 'other' && !v.other_party) error = 'Please enter who the contract is with.';
+  else if (v.party_type === 'client' && !(v.client_id && (await db.get('SELECT 1 FROM clients WHERE id = ?', v.client_id)))) {
+    error = 'Please choose the client.';
+  } else if (v.party_type === 'employee' && !(v.employee_id && (await db.get('SELECT 1 FROM employees WHERE id = ?', v.employee_id)))) {
+    error = 'Please choose the staff member.';
+  } else if (v.party_type === 'other' && !v.other_party) error = 'Please enter who the contract is with.';
   else if (['signed_on', 'start_date', 'end_date'].some((f) => v[f] && !time.isValidDate(v[f]))) {
     error = 'Please use the date pickers for dates.';
   } else if (v.start_date && v.end_date && v.end_date < v.start_date) {
@@ -56,21 +59,26 @@ function readForm(body) {
   return { values: v, error };
 }
 
-function renderForm(res, contract, error, status = 200) {
+async function renderForm(res, contract, error, status = 200) {
+  const [clients, staff] = await Promise.all([
+    db.all('SELECT id, name FROM clients ORDER BY name'),
+    db.all(
+      "SELECT id, first_name, last_name FROM employees WHERE status = 'active' OR id = ? ORDER BY last_name, first_name",
+      contract.employee_id || 0
+    ),
+  ]);
   res.status(status).render('contracts/form', {
     title: contract.id ? `Edit ${contract.title}` : 'Add contract',
     contract,
     error,
     CONTRACT_TYPES,
     STATUSES,
-    clients: db.prepare('SELECT id, name FROM clients ORDER BY name').all(),
-    staff: db
-      .prepare("SELECT id, first_name, last_name FROM employees WHERE status = 'active' OR id = ? ORDER BY last_name, first_name")
-      .all(contract.employee_id || 0),
+    clients,
+    staff,
   });
 }
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const q = String(req.query.q || '').trim();
   const status = [...STATUSES, 'ending', 'all'].includes(req.query.status) ? req.query.status : 'all';
   const type = CONTRACT_TYPES.includes(req.query.type) ? req.query.type : '';
@@ -91,19 +99,20 @@ router.get('/', (req, res) => {
   }
   if (q) {
     const like = `%${q}%`;
-    where.push("(k.title LIKE ? OR c.name LIKE ? OR e.first_name || ' ' || e.last_name LIKE ? OR k.other_party LIKE ?)");
+    where.push("(k.title ILIKE ? OR c.name ILIKE ? OR e.first_name || ' ' || e.last_name ILIKE ? OR k.other_party ILIKE ?)");
     params.push(like, like, like, like);
   }
-  const contracts = db
-    .prepare(`${CONTRACT_SELECT} WHERE ${where.join(' AND ')} ORDER BY (k.end_date IS NULL), k.end_date, k.title`)
-    .all(...params);
+  const contracts = await db.all(
+    `${CONTRACT_SELECT} WHERE ${where.join(' AND ')} ORDER BY (k.end_date IS NULL), k.end_date, k.title`,
+    ...params
+  );
   res.render('contracts/index', { title: 'Contracts & agreements', contracts, q, status, type, CONTRACT_TYPES, STATUSES });
 });
 
-router.get('/new', (req, res) => {
+router.get('/new', async (req, res) => {
   const employeeId = toId(req.query.employee);
   const clientId = toId(req.query.client);
-  renderForm(
+  await renderForm(
     res,
     {
       party_type: employeeId ? 'employee' : 'client',
@@ -116,83 +125,81 @@ router.get('/new', (req, res) => {
   );
 });
 
-router.post('/', (req, res) => {
-  const { values, error } = readForm(req.body);
+router.post('/', async (req, res) => {
+  const { values, error } = await readForm(req.body);
   if (error) return renderForm(res, values, error, 400);
   let file = null;
   try {
-    file = saveUpload(req.file);
+    file = await saveUpload(req.file);
   } catch (err) {
     if (err instanceof UploadError) return renderForm(res, values, err.message, 400);
     throw err;
   }
-  const row = { ...values, file_name: file?.file_name ?? null, file_original: file?.file_original ?? null };
-  const columns = [...FIELDS, 'file_name', 'file_original'];
-  const info = db
-    .prepare(`INSERT INTO contracts (${columns.join(', ')}) VALUES (${columns.map((f) => `@${f}`).join(', ')})`)
-    .run(row);
-  logActivity(req, `Added contract "${values.title}"`);
+  const id = await db.insert(
+    `INSERT INTO contracts (${COLUMNS.join(', ')}) VALUES (${COLUMNS.map((f) => `@${f}`).join(', ')})`,
+    { ...values, file_name: file?.file_name ?? null, file_original: file?.file_original ?? null }
+  );
+  await logActivity(req, `Added contract "${values.title}"`);
   req.flash('success', 'Contract added.');
-  res.redirect(`/contracts/${info.lastInsertRowid}`);
+  res.redirect(`/contracts/${id}`);
 });
 
-router.get('/:id', (req, res) => {
-  const contract = findContract(req.params.id);
+router.get('/:id', async (req, res) => {
+  const contract = await findContract(req.params.id);
   if (!contract) return notFound(res, 'contract');
   res.render('contracts/show', { title: contract.title, contract });
 });
 
-router.get('/:id/file', (req, res) => {
-  const contract = findContract(req.params.id);
+router.get('/:id/file', async (req, res) => {
+  const contract = await findContract(req.params.id);
   if (!contract?.file_name) return notFound(res, 'file');
-  sendUpload(res, contract.file_name, contract.file_original);
+  await sendUpload(res, contract.file_name, contract.file_original);
 });
 
-router.get('/:id/edit', (req, res) => {
-  const contract = findContract(req.params.id);
+router.get('/:id/edit', async (req, res) => {
+  const contract = await findContract(req.params.id);
   if (!contract) return notFound(res, 'contract');
-  renderForm(res, contract, null);
+  await renderForm(res, contract, null);
 });
 
-router.post('/:id', (req, res) => {
-  const contract = findContract(req.params.id);
+router.post('/:id', async (req, res) => {
+  const contract = await findContract(req.params.id);
   if (!contract) return notFound(res, 'contract');
-  const { values, error } = readForm(req.body);
+  const { values, error } = await readForm(req.body);
   const formValues = { ...values, id: contract.id, file_name: contract.file_name, file_original: contract.file_original };
   if (error) return renderForm(res, formValues, error, 400);
 
   let file = null;
   try {
-    file = saveUpload(req.file);
+    file = await saveUpload(req.file);
   } catch (err) {
     if (err instanceof UploadError) return renderForm(res, formValues, err.message, 400);
     throw err;
   }
   let { file_name, file_original } = contract;
   if (file || req.body.remove_file) {
-    deleteUpload(contract.file_name);
+    await deleteUpload(contract.file_name);
     file_name = file?.file_name ?? null;
     file_original = file?.file_original ?? null;
   }
 
-  const columns = [...FIELDS, 'file_name', 'file_original'];
-  db.prepare(`UPDATE contracts SET ${columns.map((f) => `${f} = @${f}`).join(', ')} WHERE id = @id`).run({
+  await db.run(`UPDATE contracts SET ${COLUMNS.map((f) => `${f} = @${f}`).join(', ')} WHERE id = @id`, {
     ...values,
     file_name,
     file_original,
     id: contract.id,
   });
-  logActivity(req, `Updated contract "${values.title}"`);
+  await logActivity(req, `Updated contract "${values.title}"`);
   req.flash('success', 'Contract saved.');
   res.redirect(`/contracts/${contract.id}`);
 });
 
-router.post('/:id/delete', (req, res) => {
-  const contract = findContract(req.params.id);
+router.post('/:id/delete', async (req, res) => {
+  const contract = await findContract(req.params.id);
   if (!contract) return notFound(res, 'contract');
-  db.prepare('DELETE FROM contracts WHERE id = ?').run(contract.id);
-  deleteUpload(contract.file_name);
-  logActivity(req, `Deleted contract "${contract.title}"`);
+  await db.run('DELETE FROM contracts WHERE id = ?', contract.id);
+  await deleteUpload(contract.file_name);
+  await logActivity(req, `Deleted contract "${contract.title}"`);
   req.flash('success', 'Contract deleted.');
   res.redirect('/contracts');
 });

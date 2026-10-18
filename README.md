@@ -14,8 +14,8 @@ A private website for running the business side of a security company:
 | **Training** | A table showing who is qualified, who's expiring, and who's missing training. Plan training sessions, book people in, and record attendance. |
 | **Admin** | User accounts (admin or manager), company settings, and an activity log of who changed what. |
 
-> **Live site:** https://dmi.codehound.org is hosted on Netlify. For now it shows the DMI
-> Timesheet page from the `placeholder/` folder while this admin app is adapted to run on Netlify.
+> **Live site:** https://dmi.codehound.org, hosted on Netlify (see section 4). The officers'
+> timesheet page is at https://dmi.codehound.org/timesheet/ until it's built into the app.
 
 ---
 
@@ -40,6 +40,8 @@ You only need to do steps 1–3 once.
    npm start
    ```
 
+   This also starts a small database on your computer (kept in the `data` folder), so there's
+   nothing else to install.
 5. Open <http://localhost:3000> in your browser. The first time, it asks you to create the
    **first admin account**. That's you.
 
@@ -52,8 +54,8 @@ npm run seed
 npm start
 ```
 
-This fills an **empty** database with demo guards, clients, shifts, hours, a pay run, contracts
-and training. It prints a login (`admin@example.com` plus a password). When you're done
+(Stop the app first if it's running.) This fills an **empty** local database with demo guards,
+clients, shifts, hours, a pay run, contracts and training. It prints a login (`admin@example.com` plus a password). When you're done
 exploring, stop the app and **delete the `data` folder** to start fresh with your real data.
 
 ---
@@ -92,7 +94,7 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
 A website like this has a few parts. Here's what each one is and where it lives:
 
 ```
-Your browser  ──asks for a page──▶  Server (Node.js + Express)  ──reads/writes──▶  Database (SQLite file)
+Your browser  ──asks for a page──▶  Server (Node.js + Express)  ──reads/writes──▶  Database (Postgres)
               ◀──sends back HTML──                                   │
                                                           builds the HTML from templates (EJS)
 ```
@@ -100,8 +102,9 @@ Your browser  ──asks for a page──▶  Server (Node.js + Express)  ──
 - **Server**: a program that waits for your browser to ask for a page, then sends one back.
   We use **Express**, the most popular server library for Node.js.
 - **Routes**: the rules for "when someone visits `/staff`, do this". One file per area in `src/routes/`.
-- **Database**: where everything is saved. **SQLite** keeps it all in a single file
-  (`data/dmi.sqlite`). There's no separate database program to install.
+- **Database**: where everything is saved. It's **Postgres**: on the live site Netlify runs it for
+  us (Netlify Database); on your computer `npm start` runs a local copy in `data/pg`.
+  The tables are described in `netlify/database/migrations/`.
 - **Templates (views)**: HTML pages with gaps that get filled in with real data, like
   `<%= employee.first_name %>`. They're in `views/` and use **EJS**.
 - **CSS**: makes it look nice. One file: `public/css/style.css`. The colours are at the top.
@@ -114,12 +117,11 @@ Your browser  ──asks for a page──▶  Server (Node.js + Express)  ──
 src/
   server.js          starts everything (npm start runs this)
   app.js             security settings + which route file handles which address
-  config.js          settings from the .env file
-  schema.sql         the database tables (like spreadsheet tabs)
-  db.js              opens the database
+  config.js          settings from the .env file (or Netlify's environment variables)
+  db.js              talks to the database
   auth.js            passwords, login checks, admin-only checks
   csrf.js            protection against forged forms
-  uploads.js         file uploads (contracts, certificates)
+  uploads.js         file uploads (contracts, certificates): Netlify Blobs live, data/uploads locally
   time.js            date/time helpers
   viewHelpers.js     formatting helpers used by templates (dates, money, badges, icons)
   services/
@@ -127,10 +129,17 @@ src/
     compliance.js    "is this guard licensed and trained?"
   routes/            one file per area: staff, schedule, timesheets, pay, contracts, training…
 views/               the HTML templates, one folder per area
-public/              CSS, browser JavaScript, icon
-scripts/seed.js      demo data
+public/              CSS, browser JavaScript, icon, and the officers' timesheet page (timesheet/)
+netlify/
+  database/migrations/   the database tables (like spreadsheet tabs), applied by Netlify
+  functions/app.mjs      runs the whole app on Netlify
+netlify.toml         Netlify settings
+scripts/
+  start.js           "npm start": starts the local database, then the website
+  local-db.js        the local database used by npm start and the tests
+  seed.js            demo data
 tests/               automated tests
-data/                YOUR DATA (database + uploaded files). Created automatically. Not on GitHub.
+data/                YOUR LOCAL DATA (database + uploaded files). Created automatically. Not on GitHub.
 ```
 
 ### Branches: `dev` and `main`
@@ -147,10 +156,12 @@ data/                YOUR DATA (database + uploaded files). Created automaticall
 
 - Run `npm run dev` instead of `npm start` and the server restarts by itself every time you save a file.
 - Run `npm test` to check nothing is broken. It runs the tests in `tests/`.
-- To add a field (say, "uniform size" for staff): add a column in `src/schema.sql`, add it to the
-  `FIELDS` list in `src/routes/staff.js`, and add an input to `views/staff/form.ejs`.
-  ⚠️ `schema.sql` only creates tables that don't exist yet. To change an existing database, run
-  `ALTER TABLE employees ADD COLUMN uniform_size TEXT;` with a SQLite tool, or ask for help.
+- To add a field (say, "uniform size" for staff): add a **new** file in
+  `netlify/database/migrations/` with a later number, such as
+  `20261101090000_uniform-size.sql`, containing `ALTER TABLE employees ADD COLUMN uniform_size TEXT;`.
+  Then add the field to the `FIELDS` list in `src/routes/staff.js` and an input to `views/staff/form.ejs`.
+  Netlify applies new migration files when it deploys; `npm start` applies them on your computer.
+  ⚠️ Never edit or delete a migration file that has already been used. Always add a new one.
 
 ---
 
@@ -163,20 +174,26 @@ sign-out after 8 idle hours; protection against forged forms (CSRF) and other co
 (security headers); uploaded files that only signed-in users can download; managers who can't see
 pay; and an activity log.
 
-**When you put it on the internet:**
+**How the live site works (Netlify):**
 
-1. **Use HTTPS** (the padlock). Most hosts do this for you. Then set `HTTPS=true` in `.env`.
-2. Copy `.env.example` to `.env` and set your **time zone** (`TZ`).
-3. Pick a host that gives you a **persistent disk**, because the database is a file. For example, a
-   small virtual server (DigitalOcean, Linode, Lightsail), or Render/Railway/Fly.io with a mounted
-   volume pointed to by `DATA_DIR`.
-4. Run it with a process manager (such as `pm2`) or your host's "start command" so it restarts if
-   the server reboots: `npm install --omit=dev && npm start`.
-5. **Give everyone their own account.** Never share logins. Deactivate accounts when people leave.
+- Netlify serves `public/` straight from its network, and runs everything else through one
+  Netlify Function (`netlify/functions/app.mjs`).
+- Data is kept in **Netlify Database** (Postgres). Uploaded files are kept in **Netlify Blobs**
+  (private file storage). Netlify creates both automatically.
+- Only the `main` branch can update the live site (a lock in `netlify.toml`). Work on other
+  branches can be previewed on private Netlify links first.
+- Two secret settings live in Netlify (**Project configuration → Environment variables**), never in the code:
+  - `SESSION_SECRET` – a long random value that protects login cookies.
+  - `SETUP_CODE` – needed once, to create the first admin account on a brand-new database,
+    so a stranger can't claim the site first.
+- **Give everyone their own account.** Never share logins. Deactivate accounts when people leave.
 
-**Back-ups:** everything is in the `data` folder. Copy that whole folder somewhere safe regularly
-(another computer, cloud storage) and keep a few old copies. To restore, stop the app and put the
-folder back.
+**Running it somewhere else:** any host that can run Node.js and a Postgres database works. Set
+`DATABASE_URL` to the database's address, `SESSION_SECRET`, and `HTTPS=true` once it's on https.
+
+**Back-ups:** on your computer, everything is in the `data` folder: copy it somewhere safe while the
+app is stopped. On the live site, the data is in Netlify Database; download the pay-run
+spreadsheets as you go, and ask for help setting up regular database snapshots.
 
 ---
 

@@ -38,6 +38,16 @@ test('pay line adds regular pay, overtime pay and adjustments', () => {
   assert.equal(line.gross_pay, 1675.5);
 });
 
+test('"today" follows the company time zone, not the server clock', () => {
+  // Honolulu (UTC-10) and Kiritimati (UTC+14) are always a full day apart.
+  time.setTimeZone('Pacific/Honolulu');
+  const honolulu = time.todayStr();
+  time.setTimeZone('Pacific/Kiritimati');
+  const kiritimati = time.todayStr();
+  time.setTimeZone(undefined);
+  assert.equal(time.daysBetween(honolulu, kiritimati), 1);
+});
+
 test('date helpers handle month ends and weeks', () => {
   assert.equal(time.addMonths('2026-01-31', 1), '2026-02-28');
   assert.equal(time.addMonths('2026-03-15', 36), '2029-03-15');

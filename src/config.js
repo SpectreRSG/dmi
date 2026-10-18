@@ -5,7 +5,12 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const rootDir = path.join(__dirname, '..');
+// The project folder (the one holding "views"). Netlify may move files around
+// when it packages the app, so check the likely places.
+const rootDir =
+  [path.join(__dirname, '..'), process.env.LAMBDA_TASK_ROOT, process.cwd()]
+    .filter(Boolean)
+    .find((dir) => fs.existsSync(path.join(dir, 'views'))) || path.join(__dirname, '..');
 
 // Load settings from a .env file if there is one.
 const envFile = path.join(rootDir, '.env');

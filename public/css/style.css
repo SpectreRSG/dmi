@@ -861,3 +861,12 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
   .card { border: 0; box-shadow: none; }
   .table tbody tr:hover { background: none; }
 }
+
+.auth-footer {
+  margin: 20px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+  color: var(--muted);
+  text-align: center;
+}

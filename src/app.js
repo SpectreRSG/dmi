@@ -18,6 +18,9 @@ const viewHelpers = require('./viewHelpers');
 const app = express();
 
 // Pages are built from the templates in the "views" folder.
+// (Registering EJS by name, rather than letting Express find it, makes sure
+// Netlify packages it with the function.)
+app.engine('ejs', require('ejs').__express);
 app.set('view engine', 'ejs');
 app.set('views', path.join(config.rootDir, 'views'));
 Object.assign(app.locals, viewHelpers, { maxFileMb: MAX_FILE_MB });

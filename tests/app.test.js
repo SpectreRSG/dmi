@@ -5,12 +5,15 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { startLocalDatabase } = require('../scripts/local-db');
 
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'dmi-test-'));
-const app = require('../src/app');
-const db = require('../src/db');
+process.env.SETUP_CODE = 'test-setup-code';
 const time = require('../src/time');
 
+let app;
+let db;
+let localDb;
 let server;
 let base;
 
@@ -64,15 +67,33 @@ const lastMonday = time.addDays(time.startOfWeek(time.todayStr()), -7);
 const ids = {};
 
 test.before(async () => {
+  localDb = await startLocalDatabase(); // in memory, thrown away afterwards
+  process.env.DATABASE_URL = localDb.url;
+  app = require('../src/app');
+  db = require('../src/db');
   server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   base = `http://localhost:${server.address().port}`;
 });
 
-test.after(() => {
+test.after(async () => {
   server.close();
-  db.close();
+  await db.close();
+  await localDb.stop();
   fs.rmSync(process.env.DATA_DIR, { recursive: true, force: true });
+});
+
+test('SQL values are swapped in safely, even next to quoted text', () => {
+  const { toPostgres } = require('../src/db');
+  assert.deepEqual(toPostgres("SELECT * FROM t WHERE a = ? AND b = '?' AND c = ?", [1, 2]), {
+    text: "SELECT * FROM t WHERE a = $1 AND b = '?' AND c = $2",
+    values: [1, 2],
+  });
+  assert.deepEqual(toPostgres("UPDATE t SET a = @a, e = 'x@y.z' WHERE id = @id OR parent = @id", [{ a: 'A', id: 7 }]), {
+    text: "UPDATE t SET a = $1, e = 'x@y.z' WHERE id = $2 OR parent = $2",
+    values: ['A', 7],
+  });
+  assert.throws(() => toPostgres('SELECT ?', []), /expects 1 values/);
 });
 
 test('a brand-new site sends you to the setup page', async () => {
@@ -81,19 +102,23 @@ test('a brand-new site sends you to the setup page', async () => {
   assert.equal(res.location, '/setup');
 });
 
-test('setup creates the first admin and signs them in', async () => {
-  const _csrf = await admin.token('/setup');
-  const res = await fetch(`${base}/setup`, { method: 'POST' }); // no cookie, no token
-  assert.equal(res.status, 403);
+test('setup needs the setup code, then creates the first admin and signs them in', async () => {
+  const blocked = await fetch(`${base}/setup`, { method: 'POST' }); // no cookie, no token
+  assert.equal(blocked.status, 403);
 
-  const setup = await admin.post('/setup', {
+  const form = {
     company_name: 'Test Security',
     name: 'Alex Admin',
     email: 'alex@example.com',
     password: 'correct horse battery',
     confirm: 'correct horse battery',
-    _csrf,
-  }, '/setup');
+  };
+  const wrongCode = await admin.post('/setup', { ...form, setup_code: 'guess' }, '/setup');
+  assert.equal(wrongCode.status, 400);
+  assert.match(wrongCode.text, /setup code is not right/);
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM users')).n, 0);
+
+  const setup = await admin.post('/setup', { ...form, setup_code: 'test-setup-code' }, '/setup');
   assert.equal(setup.status, 302);
   assert.equal(setup.location, '/');
   const home = await admin.get('/');
@@ -104,7 +129,7 @@ test('setup creates the first admin and signs them in', async () => {
 test('forms without the security token are rejected, even when signed in', async () => {
   const res = await admin.raw('POST', '/staff', { first_name: 'X', last_name: 'Y' });
   assert.equal(res.status, 403);
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM employees').get().n, 0);
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM employees')).n, 0);
 });
 
 test('add a client, a site and a staff member', async () => {
@@ -112,18 +137,18 @@ test('add a client, a site and a staff member', async () => {
   ids.client = Number(res.location.split('/').pop());
   res = await admin.post(`/clients/${ids.client}/sites`, { name: 'Main entrance' });
   assert.equal(res.status, 302);
-  ids.site = db.prepare('SELECT id FROM sites WHERE client_id = ?').get(ids.client).id;
+  ids.site = (await db.get('SELECT id FROM sites WHERE client_id = ?', ids.client)).id;
   res = await admin.post('/staff', { first_name: 'Sam', last_name: 'Guard', hourly_rate: '30', license_required: '1', status: 'active' });
   assert.equal(res.status, 302);
   ids.employee = Number(res.location.split('/').pop());
-  assert.equal(db.prepare('SELECT hourly_rate FROM employees WHERE id = ?').get(ids.employee).hourly_rate, 30);
+  assert.equal((await db.get('SELECT hourly_rate FROM employees WHERE id = ?', ids.employee)).hourly_rate, 30);
 });
 
 test('shifts: double-booking is blocked, and "mark as worked" creates timesheet hours', async () => {
   const shift = { site_id: ids.site, employee_id: ids.employee, date: lastMonday, start_time: '08:00', end_time: '18:30', break_minutes: '30' };
   let res = await admin.post('/schedule', shift);
   assert.equal(res.status, 302);
-  ids.shift = db.prepare('SELECT id FROM shifts ORDER BY id DESC').get().id;
+  ids.shift = (await db.get('SELECT id FROM shifts ORDER BY id DESC')).id;
 
   res = await admin.post('/schedule', { ...shift, start_time: '12:00', end_time: '20:00' });
   assert.equal(res.status, 400);
@@ -131,7 +156,7 @@ test('shifts: double-booking is blocked, and "mark as worked" creates timesheet 
 
   res = await admin.post(`/schedule/${ids.shift}/complete`);
   assert.equal(res.status, 302);
-  const entry = db.prepare('SELECT * FROM time_entries WHERE shift_id = ?').get(ids.shift);
+  const entry = await db.get('SELECT * FROM time_entries WHERE shift_id = ?', ids.shift);
   assert.equal(entry.status, 'pending');
   assert.equal(entry.end_at, `${lastMonday}T18:30`);
   ids.entry = entry.id;
@@ -147,53 +172,57 @@ test('timesheets: overlapping hours are blocked; approve in bulk', async () => {
     res = await admin.post('/timesheets', { employee_id: ids.employee, site_id: ids.site, date: time.addDays(lastMonday, d), start_time: '08:00', end_time: '18:30', break_minutes: '30' });
     assert.equal(res.status, 302);
   }
-  const pendingIds = db.prepare("SELECT id FROM time_entries WHERE status = 'pending'").all().map((r) => r.id);
+  const pendingIds = (await db.all("SELECT id FROM time_entries WHERE status = 'pending'")).map((r) => r.id);
   assert.equal(pendingIds.length, 5);
 
   res = await admin.postList('/timesheets/bulk', [['action', 'approve'], ...pendingIds.map((id) => ['ids', String(id)])]);
   assert.equal(res.status, 302);
-  assert.equal(db.prepare("SELECT COUNT(*) AS n FROM time_entries WHERE status = 'approved'").get().n, 5);
+  assert.equal((await db.get("SELECT COUNT(*)::int AS n FROM time_entries WHERE status = 'approved'")).n, 5);
 });
 
 test('pay run: overtime is calculated and finalized hours are locked', async () => {
   let res = await admin.post('/pay', { period_start: lastMonday, period_end: time.addDays(lastMonday, 6) });
   assert.equal(res.status, 302);
   ids.payRun = Number(res.location.split('/').pop());
-  const item = db.prepare('SELECT * FROM pay_run_items WHERE pay_run_id = ?').get(ids.payRun);
+  const item = await db.get('SELECT * FROM pay_run_items WHERE pay_run_id = ?', ids.payRun);
   assert.equal(item.regular_hours, 40);
   assert.equal(item.overtime_hours, 10);
   assert.equal(item.gross_pay, 40 * 30 + 10 * 30 * 1.5);
 
   res = await admin.post(`/pay/${ids.payRun}/items/${item.id}`, { adjustment: '50', adjustment_note: 'Bonus' });
-  assert.equal(db.prepare('SELECT gross_pay FROM pay_run_items WHERE id = ?').get(item.id).gross_pay, 1700);
+  assert.equal((await db.get('SELECT gross_pay FROM pay_run_items WHERE id = ?', item.id)).gross_pay, 1700);
 
   // Recalculating keeps the adjustment.
   await admin.post(`/pay/${ids.payRun}/recalculate`);
-  assert.equal(db.prepare('SELECT gross_pay FROM pay_run_items WHERE pay_run_id = ?').get(ids.payRun).gross_pay, 1700);
+  assert.equal((await db.get('SELECT gross_pay FROM pay_run_items WHERE pay_run_id = ?', ids.payRun)).gross_pay, 1700);
 
   const csv = await admin.get(`/pay/${ids.payRun}/export.csv`);
   assert.match(csv.headers.get('content-type'), /text\/csv/);
   assert.match(csv.text, /Sam Guard,.*,40,10,30,1.5,1200,450,50,Bonus,1700/);
 
   // Rejecting hours after the draft was made: the page warns, and finalizing leaves them out.
-  const lastEntry = db.prepare('SELECT id FROM time_entries WHERE pay_run_id = ? ORDER BY start_at DESC').get(ids.payRun).id;
+  const lastEntry = (await db.get('SELECT id FROM time_entries WHERE pay_run_id = ? ORDER BY start_at DESC', ids.payRun)).id;
   await admin.post(`/timesheets/${lastEntry}/reject`);
   assert.match((await admin.get(`/pay/${ids.payRun}`)).text, /no longer approved/);
 
   res = await admin.post(`/pay/${ids.payRun}/finalize`);
-  assert.equal(db.prepare('SELECT status FROM pay_runs WHERE id = ?').get(ids.payRun).status, 'finalized');
-  assert.equal(db.prepare('SELECT gross_pay FROM pay_run_items WHERE pay_run_id = ?').get(ids.payRun).gross_pay, 40 * 30 + 50);
-  assert.equal(db.prepare('SELECT pay_run_id FROM time_entries WHERE id = ?').get(lastEntry).pay_run_id, null);
+  assert.equal((await db.get('SELECT status FROM pay_runs WHERE id = ?', ids.payRun)).status, 'finalized');
+  assert.equal((await db.get('SELECT gross_pay FROM pay_run_items WHERE pay_run_id = ?', ids.payRun)).gross_pay, 40 * 30 + 50);
+  assert.equal((await db.get('SELECT pay_run_id FROM time_entries WHERE id = ?', lastEntry)).pay_run_id, null);
 
   res = await admin.post(`/timesheets/${ids.entry}/delete`);
-  assert.ok(db.prepare('SELECT 1 FROM time_entries WHERE id = ?').get(ids.entry), 'paid hours must not be deleted');
+  assert.ok(await db.get('SELECT 1 FROM time_entries WHERE id = ?', ids.entry), 'paid hours must not be deleted');
   res = await admin.post(`/pay/${ids.payRun}/delete`);
-  assert.ok(db.prepare('SELECT 1 FROM pay_runs WHERE id = ?').get(ids.payRun), 'finalized pay runs must not be deleted');
+  assert.ok(await db.get('SELECT 1 FROM pay_runs WHERE id = ?', ids.payRun), 'finalized pay runs must not be deleted');
 });
 
 test('managers cannot see pay, and cannot change pay rates', async () => {
   let res = await admin.post('/users', { name: 'Morgan Manager', email: 'morgan@example.com', role: 'manager', password: 'another long password', confirm: 'another long password' });
   assert.equal(res.status, 302);
+
+  const duplicate = await admin.post('/users', { name: 'Copy', email: 'MORGAN@example.com', role: 'manager', password: 'another long password', confirm: 'another long password' });
+  assert.equal(duplicate.status, 400);
+  assert.match(duplicate.text, /already uses that email/);
 
   const manager = makeClient();
   const _csrf = await manager.token('/login');
@@ -207,7 +236,7 @@ test('managers cannot see pay, and cannot change pay rates', async () => {
   assert.doesNotMatch(profile.text, /Hourly rate/);
 
   await manager.post(`/staff/${ids.employee}`, { first_name: 'Sam', last_name: 'Guard', hourly_rate: '99', status: 'active' });
-  assert.equal(db.prepare('SELECT hourly_rate FROM employees WHERE id = ?').get(ids.employee).hourly_rate, 30);
+  assert.equal((await db.get('SELECT hourly_rate FROM employees WHERE id = ?', ids.employee)).hourly_rate, 30);
 });
 
 test('wrong passwords are limited', async () => {
@@ -245,19 +274,30 @@ test('contracts: a signed copy can be uploaded and downloaded; unsafe file types
 test('training: expiry dates are filled in and completing a session creates records', async () => {
   let res = await admin.post('/training/courses', { name: 'First Aid', validity_months: '36', required: '1', active: '1' });
   assert.equal(res.status, 302);
-  const courseId = db.prepare('SELECT id FROM training_courses').get().id;
+  const courseId = (await db.get('SELECT id FROM training_courses')).id;
+
+  res = await admin.post('/training/courses', { name: 'first aid', active: '1' });
+  assert.equal(res.status, 400, 'course names are unique, ignoring capitals');
 
   res = await admin.postFile('/training/records', { employee_id: String(ids.employee), course_id: String(courseId), completed_on: '2026-01-31' }, null, '/training/records/new');
   assert.equal(res.status, 302);
-  assert.equal(db.prepare('SELECT expires_on FROM training_records').get().expires_on, '2029-01-31');
+  assert.equal((await db.get('SELECT expires_on FROM training_records')).expires_on, '2029-01-31');
 
   res = await admin.post('/training/sessions', { course_id: courseId, date: time.addDays(time.todayStr(), 3), start_time: '09:00' });
   const sessionId = Number(res.location.split('/').pop());
   await admin.post(`/training/sessions/${sessionId}/attendees`, { employee_id: ids.employee });
   res = await admin.post(`/training/sessions/${sessionId}/complete`, { attended: ids.employee });
   assert.equal(res.status, 302);
-  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM training_records WHERE employee_id = ?').get(ids.employee).n, 2);
-  assert.equal(db.prepare('SELECT status FROM training_sessions WHERE id = ?').get(sessionId).status, 'completed');
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM training_records WHERE employee_id = ?', ids.employee)).n, 2);
+  assert.equal((await db.get('SELECT status FROM training_sessions WHERE id = ?', sessionId)).status, 'completed');
+});
+
+test('settings: the time zone can be changed, and only to a listed zone', async () => {
+  let res = await admin.post('/settings', { company_name: 'Test Security', timezone: 'Mars/Olympus', currency_symbol: '$', overtime_weekly_hours: '40', overtime_multiplier: '1.5', expiry_warning_days: '30' });
+  assert.equal(res.status, 400);
+  res = await admin.post('/settings', { company_name: 'Test Security', timezone: 'America/New_York', currency_symbol: '$', overtime_weekly_hours: '40', overtime_multiplier: '1.5', expiry_warning_days: '30' });
+  assert.equal(res.status, 302);
+  assert.equal((await db.get("SELECT value FROM settings WHERE key = 'timezone'")).value, 'America/New_York');
 });
 
 test('every main page loads', async () => {

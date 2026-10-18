@@ -12,6 +12,12 @@
   <div class="form-grid">
     <label>Company name <input name="company_name" value="<%= values.company_name || '' %>" required></label>
     <label>Currency symbol <input name="currency_symbol" value="<%= values.currency_symbol %>" maxlength="5"></label>
+    <label class="field-full">Time zone
+      <select name="timezone">
+        <% for (const [zone, label] of TIMEZONES) { %><option value="<%= zone %>" <%= values.timezone === zone ? 'selected' : '' %>><%= label %></option><% } %>
+      </select>
+      <span class="hint">Decides what "today" and "now" mean everywhere in the app.</span>
+    </label>
   </div>
   <h2>Overtime</h2>
   <div class="form-grid">

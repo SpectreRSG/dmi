@@ -8,7 +8,7 @@
 // 4. "Finalize" it. The hours are then locked so they can never be paid twice.
 const express = require('express');
 const db = require('../db');
-const { toId, toNumber, notFound, numericIdParam, logActivity, employeeName } = require('../helpers');
+const { toNumber, notFound, numericIdParam, logActivity, employeeName } = require('../helpers');
 const time = require('../time');
 const { calculatePayLine, entryHours, round2 } = require('../services/payroll');
 
@@ -17,19 +17,19 @@ numericIdParam(router);
 router.param('itemId', (req, res, next, id) => (/^\d+$/.test(id) ? next() : next('route')));
 
 function findRun(id) {
-  return db
-    .prepare('SELECT p.*, u.name AS created_by_name FROM pay_runs p LEFT JOIN users u ON u.id = p.created_by WHERE p.id = ?')
-    .get(id);
+  return db.get(
+    'SELECT p.*, u.name AS created_by_name FROM pay_runs p LEFT JOIN users u ON u.id = p.created_by WHERE p.id = ?',
+    id
+  );
 }
 
 function runItems(runId) {
-  return db
-    .prepare(
-      `SELECT i.*, e.first_name, e.last_name, e.position, e.email
-       FROM pay_run_items i JOIN employees e ON e.id = i.employee_id
-       WHERE i.pay_run_id = ? ORDER BY e.last_name, e.first_name`
-    )
-    .all(runId);
+  return db.all(
+    `SELECT i.*, e.first_name, e.last_name, e.position, e.email
+     FROM pay_run_items i JOIN employees e ON e.id = i.employee_id
+     WHERE i.pay_run_id = ? ORDER BY e.last_name, e.first_name`,
+    runId
+  );
 }
 
 function totalsOf(items) {
@@ -42,25 +42,24 @@ function totalsOf(items) {
 }
 
 // (Re)builds a draft pay run from the approved hours in its period.
-function recalculate(run, settings) {
-  db.transaction(() => {
+async function recalculate(run, settings) {
+  await db.transaction(async (tx) => {
     // Keep any adjustments already typed in.
     const previous = new Map(
-      db
-        .prepare('SELECT employee_id, adjustment, adjustment_note FROM pay_run_items WHERE pay_run_id = ?')
-        .all(run.id)
-        .map((row) => [row.employee_id, row])
-    );
-    db.prepare('UPDATE time_entries SET pay_run_id = NULL WHERE pay_run_id = ?').run(run.id);
-    db.prepare('DELETE FROM pay_run_items WHERE pay_run_id = ?').run(run.id);
-
-    const entries = db
-      .prepare(
-        `SELECT * FROM time_entries
-         WHERE status = 'approved' AND pay_run_id IS NULL AND substr(start_at, 1, 10) BETWEEN ? AND ?
-         ORDER BY employee_id, start_at`
+      (await tx.all('SELECT employee_id, adjustment, adjustment_note FROM pay_run_items WHERE pay_run_id = ?', run.id)).map(
+        (row) => [row.employee_id, row]
       )
-      .all(run.period_start, run.period_end);
+    );
+    await tx.run('UPDATE time_entries SET pay_run_id = NULL WHERE pay_run_id = ?', run.id);
+    await tx.run('DELETE FROM pay_run_items WHERE pay_run_id = ?', run.id);
+
+    const entries = await tx.all(
+      `SELECT * FROM time_entries
+       WHERE status = 'approved' AND pay_run_id IS NULL AND substr(start_at, 1, 10) BETWEEN ? AND ?
+       ORDER BY employee_id, start_at`,
+      run.period_start,
+      run.period_end
+    );
 
     const byEmployee = new Map();
     for (const entry of entries) {
@@ -68,33 +67,31 @@ function recalculate(run, settings) {
       byEmployee.get(entry.employee_id).push(entry);
     }
 
-    const insertItem = db.prepare(
-      `INSERT INTO pay_run_items (pay_run_id, employee_id, regular_hours, overtime_hours, hourly_rate,
-         overtime_multiplier, regular_pay, overtime_pay, adjustment, adjustment_note, gross_pay)
-       VALUES (@pay_run_id, @employee_id, @regular_hours, @overtime_hours, @hourly_rate,
-         @overtime_multiplier, @regular_pay, @overtime_pay, @adjustment, @adjustment_note, @gross_pay)`
-    );
-    const linkEntry = db.prepare('UPDATE time_entries SET pay_run_id = ? WHERE id = ?');
-    const getRate = db.prepare('SELECT hourly_rate FROM employees WHERE id = ?');
-
     for (const [employeeId, list] of byEmployee) {
       const old = previous.get(employeeId);
+      const { hourly_rate } = await tx.get('SELECT hourly_rate FROM employees WHERE id = ?', employeeId);
       const line = calculatePayLine({
         entries: list,
-        hourlyRate: getRate.get(employeeId).hourly_rate,
+        hourlyRate: hourly_rate,
         weeklyLimit: settings.overtime_weekly_hours,
         multiplier: settings.overtime_multiplier,
         adjustment: old?.adjustment || 0,
       });
-      insertItem.run({ pay_run_id: run.id, employee_id: employeeId, adjustment_note: old?.adjustment_note ?? null, ...line });
-      for (const entry of list) linkEntry.run(run.id, entry.id);
+      await tx.run(
+        `INSERT INTO pay_run_items (pay_run_id, employee_id, regular_hours, overtime_hours, hourly_rate,
+           overtime_multiplier, regular_pay, overtime_pay, adjustment, adjustment_note, gross_pay)
+         VALUES (@pay_run_id, @employee_id, @regular_hours, @overtime_hours, @hourly_rate,
+           @overtime_multiplier, @regular_pay, @overtime_pay, @adjustment, @adjustment_note, @gross_pay)`,
+        { pay_run_id: run.id, employee_id: employeeId, adjustment_note: old?.adjustment_note ?? null, ...line }
+      );
+      await tx.run('UPDATE time_entries SET pay_run_id = ? WHERE id = ANY(?::int[])', run.id, list.map((e) => e.id));
     }
-  })();
+  });
 }
 
 // A sensible default period: straight after the last pay run, same length.
-function suggestedPeriod() {
-  const last = db.prepare('SELECT * FROM pay_runs ORDER BY period_end DESC LIMIT 1').get();
+async function suggestedPeriod() {
+  const last = await db.get('SELECT * FROM pay_runs ORDER BY period_end DESC LIMIT 1');
   if (last) {
     const start = time.addDays(last.period_end, 1);
     return { period_start: start, period_end: time.addDays(start, time.daysBetween(last.period_start, last.period_end)) };
@@ -119,26 +116,24 @@ function csvCell(value) {
 
 // ---- Pages ------------------------------------------------------------------------
 
-router.get('/', (req, res) => {
-  const runs = db
-    .prepare(
-      `SELECT p.*, COUNT(i.id) AS people, COALESCE(SUM(i.gross_pay), 0) AS gross_total,
+router.get('/', async (req, res) => {
+  const [runs, unpaid] = await Promise.all([
+    db.all(
+      `SELECT p.*, COUNT(i.id)::int AS people, COALESCE(SUM(i.gross_pay), 0) AS gross_total,
          COALESCE(SUM(i.regular_hours + i.overtime_hours), 0) AS hours_total
        FROM pay_runs p LEFT JOIN pay_run_items i ON i.pay_run_id = p.id
        GROUP BY p.id ORDER BY p.period_end DESC`
-    )
-    .all();
-  const approvedUnpaid = db
-    .prepare("SELECT COUNT(*) AS n FROM time_entries WHERE status = 'approved' AND pay_run_id IS NULL")
-    .get().n;
-  res.render('pay/index', { title: 'Pay', runs, approvedUnpaid });
+    ),
+    db.get("SELECT COUNT(*)::int AS n FROM time_entries WHERE status = 'approved' AND pay_run_id IS NULL"),
+  ]);
+  res.render('pay/index', { title: 'Pay', runs, approvedUnpaid: unpaid.n });
 });
 
-router.get('/new', (req, res) => {
-  res.render('pay/new', { title: 'New pay run', values: { ...suggestedPeriod(), notes: '' }, error: null });
+router.get('/new', async (req, res) => {
+  res.render('pay/new', { title: 'New pay run', values: { ...(await suggestedPeriod()), notes: '' }, error: null });
 });
 
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const values = {
     period_start: String(req.body.period_start || ''),
     period_end: String(req.body.period_end || ''),
@@ -152,33 +147,37 @@ router.post('/', (req, res) => {
   }
   if (error) return res.status(400).render('pay/new', { title: 'New pay run', values, error });
 
-  const info = db
-    .prepare('INSERT INTO pay_runs (period_start, period_end, notes, created_by) VALUES (?, ?, ?, ?)')
-    .run(values.period_start, values.period_end, values.notes, req.user.id);
-  recalculate(findRun(info.lastInsertRowid), res.locals.settings);
-  logActivity(req, `Created pay run for ${values.period_start} to ${values.period_end}`);
+  const id = await db.insert(
+    'INSERT INTO pay_runs (period_start, period_end, notes, created_by) VALUES (?, ?, ?, ?)',
+    values.period_start,
+    values.period_end,
+    values.notes,
+    req.user.id
+  );
+  await recalculate(await findRun(id), res.locals.settings);
+  await logActivity(req, `Created pay run for ${values.period_start} to ${values.period_end}`);
   req.flash('success', 'Draft pay run created. Check the numbers, then finalize it.');
-  res.redirect(`/pay/${info.lastInsertRowid}`);
+  res.redirect(`/pay/${id}`);
 });
 
-router.get('/:id', (req, res) => {
-  const run = findRun(req.params.id);
+router.get('/:id', async (req, res) => {
+  const run = await findRun(req.params.id);
   if (!run) return notFound(res, 'pay run');
-  const items = runItems(run.id);
 
-  // Hours in this period that are NOT included, so nothing gets forgotten.
-  const notIncluded = db
-    .prepare(
-      `SELECT status, COUNT(*) AS n FROM time_entries
+  const [items, notIncluded, changed] = await Promise.all([
+    runItems(run.id),
+    // Hours in this period that are NOT included, so nothing gets forgotten.
+    db.all(
+      `SELECT status, COUNT(*)::int AS n FROM time_entries
        WHERE pay_run_id IS NULL AND status != 'rejected' AND substr(start_at, 1, 10) BETWEEN ? AND ?
-       GROUP BY status`
-    )
-    .all(run.period_start, run.period_end);
+       GROUP BY status`,
+      run.period_start,
+      run.period_end
+    ),
+    // Hours in this draft that were un-approved after it was calculated.
+    db.get("SELECT COUNT(*)::int AS n FROM time_entries WHERE pay_run_id = ? AND status != 'approved'", run.id),
+  ]);
   const missing = Object.fromEntries(notIncluded.map((r) => [r.status, r.n]));
-  // Hours in this draft that were un-approved after it was calculated.
-  const changedCount = db
-    .prepare("SELECT COUNT(*) AS n FROM time_entries WHERE pay_run_id = ? AND status != 'approved'")
-    .get(run.id).n;
 
   res.render('pay/show', {
     title: `Pay run ${time.fmtDate(run.period_start)} – ${time.fmtDate(run.period_end)}`,
@@ -187,25 +186,25 @@ router.get('/:id', (req, res) => {
     totals: totalsOf(items),
     pendingCount: missing.pending || 0,
     approvedNotIncluded: missing.approved || 0,
-    changedCount,
+    changedCount: changed.n,
   });
 });
 
-router.post('/:id/recalculate', (req, res) => {
-  const run = findRun(req.params.id);
+router.post('/:id/recalculate', async (req, res) => {
+  const run = await findRun(req.params.id);
   if (!run) return notFound(res, 'pay run');
   if (!draftOnly(req, res, run)) return;
-  recalculate(run, res.locals.settings);
-  logActivity(req, `Recalculated pay run #${run.id}`);
+  await recalculate(run, res.locals.settings);
+  await logActivity(req, `Recalculated pay run #${run.id}`);
   req.flash('success', 'Pay run recalculated using the latest approved hours, pay rates and overtime settings.');
   res.redirect(`/pay/${run.id}`);
 });
 
-router.post('/:id/items/:itemId', (req, res) => {
-  const run = findRun(req.params.id);
+router.post('/:id/items/:itemId', async (req, res) => {
+  const run = await findRun(req.params.id);
   if (!run) return notFound(res, 'pay run');
   if (!draftOnly(req, res, run)) return;
-  const item = db.prepare('SELECT * FROM pay_run_items WHERE id = ? AND pay_run_id = ?').get(req.params.itemId, run.id);
+  const item = await db.get('SELECT * FROM pay_run_items WHERE id = ? AND pay_run_id = ?', req.params.itemId, run.id);
   if (!item) return notFound(res, 'pay line');
   const adjustment = toNumber(req.body.adjustment, 0);
   if (Number.isNaN(adjustment)) {
@@ -213,48 +212,49 @@ router.post('/:id/items/:itemId', (req, res) => {
     return res.redirect(`/pay/${run.id}`);
   }
   const note = String(req.body.adjustment_note || '').trim() || null;
-  db.prepare('UPDATE pay_run_items SET adjustment = ?, adjustment_note = ?, gross_pay = ? WHERE id = ?').run(
+  await db.run(
+    'UPDATE pay_run_items SET adjustment = ?, adjustment_note = ?, gross_pay = ? WHERE id = ?',
     round2(adjustment),
     note,
     round2(item.regular_pay + item.overtime_pay + adjustment),
     item.id
   );
-  logActivity(req, `Set adjustment of ${adjustment} on pay run #${run.id}`);
+  await logActivity(req, `Set adjustment of ${adjustment} on pay run #${run.id}`);
   req.flash('success', 'Adjustment saved.');
   res.redirect(`/pay/${run.id}`);
 });
 
-router.post('/:id/finalize', (req, res) => {
-  const run = findRun(req.params.id);
+router.post('/:id/finalize', async (req, res) => {
+  const run = await findRun(req.params.id);
   if (!run) return notFound(res, 'pay run');
   if (!draftOnly(req, res, run)) return;
   // Recalculate first, so hours rejected or edited since the draft was made are never paid by mistake.
-  recalculate(run, res.locals.settings);
-  db.prepare("UPDATE pay_runs SET status = 'finalized', finalized_at = datetime('now', 'localtime') WHERE id = ?").run(run.id);
-  logActivity(req, `Finalized pay run #${run.id} (${run.period_start} to ${run.period_end})`);
+  await recalculate(run, res.locals.settings);
+  await db.run("UPDATE pay_runs SET status = 'finalized', finalized_at = app_now() WHERE id = ?", run.id);
+  await logActivity(req, `Finalized pay run #${run.id} (${run.period_start} to ${run.period_end})`);
   req.flash('success', 'Pay run finalized using the latest approved hours. Those hours are now locked.');
   res.redirect(`/pay/${run.id}`);
 });
 
-router.post('/:id/delete', (req, res) => {
-  const run = findRun(req.params.id);
+router.post('/:id/delete', async (req, res) => {
+  const run = await findRun(req.params.id);
   if (!run) return notFound(res, 'pay run');
   if (!draftOnly(req, res, run)) return;
-  db.prepare('DELETE FROM pay_runs WHERE id = ?').run(run.id); // its hours become available again
-  logActivity(req, `Deleted draft pay run #${run.id}`);
+  await db.run('DELETE FROM pay_runs WHERE id = ?', run.id); // its hours become available again
+  await logActivity(req, `Deleted draft pay run #${run.id}`);
   req.flash('success', 'Draft pay run deleted.');
   res.redirect('/pay');
 });
 
 // Download as a spreadsheet (CSV) – handy for your accountant or payroll provider.
-router.get('/:id/export.csv', (req, res) => {
-  const run = findRun(req.params.id);
+router.get('/:id/export.csv', async (req, res) => {
+  const run = await findRun(req.params.id);
   if (!run) return notFound(res, 'pay run');
   const header = [
     'Employee', 'Position', 'Regular hours', 'Overtime hours', 'Hourly rate', 'Overtime multiplier',
     'Regular pay', 'Overtime pay', 'Adjustment', 'Adjustment note', 'Gross pay',
   ];
-  const rows = runItems(run.id).map((i) => [
+  const rows = (await runItems(run.id)).map((i) => [
     employeeName(i), i.position, i.regular_hours, i.overtime_hours, i.hourly_rate, i.overtime_multiplier,
     i.regular_pay, i.overtime_pay, i.adjustment, i.adjustment_note, i.gross_pay,
   ]);
@@ -264,17 +264,17 @@ router.get('/:id/export.csv', (req, res) => {
 });
 
 // A printable payslip for one person.
-router.get('/:id/payslips/:itemId', (req, res) => {
-  const run = findRun(req.params.id);
+router.get('/:id/payslips/:itemId', async (req, res) => {
+  const run = await findRun(req.params.id);
   if (!run) return notFound(res, 'pay run');
-  const item = runItems(run.id).find((i) => i.id === Number(req.params.itemId));
+  const item = (await runItems(run.id)).find((i) => i.id === Number(req.params.itemId));
   if (!item) return notFound(res, 'payslip');
-  const entries = db
-    .prepare(
-      `SELECT t.*, si.name AS site_name FROM time_entries t LEFT JOIN sites si ON si.id = t.site_id
-       WHERE t.pay_run_id = ? AND t.employee_id = ? ORDER BY t.start_at`
-    )
-    .all(run.id, item.employee_id);
+  const entries = await db.all(
+    `SELECT t.*, si.name AS site_name FROM time_entries t LEFT JOIN sites si ON si.id = t.site_id
+     WHERE t.pay_run_id = ? AND t.employee_id = ? ORDER BY t.start_at`,
+    run.id,
+    item.employee_id
+  );
   for (const entry of entries) entry.hours = round2(entryHours(entry));
   res.render('pay/payslip', { title: `Payslip – ${employeeName(item)}`, run, item, entries });
 });

@@ -1,35 +1,50 @@
-# Netlify settings for dmi.codehound.org (Netlify project "dmi-timesheet").
+# Netlify settings for dmi.codehound.org (Netlify project "directmeasures").
 #
-# FOR NOW: the live site is the DMI Timesheet page in placeholder/ – plain
-# static files, no build step – while the admin app is adapted to run on
-# Netlify. In Netlify's build settings, leave "Base directory" empty and set
-# the production branch to "main".
+# - public/ is served straight from Netlify's CDN: CSS, JavaScript, and the
+#   officer timesheet page at /timesheet/.
+# - Every other address is handled by the admin app, which runs as one Netlify
+#   Function (netlify/functions/app.mjs).
+# - The database tables come from netlify/database/migrations/. Netlify applies
+#   new migration files automatically on each deploy.
+#
+# The app also needs two environment variables, set in the Netlify dashboard
+# (never in this file): SESSION_SECRET and SETUP_CODE.
 
 [build]
-  publish = "placeholder"
+  publish = "public"
   command = ""
-  # Skip the build (exit 0) when:
-  #  - it would publish to the live site from any branch other than main, or
-  #  - nothing in the placeholder or this file changed.
-  ignore = "if [ \"$CONTEXT\" = production ] && [ \"$BRANCH\" != main ]; then echo 'Live site only publishes from main'; exit 0; fi; git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- placeholder netlify.toml"
+  # Never publish the live site from any branch other than main.
+  ignore = "if [ \"$CONTEXT\" = production ] && [ \"$BRANCH\" != main ]; then echo 'Live site only publishes from main'; exit 0; fi; exit 1"
 
 [build.environment]
   NODE_VERSION = "22"
 
+[functions]
+  # The app reads its page templates (and, as a fallback, public files) from disk.
+  # The two node_modules entries are libraries Netlify's packager doesn't pick up
+  # on its own (it takes their newer format; the app loads the older one).
+  included_files = ["views/**", "public/**", "node_modules/@netlify/database/**", "node_modules/waddler/**"]
+
+# Headers for files served straight from the CDN. (The admin app sets its own.)
 [[headers]]
   for = "/*"
   [headers.values]
-    X-Frame-Options = "DENY"
     X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains"
+
+# The officer timesheet page keeps the same protections it had on its own site.
+[[headers]]
+  for = "/timesheet/*"
+  [headers.values]
     X-Robots-Tag = "noindex, nofollow"
     Referrer-Policy = "no-referrer"
     Permissions-Policy = "geolocation=(), microphone=(), camera=()"
-    Strict-Transport-Security = "max-age=63072000; includeSubDomains"
     # Everything is self-hosted. blob: lets the finished PDF download;
     # data: lets the saved signature image load back into the pad.
     Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 
 [[headers]]
-  for = "/*.pdf"
+  for = "/timesheet/*.pdf"
   [headers.values]
     Cache-Control = "no-cache"

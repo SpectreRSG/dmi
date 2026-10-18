@@ -49,7 +49,7 @@
       <% if (contract.file_name) { %>
         <span class="hint">Current file: <a href="/contracts/<%= contract.id %>/file"><%= contract.file_original %></a>. Choosing a new file replaces it.</span>
       <% } else { %>
-        <span class="hint">PDF, Word, Excel or a photo. Max 10 MB.</span>
+        <span class="hint">PDF, Word, Excel or a photo. Max <%= maxFileMb %> MB.</span>
       <% } %>
     </label>
     <% if (contract.file_name) { %>
