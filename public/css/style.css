@@ -1096,6 +1096,14 @@ a.cal-item.is-claimable:hover { background: #bdeee5; }
 .print-only { display: none; }
 .device-list { list-style: none; margin: 8px 0 12px; padding: 0; display: grid; gap: 8px; }
 .device-list li { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.passkey-choice .hint { margin-top: 8px; }
+.passkey-choice .btn .icon { width: 18px; height: 18px; }
+.card.passkey-choice { margin-bottom: 16px; }
+.card.passkey-choice h2 { display: flex; align-items: center; gap: 8px; }
+.card.passkey-choice .flash, #passkeys .flash { margin: 12px 0 0; }
+.or-line { display: flex; align-items: center; gap: 10px; margin: 16px 0; color: var(--muted); font-size: 13px; }
+.or-line::before, .or-line::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
+.auth-card > .flash { margin-bottom: 14px; }
 .mobile-signout { margin-left: auto; }
 .mobile-signout button { background: none; border: 0; color: #dbe4f0; font: inherit; font-size: 14px; display: flex; align-items: center; gap: 6px; padding: 8px; cursor: pointer; }
 .mobile-signout .icon { width: 18px; height: 18px; }

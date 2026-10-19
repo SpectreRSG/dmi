@@ -6,12 +6,19 @@
   </div>
 </div>
 <%- include('../partials/form-error') %>
+<div class="flash flash-error" role="alert" data-passkey-error hidden></div>
+<% if (hasPasskey) { %>
+  <div class="card card-pad narrow passkey-choice" data-passkey="confirm" data-next="<%= next %>">
+    <button type="button" class="btn btn-primary" data-passkey-start><%- icon('passkey') %> Use my passkey</button>
+    <p class="hint" data-passkey-unsupported hidden>This browser can't use passkeys. Use a code below instead.</p>
+  </div>
+<% } %>
 <form method="post" action="/account/confirm" class="card form-card narrow">
   <%- include('../partials/csrf') %>
   <input type="hidden" name="next" value="<%= next %>">
-  <label>Code from your authenticator app (or a backup code)
-    <input name="code" required autofocus inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="123 456" class="code-input">
+  <label><%= hasApp ? 'Code from your authenticator app (or a backup code)' : 'Or type one of your backup codes' %>
+    <input name="code" required <%= hasPasskey ? '' : 'autofocus' %> inputmode="<%= hasApp ? 'numeric' : 'text' %>" autocomplete="one-time-code" maxlength="12" placeholder="<%= hasApp ? '123 456' : 'k7wq-3mzp' %>" class="code-input">
   </label>
-  <div class="form-actions"><button type="submit" class="btn btn-primary">Continue</button></div>
+  <div class="form-actions"><button type="submit" class="btn <%= hasPasskey ? '' : 'btn-primary' %>">Continue</button></div>
 </form>
 <%- include('../partials/bottom') %>

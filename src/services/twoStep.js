@@ -1,5 +1,6 @@
 // Two-step sign-in: who needs it, setting it up, checking codes, backup codes,
 // and "remember this device". The codes themselves are made in totp.js.
+// A passkey (passkeys.js) counts as two-step sign-in too.
 const crypto = require('crypto');
 const db = require('../db');
 const totp = require('./totp');
@@ -18,6 +19,12 @@ function isRequired(user, settings) {
   if (!user || user.role === 'pending') return false;
   if (user.role === 'admin' || user.role === 'manager') return true;
   return settings.two_step_required_for !== 'office';
+}
+
+// Has this person set up a second step: the authenticator app, or a passkey?
+// (`user` comes from loadUser, which counts their passkeys.)
+function hasSecondStep(user) {
+  return Boolean(user?.totp_enabled_at || Number(user?.passkey_count) > 0);
 }
 
 // Checks a code against a secret that isn't saved yet (while setting up).
@@ -58,14 +65,20 @@ async function recoveryCodesLeft(userId) {
   return (await db.get('SELECT COUNT(*)::int AS n FROM recovery_codes WHERE user_id = ? AND used_at IS NULL', userId)).n;
 }
 
+// Backup codes for someone who has none left (e.g. their first passkey): the
+// new codes to show once, or null if they still have some.
+async function ensureRecoveryCodes(userId) {
+  return (await recoveryCodesLeft(userId)) ? null : newRecoveryCodes(userId);
+}
+
 // Checks a code from the app, or a backup code. Returns { ok, method } where
 // method is 'app' or 'backup'. A code can never be used twice.
 async function verify(userId, input) {
   const user = await db.get('SELECT totp_secret, totp_last_step FROM users WHERE id = ?', userId);
-  if (!user?.totp_secret) return { ok: false };
+  if (!user) return { ok: false };
   const typed = String(input || '').trim().toLowerCase();
 
-  const step = totp.matchStep(await decrypt(user.totp_secret), typed);
+  const step = user.totp_secret ? totp.matchStep(await decrypt(user.totp_secret), typed) : null;
   if (step !== null) {
     // Only accepted if it's newer than the last code used (someone who saw it can't reuse it).
     const fresh = await db.run(
@@ -87,12 +100,13 @@ async function verify(userId, input) {
 }
 
 // Turns it off for someone (e.g. they lost their phone): they set it up again
-// at their next sign-in. Remembered devices are forgotten too.
+// at their next sign-in. Their passkeys and remembered devices go too.
 async function reset(userId) {
   await db.transaction(async (tx) => {
     await tx.run('UPDATE users SET totp_secret = NULL, totp_enabled_at = NULL, totp_last_step = NULL WHERE id = ?', userId);
     await tx.run('DELETE FROM recovery_codes WHERE user_id = ?', userId);
     await tx.run('DELETE FROM trusted_devices WHERE user_id = ?', userId);
+    await tx.run('DELETE FROM passkeys WHERE user_id = ?', userId);
   });
 }
 
@@ -132,6 +146,6 @@ function readCookie(req, name) {
 }
 
 module.exports = {
-  isRequired, checkNewSecret, enable, newRecoveryCodes, recoveryCodesLeft, verify, reset,
+  isRequired, hasSecondStep, checkNewSecret, enable, newRecoveryCodes, recoveryCodesLeft, ensureRecoveryCodes, verify, reset,
   trustDevice, isTrustedDevice, forgetDevices, TRUST_DAYS,
 };

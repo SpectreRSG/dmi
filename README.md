@@ -197,6 +197,7 @@ src/
     jobs.js          the timed jobs (finished shifts, open-shift waves)
     totp.js          the 6-digit authenticator-app codes (the TOTP standard) and the setup QR code
     twoStep.js       two-step sign-in: who needs it, checking codes, backup codes, remembered devices
+    passkeys.js      passkeys (Face ID, Touch ID, screen lock): adding them, and checking a sign-in
     tax1099.js       who was paid what in a year, W-9 checks, payer details
     form1099Pdf.js   draws Form 1099-NEC (Copies B, 2, C and 1)
     timesheetApproval.js  the approved copy of an officer's timesheet ("APPROVED BY" filled in)
@@ -245,20 +246,30 @@ data/                YOUR LOCAL DATA (database + uploaded files). Created automa
 
 This app stores personal details and pay information, so treat it carefully.
 
-**Two-step sign-in (MFA):** after their password, everyone types a 6-digit code from an
-authenticator app on their phone (Google Authenticator, Microsoft Authenticator, 1Password...). A
-stolen or guessed password alone gets nobody in.
-- **Setting it up:** the first time someone signs in, the site shows a QR code to scan with the app,
-  then 10 one-time **backup codes** to keep safe (for when they don't have their phone).
+**Two-step sign-in (MFA):** a stolen or guessed password alone gets nobody in. Everyone picks one
+(or both) of two ways:
+- **A passkey (easiest, especially on iPhone):** the phone or computer remembers them, and they sign
+  in with **Face ID, Touch ID** or its screen lock: no password and no code to type. Tap **Sign in
+  with a passkey** on the sign-in page (iPhones also offer it right in the email box). On iPhone,
+  iPad and Mac, passkeys are kept in iCloud Keychain, so one passkey works on all their Apple devices
+  and moves to a new iPhone by itself. A passkey only works on this website, so a fake look-alike
+  site can't use it. Add or remove them under **My account → Passkeys**.
+- **An authenticator app:** after their password, they type a 6-digit code from an app on their
+  phone (Google Authenticator, Microsoft Authenticator, 1Password...).
+- **Setting it up:** the first time someone signs in, the site offers both: **Add a passkey**, or a
+  QR code to scan with the app. Then 10 one-time **backup codes** to keep safe (for when they don't
+  have their phone).
 - **Remember this device:** ticking it at sign-in skips the code (never the password) on that phone
   or computer for 30 days.
 - **Lost phone:** an admin opens **User accounts → the person → Reset two-step sign-in** (check it's
-  really them first). They set it up again at their next sign-in.
+  really them first). That also removes their passkeys. They set it up again at their next sign-in.
 - **Who needs it:** everyone by default. **Settings → Sign-in security** can limit it to the office;
   admins and managers always need it.
 - **Extra check:** the pages showing full tax ID numbers, and changes to user accounts or settings,
-  ask for a fresh code if the last one was more than 15 minutes ago.
-- **Free:** the codes come from the app on the phone, so there's no texting or email service to pay for.
+  ask for a fresh code (or passkey) if the last one was more than 15 minutes ago.
+- **Free:** passkeys and codes come from the phone itself, so there's no texting or email service to pay for.
+- **Good to know:** a passkey belongs to one web address. Passkeys made on the live site
+  (dmi.codehound.org) don't work on a preview address, and the other way round.
 
 **Signing out:** **Sign out** is at the bottom of the side menu, at the top right on phones, and on
 **My account**. My account also lists where you're signed in, with **Sign out everywhere else**,
@@ -266,7 +277,7 @@ and your recent sign-ins.
 
 **Also built in:** scrambled (hashed) passwords; very common passwords, and ones that are mostly
 your own name or email, are refused; sign-in lockout after 5 wrong passwords (or 30 from one
-connection for any accounts) and after 5 wrong codes; everyone signs in again after 12 hours, and
+connection for any accounts) and after 5 wrong codes (and 20 failed passkey tries from one connection); everyone signs in again after 12 hours, and
 after 8 idle hours; an app notification when someone signs in to your account, or gets your password
 right but the code wrong; changing your password signs you out everywhere else; signed-in pages
 are never kept by the browser (so the back button can't show them after signing out); protection

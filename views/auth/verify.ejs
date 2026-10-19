@@ -1,17 +1,32 @@
 <%- include('../partials/top') %>
 <div class="auth-card">
-  <div class="auth-logo"><%- icon('key') %></div>
+  <div class="auth-logo"><%- icon(hasPasskey && !hasApp ? 'passkey' : 'key') %></div>
   <h1>Two-step sign-in</h1>
-  <p class="muted">Open your authenticator app and type the 6-digit code for <%= settings.company_name %>.</p>
+  <% if (hasPasskey) { %>
+    <p class="muted">Use your passkey: Face ID, Touch ID or your phone's screen lock.<%= hasApp ? ' Or type the code from your authenticator app.' : '' %></p>
+  <% } else { %>
+    <p class="muted">Open your authenticator app and type the 6-digit code for <%= settings.company_name %>.</p>
+  <% } %>
   <%- include('../partials/form-error') %>
+  <div class="flash flash-error" role="alert" data-passkey-error hidden></div>
+  <% if (hasPasskey) { %>
+    <div class="passkey-choice" data-passkey="login">
+      <button type="button" class="btn btn-primary btn-block" data-passkey-start><%- icon('passkey') %> Use my passkey</button>
+      <p class="hint" data-passkey-unsupported hidden>This browser can't use passkeys. Use the phone or computer where you added it, or a backup code below.</p>
+      <p class="or-line"><span>or type a code</span></p>
+    </div>
+  <% } %>
   <form method="post" action="/login/verify" class="stack">
     <%- include('../partials/csrf') %>
-    <label>Code
-      <input name="code" required autofocus inputmode="numeric" autocomplete="one-time-code" maxlength="12" placeholder="123 456" class="code-input">
+    <label><%= hasApp ? 'Code' : 'Backup code' %>
+      <input name="code" required <%= hasPasskey ? '' : 'autofocus' %> inputmode="<%= hasApp ? 'numeric' : 'text' %>" autocomplete="one-time-code" maxlength="12" placeholder="<%= hasApp ? '123 456' : 'k7wq-3mzp' %>" class="code-input">
     </label>
     <label class="check"><input type="checkbox" name="remember" value="1"> Remember this device for <%= trustDays %> days (only on your own phone or computer)</label>
-    <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+    <button type="submit" class="btn <%= hasPasskey ? '' : 'btn-primary' %> btn-block">Sign in</button>
   </form>
-  <p class="auth-footer">No phone with you? Type one of your backup codes instead (like <code>k7wq-3mzp</code>).<br>Lost your phone and your backup codes? Ask the office to reset your two-step sign-in.<br><a href="/login">← Start again</a></p>
+  <p class="auth-footer">
+    <% if (hasApp) { %>No phone with you? Type one of your backup codes instead (like <code>k7wq-3mzp</code>).<br><% } %>
+    Lost your phone and your backup codes? Ask the office to reset your two-step sign-in.<br><a href="/login">← Start again</a>
+  </p>
 </div>
 <%- include('../partials/bottom') %>

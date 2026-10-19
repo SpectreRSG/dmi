@@ -14,26 +14,56 @@
 
 <section class="card card-pad narrow" id="two-step">
   <h2>Two-step sign-in</h2>
-  <% if (currentUser.totp_enabled_at) { %>
-    <p><%- badge('On', 'green') %> Since <%= fmtDate(currentUser.totp_enabled_at.slice(0, 10)) %>. After your password, you type a code from your authenticator app.</p>
+  <% if (hasSecondStep) { %>
+    <p><%- badge('On', 'green') %>
+      <% if (currentUser.totp_enabled_at && passkeys.length) { %>You use a passkey or a code from your authenticator app (on since <%= fmtDate(currentUser.totp_enabled_at.slice(0, 10)) %>).
+      <% } else if (currentUser.totp_enabled_at) { %>Since <%= fmtDate(currentUser.totp_enabled_at.slice(0, 10)) %>. After your password, you type a code from your authenticator app.
+      <% } else { %>You sign in with a passkey (below).<% } %>
+    </p>
     <p class="muted small">Backup codes left: <strong><%= codesLeft %></strong> of 10.<%= codesLeft < 4 ? ' Make new ones soon.' : '' %> Each one gets you in once if you don't have your phone.</p>
     <div class="btn-row">
       <form method="post" action="/account/two-step/backup-codes" class="inline-form" data-confirm="Make new backup codes? Your old ones will stop working.">
         <%- include('../partials/csrf') %>
         <button type="submit" class="btn btn-sm">Make new backup codes</button>
       </form>
+      <% if (!currentUser.totp_enabled_at) { %>
+        <a class="btn btn-sm" href="/account/two-step">Also add an authenticator app</a>
+      <% } %>
       <% if (!twoStepRequired) { %>
-        <form method="post" action="/account/two-step/off" class="inline-form" data-confirm="Turn off two-step sign-in? Your password alone will then sign you in.">
+        <form method="post" action="/account/two-step/off" class="inline-form" data-confirm="Turn off two-step sign-in? Your passkeys will be removed too, and your password alone will sign you in.">
           <%- include('../partials/csrf') %>
           <button type="submit" class="btn btn-sm btn-ghost">Turn off</button>
         </form>
       <% } %>
     </div>
-    <p class="muted small">New phone? Ask the office to reset your two-step sign-in, then set it up again on the new phone.</p>
+    <p class="muted small">New phone? Passkeys saved in iCloud Keychain (or Google Password Manager) move to it by themselves.<% if (currentUser.totp_enabled_at) { %> For the authenticator app, ask the office to reset your two-step sign-in, then set it up again on the new phone.<% } %></p>
   <% } else { %>
-    <p><%- badge('Off', 'amber') %> Protect your account with a code from your phone as well as your password.</p>
+    <p><%- badge('Off', 'amber') %> Protect your account with a passkey (Face ID or Touch ID) or a code from your phone, as well as your password.</p>
     <a class="btn btn-primary btn-sm" href="/account/two-step">Set up two-step sign-in</a>
   <% } %>
+</section>
+
+<section class="card card-pad narrow" id="passkeys">
+  <h2>Passkeys</h2>
+  <p class="muted small">Sign in with Face ID, Touch ID or your phone's screen lock, with no password or code to type. On iPhone, iPad and Mac they're kept in iCloud Keychain, so one passkey works on all your Apple devices.</p>
+  <% if (passkeys.length) { %>
+    <ul class="device-list">
+      <% for (const p of passkeys) { %>
+        <li>
+          <span><strong><%= p.name || 'Passkey' %></strong><br><span class="muted small">Added <%= fmtDate(p.created_at.slice(0, 10)) %><%= p.last_used_at ? `, last used ${fmtDateTime(p.last_used_at.replace(' ', 'T').slice(0, 16))}` : ', not used yet' %></span></span>
+          <form method="post" action="/account/passkeys/<%= p.id %>/delete" class="inline-form" data-confirm="Remove this passkey? It will stop working for this site.">
+            <%- include('../partials/csrf') %>
+            <button type="submit" class="btn btn-sm btn-ghost">Remove</button>
+          </form>
+        </li>
+      <% } %>
+    </ul>
+  <% } %>
+  <div class="passkey-choice" data-passkey="register">
+    <button type="button" class="btn btn-sm<%= passkeys.length ? '' : ' btn-primary' %>" data-passkey-start><%- icon('passkey') %> Add a passkey on this device</button>
+    <p class="hint" data-passkey-unsupported hidden>This browser can't make passkeys. Try Safari on an iPhone or Mac, or Chrome or Edge.</p>
+  </div>
+  <div class="flash flash-error" role="alert" data-passkey-error hidden></div>
 </section>
 
 <section class="card card-pad narrow">

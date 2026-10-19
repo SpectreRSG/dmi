@@ -53,9 +53,11 @@
 <% if (user.id) { %>
   <div class="card card-pad narrow">
     <h2>Two-step sign-in</h2>
-    <% if (user.totp_enabled_at) { %>
-      <p><%- badge('On', 'green') %> Set up <%= fmtDate(user.totp_enabled_at.slice(0, 10)) %>.</p>
-      <p class="muted small">Lost or replaced their phone, and has no backup codes left? Reset it: they're signed out, and set it up again with their new phone at their next sign-in. Check it's really them first (for example, call them).</p>
+    <% if (user.totp_enabled_at || user.passkey_count) { %>
+      <p><%- badge('On', 'green') %>
+        <%= [user.totp_enabled_at && `Authenticator app since ${fmtDate(user.totp_enabled_at.slice(0, 10))}`, user.passkey_count && `${user.passkey_count} passkey${user.passkey_count === 1 ? '' : 's'} (Face ID, Touch ID or screen lock)`].filter(Boolean).join('; ') %>.
+      </p>
+      <p class="muted small">Lost or replaced their phone, and has no backup codes left? Reset it: they're signed out, their passkeys are removed, and they set it up again at their next sign-in. Check it's really them first (for example, call them).</p>
       <form method="post" action="/users/<%= user.id %>/reset-two-step" class="inline-form" data-confirm="Reset two-step sign-in for <%= user.name %>? Make sure it's really them asking.">
         <%- include('../partials/csrf') %>
         <button type="submit" class="btn btn-sm">Reset two-step sign-in</button>

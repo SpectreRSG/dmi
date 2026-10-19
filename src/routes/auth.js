@@ -7,6 +7,7 @@ const { getSetupCode } = require('../secrets');
 const { saveSettings } = require('../settings');
 const { clean, logActivity } = require('../helpers');
 const twoStep = require('../services/twoStep');
+const passkeys = require('../services/passkeys');
 const { notifyUsers } = require('../services/notify');
 const config = require('../config');
 const time = require('../time');
@@ -45,16 +46,17 @@ function freshSession(req, next, work) {
 }
 
 // Signs someone in. `how` is how they passed two-step sign-in: 'code' (typed
-// a code just now), 'device' (a remembered device), or null (not set up yet).
-function signIn(req, res, next, userId, redirectTo, { flash = null, how = null } = {}) {
+// a code just now), 'passkey', 'device' (a remembered device), or null (not
+// set up yet). With `json`, answers the page's script instead of redirecting.
+function signIn(req, res, next, userId, redirectTo, { flash = null, how = null, json = false } = {}) {
   freshSession(req, next, async () => {
     const device = auth.describeDevice(req.get('user-agent'));
     Object.assign(req.session, { userId, signedInAt: Date.now(), signedInLocal: time.nowStr(), device, ip: req.ip, twoStep: how });
-    if (how === 'code') req.session.codeAt = Date.now();
+    if (how === 'code' || how === 'passkey') req.session.codeAt = Date.now();
     if (flash) req.session.flash = [{ type: 'success', message: flash }];
     await db.run('UPDATE users SET last_login_at = app_now() WHERE id = ?', userId);
     req.user = { id: userId };
-    await logActivity(req, `Signed in (${device}${how === 'device' ? ', remembered device' : ''})`);
+    await logActivity(req, `Signed in (${device}${how === 'device' ? ', remembered device' : how === 'passkey' ? ', passkey' : ''})`);
     // A heads-up on their other devices, in case it wasn't them.
     if (how !== 'device') {
       await notifyUsers([userId], {
@@ -64,6 +66,7 @@ function signIn(req, res, next, userId, redirectTo, { flash = null, how = null }
         tag: 'sign-in',
       });
     }
+    if (json) return res.json({ redirect: redirectTo });
     res.redirect(redirectTo);
   });
 }
@@ -116,6 +119,7 @@ router.post('/setup', async (req, res, next) => {
 
 router.get('/login', (req, res) => {
   if (req.user) return res.redirect(auth.homeFor(req.user));
+  delete req.session.twoStepPending; // "Start again" from the code page
   res.render('auth/login', { title: 'Sign in', email: '', error: null, next: safeNext(req.query.next) });
 });
 
@@ -144,7 +148,8 @@ router.post('/login', async (req, res, next) => {
 
   await auth.clearFailedLogins(key);
   const goTo = nextUrl === '/' ? auth.homeFor(user) : nextUrl;
-  if (!user.totp_enabled_at) return signIn(req, res, next, user.id, goTo); // they're asked to set it up next, if needed
+  const hasPasskey = await db.get('SELECT 1 FROM passkeys WHERE user_id = ? LIMIT 1', user.id);
+  if (!user.totp_enabled_at && !hasPasskey) return signIn(req, res, next, user.id, goTo); // they're asked to set it up next, if needed
   if (await twoStep.isTrustedDevice(req, user.id)) return signIn(req, res, next, user.id, goTo, { how: 'device' });
   // Password right: now the code. Not signed in until then.
   freshSession(req, next, () => {
@@ -162,13 +167,20 @@ function pendingUser(req) {
   return pending && Date.now() - pending.at < PENDING_MS ? pending : null;
 }
 
-function renderVerify(res, error, status = 200) {
-  res.status(status).render('auth/verify', { title: 'Two-step sign-in', error, trustDays: twoStep.TRUST_DAYS });
+async function renderVerify(req, res, error, status = 200) {
+  const pending = pendingUser(req);
+  const user = pending && await db.get(
+    'SELECT totp_enabled_at, (SELECT COUNT(*)::int FROM passkeys p WHERE p.user_id = users.id) AS passkeys FROM users WHERE id = ?',
+    pending.userId
+  );
+  res.status(status).render('auth/verify', {
+    title: 'Two-step sign-in', error, trustDays: twoStep.TRUST_DAYS, hasApp: Boolean(user?.totp_enabled_at), hasPasskey: user?.passkeys > 0,
+  });
 }
 
 router.get('/login/verify', (req, res) => {
   if (!pendingUser(req)) return res.redirect('/login');
-  renderVerify(res, null);
+  renderVerify(req, res, null);
 });
 
 router.post('/login/verify', async (req, res, next) => {
@@ -199,7 +211,7 @@ router.post('/login/verify', async (req, res, next) => {
     const message = result.reused
       ? 'That code was already used. Wait for the next one in your app (they change every 30 seconds).'
       : 'That code is not right. Check your authenticator app and try again.';
-    return renderVerify(res, message, 400);
+    return renderVerify(req, res, message, 400);
   }
   await auth.clearFailedLogins(key);
   if (req.body.remember) await twoStep.trustDevice(res, pending.userId, auth.describeDevice(req.get('user-agent')), config.https);
@@ -209,6 +221,29 @@ router.post('/login/verify', async (req, res, next) => {
     flash = `Signed in with a backup code. You have ${left} left${left < 4 ? ': make new ones under My account → Two-step sign-in' : ''}.`;
   }
   signIn(req, res, next, pending.userId, pending.next, { how: 'code', flash });
+});
+
+// ---- Passkeys (Face ID, Touch ID, a fingerprint or the device's PIN) --------------------
+// Instead of a password and code, or as the second step after a password.
+
+router.get('/login/passkey/options', async (req, res) => {
+  const pending = pendingUser(req);
+  res.json(await passkeys.requestOptions(req, 'login', pending?.userId));
+});
+
+router.post('/login/passkey', async (req, res, next) => {
+  const connectionKey = `passkey|${req.ip}`;
+  if (await auth.isLockedOut(connectionKey, 20)) return res.status(429).json({ error: 'Too many tries. Please wait 15 minutes.' });
+  const pending = pendingUser(req);
+  const result = await passkeys.authenticate(req, 'login', req.body, pending?.userId);
+  if (result.error) {
+    await auth.recordFailedLogin(connectionKey);
+    return res.status(400).json({ error: result.error });
+  }
+  const user = await db.get('SELECT * FROM users WHERE id = ?', result.passkey.user_id);
+  const nextUrl = safeNext(req.body.next);
+  const goTo = pending?.next || (nextUrl === '/' ? auth.homeFor(user) : nextUrl);
+  signIn(req, res, next, user.id, goTo, { how: 'passkey', json: true });
 });
 
 // ---- New accounts -----------------------------------------------------------

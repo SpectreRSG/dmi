@@ -1,25 +1,31 @@
-// "My account": anyone's own password, two-step sign-in, where they're signed
-// in (and signing out everywhere else), and app notifications for this device.
+// "My account": anyone's own password, two-step sign-in (authenticator app
+// and passkeys), where they're signed in (and signing out everywhere else),
+// and app notifications for this device.
 const express = require('express');
 const db = require('../db');
-const { hashPassword, verifyPassword, passwordProblem, endSessionsForUser, homeFor, requireRecentCode, isLockedOut, recordFailedLogin, clearFailedLogins } = require('../auth');
+const {
+  hashPassword, verifyPassword, passwordProblem, endSessionsForUser, homeFor, requireRecentCode, hasRecentCode, isLockedOut,
+  recordFailedLogin, clearFailedLogins, describeDevice,
+} = require('../auth');
 const { logActivity } = require('../helpers');
 const notify = require('../services/notify');
 const totp = require('../services/totp');
 const twoStep = require('../services/twoStep');
+const passkeys = require('../services/passkeys');
 const time = require('../time');
 
 const router = express.Router();
 
 async function renderAccount(req, res, error, status = 200) {
-  const [sessions, history, codesLeft] = await Promise.all([
+  const [sessions, history, codesLeft, myPasskeys] = await Promise.all([
     db.all("SELECT sid, data FROM sessions WHERE (data->>'userId')::int = ? AND expires_at > ?", req.user.id, Date.now()),
     db.all(
       `SELECT action, created_at FROM activity_log WHERE user_id = ? AND (action LIKE 'Signed in%' OR action LIKE 'Two-step%')
        ORDER BY id DESC LIMIT 8`,
       req.user.id
     ),
-    req.user.totp_enabled_at ? twoStep.recoveryCodesLeft(req.user.id) : 0,
+    twoStep.hasSecondStep(req.user) ? twoStep.recoveryCodesLeft(req.user.id) : 0,
+    passkeys.forUser(req.user.id),
   ]);
   const devices = sessions
     .map((row) => ({
@@ -36,6 +42,8 @@ async function renderAccount(req, res, error, status = 200) {
     devices,
     history,
     codesLeft,
+    passkeys: myPasskeys,
+    hasSecondStep: twoStep.hasSecondStep(req.user),
     twoStepRequired: twoStep.isRequired(req.user, res.locals.settings),
   });
 }
@@ -66,7 +74,8 @@ async function renderSetup(req, res, error, status = 200) {
     secret,
     link,
     qr: totp.qrCode(link),
-    required: twoStep.isRequired(req.user, res.locals.settings),
+    hasPasskey: Number(req.user.passkey_count) > 0,
+    required: twoStep.isRequired(req.user, res.locals.settings) && !twoStep.hasSecondStep(req.user),
   });
 }
 
@@ -75,7 +84,7 @@ router.get('/two-step', async (req, res) => {
   res.redirect('/account#two-step');
 });
 
-router.post('/two-step', async (req, res) => {
+router.post('/two-step', requireRecentCode, async (req, res) => {
   if (req.user.totp_enabled_at) return res.redirect('/account#two-step');
   const secret = req.session.twoStepSetup?.secret;
   const step = secret ? twoStep.checkNewSecret(secret, req.body.code) : null;
@@ -91,7 +100,7 @@ router.post('/two-step', async (req, res) => {
 });
 
 router.post('/two-step/backup-codes', requireRecentCode, async (req, res) => {
-  if (!req.user.totp_enabled_at) return res.redirect('/account/two-step');
+  if (!twoStep.hasSecondStep(req.user)) return res.redirect('/account/two-step');
   const codes = await twoStep.newRecoveryCodes(req.user.id);
   await logActivity(req, 'Two-step sign-in: made new backup codes');
   res.render('auth/backup-codes', { title: 'Backup codes', codes, fresh: false, next: '/account', now: time.nowStr() });
@@ -103,8 +112,8 @@ router.post('/two-step/off', requireRecentCode, async (req, res) => {
     return res.redirect('/account');
   }
   await twoStep.reset(req.user.id);
-  await logActivity(req, 'Two-step sign-in turned off');
-  req.flash('success', 'Two-step sign-in is off. Your password alone now signs you in.');
+  await logActivity(req, 'Two-step sign-in turned off (app and passkeys)');
+  req.flash('success', 'Two-step sign-in is off, and your passkeys were removed. Your password alone now signs you in.');
   res.redirect('/account');
 });
 
@@ -119,19 +128,21 @@ function renderConfirm(req, res, next, error, status = 200) {
     title: "Confirm it's you",
     error,
     next,
+    hasApp: Boolean(req.user.totp_enabled_at),
+    hasPasskey: Number(req.user.passkey_count) > 0,
     reason: req.session.twoStep
-      ? "This page shows or changes sensitive information, so please type a fresh code from your authenticator app."
-      : 'Please type a code from your authenticator app to keep going.',
+      ? 'This page shows or changes sensitive information, so please confirm it\'s you.'
+      : 'Please confirm it\'s you to keep going.',
   });
 }
 
 router.get('/confirm', (req, res) => {
-  if (!req.user.totp_enabled_at) return res.redirect('/account/two-step');
+  if (!twoStep.hasSecondStep(req.user)) return res.redirect('/account/two-step');
   renderConfirm(req, res, safeNext(req.query.next) || homeFor(req.user), null);
 });
 
 router.post('/confirm', async (req, res) => {
-  if (!req.user.totp_enabled_at) return res.redirect('/account/two-step');
+  if (!twoStep.hasSecondStep(req.user)) return res.redirect('/account/two-step');
   const next = safeNext(req.body.next) || homeFor(req.user);
   const key = `code|${req.user.id}`;
   if (await isLockedOut(key)) return renderConfirm(req, res, next, 'Too many wrong codes. Please wait 15 minutes.', 429);
@@ -143,6 +154,81 @@ router.post('/confirm', async (req, res) => {
   await clearFailedLogins(key);
   Object.assign(req.session, { twoStep: req.session.twoStep || 'code', codeAt: Date.now() });
   res.redirect(next);
+});
+
+// With a passkey instead of a code.
+router.get('/confirm/passkey-options', async (req, res) => {
+  res.json(await passkeys.requestOptions(req, 'confirm', req.user.id));
+});
+
+router.post('/confirm/passkey', async (req, res) => {
+  const result = await passkeys.authenticate(req, 'confirm', req.body, req.user.id);
+  if (result.error) return res.status(400).json({ error: result.error });
+  Object.assign(req.session, { twoStep: req.session.twoStep || 'passkey', codeAt: Date.now() });
+  res.json({ redirect: safeNext(req.body.next) || homeFor(req.user) });
+});
+
+// ---- Passkeys -----------------------------------------------------------------------
+// Face ID, Touch ID, a fingerprint or the device's PIN, instead of a password
+// and code. Adding the first one can complete two-step setup on its own.
+
+// Someone who already has two-step sign-in must have confirmed it's them
+// recently before adding or removing a passkey.
+function passkeyNeedsConfirm(req, res) {
+  if (!twoStep.hasSecondStep(req.user) || hasRecentCode(req)) return false;
+  res.status(403).json({ error: "For your security, confirm it's you first.", redirect: '/account/confirm?next=%2Faccount%23passkeys' });
+  return true;
+}
+
+router.get('/passkeys/options', async (req, res) => {
+  if (passkeyNeedsConfirm(req, res)) return;
+  res.json(await passkeys.creationOptions(req, req.user, res.locals.settings.company_name));
+});
+
+router.post('/passkeys', async (req, res) => {
+  if (passkeyNeedsConfirm(req, res)) return;
+  const firstStep = !twoStep.hasSecondStep(req.user);
+  const result = await passkeys.register(req, req.user, req.body, describeDevice(req.get('user-agent')));
+  if (result.error) return res.status(400).json({ error: result.error });
+  await logActivity(req, `Added a passkey (${result.passkey.name || 'device'})`);
+  if (firstStep) {
+    // Two-step sign-in is now on: this session counts as checked, and
+    // anyone else signed in with just the password is signed out.
+    Object.assign(req.session, { twoStep: 'passkey', codeAt: Date.now() });
+    await endSessionsForUser(req.user.id, req.sessionID);
+  }
+  const codes = await twoStep.ensureRecoveryCodes(req.user.id);
+  if (codes) {
+    req.session.newBackupCodes = { codes, next: firstStep ? homeFor(req.user) : '/account' };
+    return res.json({ redirect: '/account/backup-codes' });
+  }
+  req.flash('success', 'Passkey added. Next time, choose "Sign in with a passkey".');
+  res.json({ redirect: '/account#passkeys' });
+});
+
+// Backup codes made along with a passkey, shown once.
+router.get('/backup-codes', (req, res) => {
+  const fresh = req.session.newBackupCodes;
+  if (!fresh) return res.redirect('/account');
+  delete req.session.newBackupCodes;
+  res.render('auth/backup-codes', { title: 'Backup codes', codes: fresh.codes, fresh: true, next: fresh.next, now: time.nowStr() });
+});
+
+router.post('/passkeys/:id/delete', requireRecentCode, async (req, res) => {
+  const passkey = await db.get('SELECT * FROM passkeys WHERE id = ? AND user_id = ?', Number(req.params.id) || 0, req.user.id);
+  if (!passkey) {
+    req.flash('error', 'That passkey was already removed.');
+    return res.redirect('/account#passkeys');
+  }
+  const lastStep = !req.user.totp_enabled_at && req.user.passkey_count <= 1;
+  if (lastStep && twoStep.isRequired(req.user, res.locals.settings)) {
+    req.flash('error', "This is your only way to do two-step sign-in, which your account needs. Add another passkey or set up the authenticator app first.");
+    return res.redirect('/account#passkeys');
+  }
+  await db.run('DELETE FROM passkeys WHERE id = ?', passkey.id);
+  await logActivity(req, `Removed a passkey (${passkey.name || 'device'})`);
+  req.flash('success', 'Passkey removed. You may also want to delete it from the device (on iPhone: Settings → Passwords).');
+  res.redirect('/account#passkeys');
 });
 
 router.post('/password', async (req, res) => {

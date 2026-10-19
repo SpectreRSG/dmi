@@ -4,17 +4,25 @@
   <h1><%= settings.company_name %> Admin</h1>
   <p class="muted">Sign in to continue.</p>
   <%- include('../partials/form-error') %>
+  <div class="flash flash-error" role="alert" data-passkey-error hidden></div>
   <form method="post" action="/login" class="stack">
     <%- include('../partials/csrf') %>
     <input type="hidden" name="next" value="<%= next %>">
     <label>Email
-      <input type="email" name="email" value="<%= email %>" required autofocus autocomplete="username">
+      <%# "webauthn" lets the phone offer a saved passkey right in this box. %>
+      <input type="email" name="email" value="<%= email %>" required autofocus autocomplete="username webauthn">
     </label>
     <label>Password
       <input type="password" name="password" required autocomplete="current-password">
     </label>
     <button type="submit" class="btn btn-primary btn-block">Sign in</button>
   </form>
+  <%# Shown by public/js/app.js on phones and computers that can use passkeys. %>
+  <div class="passkey-choice" data-passkey="login" data-passkey-autofill hidden>
+    <p class="or-line"><span>or</span></p>
+    <button type="button" class="btn btn-block" data-passkey-start><%- icon('passkey') %> Sign in with a passkey</button>
+    <p class="hint">Face ID, Touch ID or your phone's screen lock, with no password. Add one under My account once you're in.</p>
+  </div>
   <p class="auth-footer">New officer or client? <a href="/register">Create an account →</a></p>
 </div>
 <%- include('../partials/bottom') %>

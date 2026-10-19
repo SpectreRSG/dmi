@@ -89,6 +89,58 @@ async function signIn(client, email, password) {
   return res;
 }
 
+// A pretend phone with Face ID, for the passkey tests. Like a real device, it
+// makes a key pair for each passkey, keeps the secret half, and signs the
+// site's challenge (W3C Web Authentication). `counts`: whether it counts its
+// uses (security keys do; iPhones always say 0).
+function makeAuthenticator({ rpId = 'localhost', counts = false, type = 'ec' } = {}) {
+  const crypto = require('crypto');
+  const b64 = (buf) => Buffer.from(buf).toString('base64url');
+  const sha256 = (data) => crypto.createHash('sha256').update(data).digest();
+  const uint = (n, size) => {
+    const buf = Buffer.alloc(size);
+    buf.writeUIntBE(n, 0, size);
+    return buf;
+  };
+  const keys = new Map(); // passkey id -> { privateKey, userHandle, count }
+  // The device's report: the site (as a hash), flags (1 = touched, 4 = Face ID or PIN, 64 = new passkey), the count.
+  const authData = ({ uv = true, count = 0, attested = null, site = rpId }) => Buffer.concat([
+    sha256(site), Buffer.from([0x01 | (uv ? 0x04 : 0) | (attested ? 0x40 : 0)]), uint(count, 4), attested || Buffer.alloc(0),
+  ]);
+  const clientData = (kind, challenge, origin) => Buffer.from(JSON.stringify({ type: kind, challenge, origin: origin || base, crossOrigin: false }));
+  return {
+    keys,
+    // What navigator.credentials.create() gives the page (as the page sends it).
+    create(options, { uv = true, origin, site, claim } = {}) {
+      const { privateKey, publicKey } = type === 'ed25519' ? crypto.generateKeyPairSync('ed25519') : crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
+      const id = crypto.randomBytes(16);
+      const start = counts ? 5 : 0;
+      // aaguid (16 zero bytes), the id's length, the id, then the key in the device's own format (an empty map here: the site uses the browser's copy).
+      const attested = Buffer.concat([Buffer.alloc(16), uint(id.length, 2), id, Buffer.from([0xa0])]);
+      keys.set(b64(id), { privateKey, userHandle: options.user.id, count: start });
+      return {
+        id: b64(id),
+        clientDataJSON: b64(clientData('webauthn.create', options.challenge, origin)),
+        authenticatorData: b64(authData({ uv, count: start, attested, site })),
+        publicKey: b64(publicKey.export({ type: 'spki', format: 'der' })),
+        publicKeyAlgorithm: String(claim ?? (type === 'ed25519' ? -8 : -7)),
+        transports: 'internal',
+      };
+    },
+    // What navigator.credentials.get() gives the page.
+    get(options, { id, uv = true, origin, site, count, tamper = false } = {}) {
+      const keyId = id || [...keys.keys()][0];
+      const key = keys.get(keyId);
+      if (counts) key.count += 1;
+      const data = authData({ uv, count: count ?? key.count, site });
+      const json = clientData('webauthn.get', options.challenge, origin);
+      const signed = Buffer.concat([data, sha256(tamper ? Buffer.from('something else') : json)]);
+      const signature = crypto.sign(type === 'ed25519' ? null : 'sha256', signed, key.privateKey);
+      return { id: keyId, clientDataJSON: b64(json), authenticatorData: b64(data), signature: b64(signature), userHandle: key.userHandle };
+    },
+  };
+}
+
 const admin = makeClient();
 const lastMonday = time.addDays(time.startOfWeek(time.todayStr()), -7);
 const ids = {};
@@ -1123,6 +1175,176 @@ test('security: two-step codes, backup codes, remembered devices, signing out, a
   assert.equal(twoStep.isRequired({ role: 'officer' }, { two_step_required_for: 'office' }), false);
   assert.equal(twoStep.isRequired({ role: 'manager' }, { two_step_required_for: 'office' }), true);
   assert.equal(twoStep.isRequired({ role: 'pending' }, { two_step_required_for: 'everyone' }), false);
+  notify.setSender(null);
+});
+
+test('passkeys: Face ID instead of a password and code, as the second step, and the checks that keep them safe', async () => {
+  const notify = require('../src/services/notify');
+  const twoStep = require('../src/services/twoStep');
+  notify.setSender(async () => {});
+  const json = (res) => JSON.parse(res.text);
+  const login = { email: 'pat@example.com', password: 'pat manager words 7' };
+  let res = await admin.post('/users', { name: 'Pat Manager', ...login, role: 'manager', confirm: login.password }, '/users/new');
+  assert.equal(res.status, 302);
+  const patId = (await db.get("SELECT id FROM users WHERE email = 'pat@example.com'")).id;
+
+  // Pat's first sign-in: two-step sign-in is needed, and a passkey is offered as the easy way.
+  const iphone = makeAuthenticator();
+  const pat = makeClient();
+  await pat.post('/login', login, '/login');
+  assert.equal((await pat.get('/')).location, '/account/two-step');
+  assert.match((await pat.get('/account/two-step')).text, /data-passkey="register"[\s\S]*Easiest: a passkey/);
+  let options = json(await pat.get('/account/passkeys/options'));
+  assert.equal(options.rp.id, 'localhost');
+  assert.equal(options.user.name, 'pat@example.com');
+  assert.equal(Buffer.from(options.user.id, 'base64url').toString(), String(patId));
+  assert.equal(options.authenticatorSelection.userVerification, 'required');
+  assert.deepEqual(options.pubKeyCredParams.map((p) => p.alg), [-7, -257, -8], 'ES256 (iPhones) first');
+
+  // Made for another website, without Face ID, or claiming the wrong kind of key: refused.
+  res = await pat.post('/account/passkeys', iphone.create(options, { origin: 'https://fake-dmi.example' }), '/account/two-step');
+  assert.equal(res.status, 400);
+  assert.match(json(res).error, /different website/);
+  options = json(await pat.get('/account/passkeys/options'));
+  res = await pat.post('/account/passkeys', iphone.create(options, { uv: false }), '/account/two-step');
+  assert.match(json(res).error, /Face ID, Touch ID or the device PIN/);
+  options = json(await pat.get('/account/passkeys/options'));
+  res = await pat.post('/account/passkeys', iphone.create(options, { site: 'fake-dmi.example' }), '/account/two-step');
+  assert.match(json(res).error, /different website/);
+  options = json(await pat.get('/account/passkeys/options'));
+  res = await pat.post('/account/passkeys', iphone.create(options, { claim: -257 }), '/account/two-step');
+  assert.match(json(res).error, /isn't supported/);
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM passkeys WHERE user_id = ?', patId)).n, 0);
+  iphone.keys.clear();
+
+  // The real thing: Face ID, and that's two-step sign-in set up, with backup codes shown once.
+  options = json(await pat.get('/account/passkeys/options'));
+  const answer = iphone.create(options);
+  res = await pat.post('/account/passkeys', answer, '/account/two-step');
+  assert.deepEqual(json(res), { redirect: '/account/backup-codes' });
+  res = await pat.get('/account/backup-codes');
+  const backupCodes = [...res.text.matchAll(/<li><code>([a-z0-9]{4}-[a-z0-9]{4})<\/code><\/li>/g)].map((m) => m[1]);
+  assert.equal(backupCodes.length, 10);
+  assert.equal((await pat.get('/account/backup-codes')).location, '/account', 'shown once');
+  assert.equal((await pat.get('/')).status, 200, 'two-step sign-in is done');
+  const saved = await db.get('SELECT * FROM passkeys WHERE user_id = ?', patId);
+  assert.equal(saved.rp_id, 'localhost');
+  assert.equal(saved.credential_id, answer.id);
+  assert.equal((await db.get('SELECT totp_enabled_at FROM users WHERE id = ?', patId)).totp_enabled_at, null, 'no authenticator app needed');
+  res = await pat.get('/account');
+  assert.match(res.text, /id="passkeys"[\s\S]*A browser on an unknown device/);
+  assert.match(res.text, /You sign in with a passkey/);
+  assert.match((await admin.get('/users')).text, /On \(passkey\)/);
+  // The same passkey can't be saved twice.
+  options = json(await pat.get('/account/passkeys/options'));
+  assert.deepEqual(options.excludeCredentials.map((c) => c.id), [answer.id], 'the phone is told it already has one');
+  res = await pat.post('/account/passkeys', { ...answer, clientDataJSON: iphone.create(options).clientDataJSON }, '/account');
+  assert.equal(res.status, 400);
+  iphone.keys.delete([...iphone.keys.keys()][1]);
+
+  // Signing in with just Face ID: no email, password or code.
+  const phone = makeClient();
+  assert.match((await phone.get('/login')).text, /autocomplete="username webauthn"[\s\S]*Sign in with a passkey/);
+  options = json(await phone.get('/login/passkey/options'));
+  assert.deepEqual(options.allowCredentials, [], 'any passkey this phone has for the site');
+  assert.equal(options.rpId, 'localhost');
+  const signedAnswer = iphone.get(options);
+  res = await phone.post('/login/passkey', { ...signedAnswer, next: '/' }, '/login');
+  assert.deepEqual(json(res), { redirect: '/' });
+  assert.equal((await phone.get('/')).status, 200);
+  assert.match((await admin.get('/activity')).text, /Signed in \([^)]*, passkey\)/);
+  // iPhones always count 0, so a second sign-in works too.
+  const phone2 = makeClient();
+  options = json(await phone2.get('/login/passkey/options'));
+  assert.deepEqual(json(await phone2.post('/login/passkey', iphone.get(options), '/login')), { redirect: '/' });
+
+  // Someone who copied an old answer can't reuse it (the challenge is new every time and works once).
+  const thief = makeClient();
+  await thief.get('/login/passkey/options');
+  res = await thief.post('/login/passkey', signedAnswer, '/login');
+  assert.equal(res.status, 400);
+  assert.match(json(res).error, /expired/);
+  // Answers made for a look-alike site, without Face ID, or with a bad signature are refused.
+  for (const [how, message] of [[{ origin: 'https://fake-dmi.example' }, /different website/], [{ site: 'fake-dmi.example' }, /different website/],
+    [{ uv: false }, /Face ID/], [{ tamper: true }, /didn't check out/]]) {
+    options = json(await thief.get('/login/passkey/options'));
+    res = await thief.post('/login/passkey', iphone.get(options, how), '/login');
+    assert.match(json(res).error, message);
+  }
+  assert.match((await thief.get('/')).location, /^\/login/, 'none of that signed them in');
+
+  // As the second step after the password, on a computer.
+  const laptop = makeClient();
+  assert.equal((await laptop.post('/login', login, '/login')).location, '/login/verify');
+  res = await laptop.get('/login/verify');
+  assert.match(res.text, /Use my passkey/);
+  assert.match(res.text, /Backup code/);
+  assert.doesNotMatch(res.text, /authenticator app/, "Pat doesn't have one");
+  options = json(await laptop.get('/login/passkey/options'));
+  assert.deepEqual(options.allowCredentials.map((c) => c.id), [answer.id], 'only Pat\'s passkeys');
+  assert.deepEqual(json(await laptop.post('/login/passkey', iphone.get(options), '/login/verify')), { redirect: '/' });
+  // Someone else's passkey can't finish Olivia's sign-in.
+  const mixUp = makeClient();
+  await mixUp.post('/login', { email: 'olivia@example.com', password: 'officer password 1' }, '/login');
+  options = json(await mixUp.get('/login/passkey/options'));
+  res = await mixUp.post('/login/passkey', iphone.get(options), '/login/verify');
+  assert.match(json(res).error, /isn't set up for an account here/);
+  assert.match((await mixUp.get('/my/schedule')).location, /^\/login/);
+  // A backup code still works instead of the passkey.
+  const borrowed = makeClient();
+  await borrowed.post('/login', login, '/login');
+  assert.equal((await borrowed.post('/login/verify', { code: backupCodes[0] }, '/login/verify')).location, '/');
+
+  // A security key that counts its uses: a count that doesn't go up means a copied key.
+  await db.run("UPDATE sessions SET data = jsonb_set(data, '{codeAt}', '0'::jsonb) WHERE sid = ?", pat.sessionId());
+  res = await pat.get('/account/passkeys/options');
+  assert.equal(res.status, 403, "adding another needs a fresh confirm-it's-you");
+  assert.equal(json(res).redirect, '/account/confirm?next=%2Faccount%23passkeys');
+  // Confirming it's Pat with the passkey.
+  res = await pat.get('/account/confirm?next=/account');
+  assert.match(res.text, /data-passkey="confirm"/);
+  options = json(await pat.get('/account/confirm/passkey-options'));
+  assert.deepEqual(json(await pat.post('/account/confirm/passkey', { ...iphone.get(options), next: '/account' })), { redirect: '/account' });
+  const key = makeAuthenticator({ counts: true });
+  options = json(await pat.get('/account/passkeys/options'));
+  assert.deepEqual(json(await pat.post('/account/passkeys', key.create(options))), { redirect: '/account#passkeys' }, 'no new backup codes: Pat has some');
+  const desk = makeClient();
+  options = json(await desk.get('/login/passkey/options'));
+  assert.deepEqual(json(await desk.post('/login/passkey', key.get(options), '/login')), { redirect: '/' });
+  const copy = makeClient();
+  options = json(await copy.get('/login/passkey/options'));
+  res = await copy.post('/login/passkey', key.get(options, { count: 6 }), '/login');
+  assert.match(json(res).error, /looks like a copy/);
+  // Ed25519 keys (some Android phones and security keys) work too.
+  const ed = makeAuthenticator({ type: 'ed25519' });
+  options = json(await pat.get('/account/passkeys/options'));
+  assert.equal((await pat.post('/account/passkeys', ed.create(options))).status, 200);
+  const edClient = makeClient();
+  options = json(await edClient.get('/login/passkey/options'));
+  assert.deepEqual(json(await edClient.post('/login/passkey', ed.get(options), '/login')), { redirect: '/' });
+
+  // Removing passkeys: fine while another way remains; the last one stays (managers must have two-step sign-in).
+  const mine = await db.all('SELECT id FROM passkeys WHERE user_id = ? ORDER BY id', patId);
+  assert.equal(mine.length, 3);
+  for (const p of mine.slice(1)) assert.equal((await pat.post(`/account/passkeys/${p.id}/delete`)).location, '/account#passkeys');
+  await pat.post(`/account/passkeys/${mine[0].id}/delete`);
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM passkeys WHERE user_id = ?', patId)).n, 1, 'the last one is kept');
+  assert.match((await pat.get('/account')).text, /your only way to do two-step sign-in/);
+  // Someone else's passkey can't be removed.
+  await officer.post(`/account/passkeys/${mine[0].id}/delete`);
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM passkeys WHERE user_id = ?', patId)).n, 1);
+
+  // Lost phone: the office's reset removes passkeys too, and signs Pat out.
+  await admin.post(`/users/${patId}/reset-two-step`);
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM passkeys WHERE user_id = ?', patId)).n, 0);
+  assert.match((await phone.get('/')).location, /^\/login/);
+  const after = makeClient();
+  options = json(await after.get('/login/passkey/options'));
+  assert.match(json(await after.post('/login/passkey', iphone.get(options), '/login')).error, /isn't set up/);
+
+  assert.equal(twoStep.hasSecondStep({ totp_enabled_at: null, passkey_count: 1 }), true);
+  assert.equal(twoStep.hasSecondStep({ totp_enabled_at: null, passkey_count: 0 }), false);
+  await db.run("DELETE FROM login_attempts WHERE key LIKE 'passkey|%'");
   notify.setSender(null);
 });
 

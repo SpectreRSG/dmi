@@ -91,6 +91,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const pushBox = document.querySelector('[data-push]');
   if (pushBox) setUpNotifications(pushBox);
 
+  // Passkeys: the "Sign in with a passkey" and "Add a passkey" buttons.
+  document.querySelectorAll('[data-passkey]').forEach(setUpPasskey);
+
   // Phone-sized screens: open and close the side menu.
   const toggle = document.querySelector('[data-nav-toggle]');
   if (toggle) {
@@ -200,5 +203,167 @@ function setUpNotifications(box) {
 
   refresh().catch((err) => {
     status.textContent = `Couldn't check notifications on this device (${err.message}).`;
+  });
+}
+
+// Passkeys: signing in with Face ID, Touch ID or the device's screen lock
+// (src/services/passkeys.js checks the answers). The browser does the hard
+// part. We get a one-time "challenge" from the site, the browser asks for
+// Face ID (or similar) and signs it, and we send the signed answer back.
+//
+// The challenge is fetched as soon as the page opens, not when the button is
+// tapped: iPhones only allow the Face ID prompt straight after a tap.
+const PASSKEY_URLS = {
+  login: ['/login/passkey/options', '/login/passkey'], // sign in, or the second step after a password
+  confirm: ['/account/confirm/passkey-options', '/account/confirm/passkey'], // "Confirm it's you"
+  register: ['/account/passkeys/options', '/account/passkeys'], // add a passkey
+};
+const REFRESH_MS = 4 * 60 * 1000; // challenges last 5 minutes on the site
+
+// Bytes <-> the URL-safe text ("base64url") the site sends and expects.
+const toText = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const toBytes = (text) => {
+  const plain = text.replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(plain + '='.repeat((4 - (plain.length % 4)) % 4)), (c) => c.charCodeAt(0));
+};
+
+function setUpPasskey(box) {
+  const kind = box.dataset.passkey;
+  const [optionsUrl, sendUrl] = PASSKEY_URLS[kind];
+  const button = box.querySelector('[data-passkey-start]');
+  const errorBox = document.querySelector('[data-passkey-error]');
+  const csrf = document.querySelector('input[name="_csrf"]').value;
+  const canCreate = window.AuthenticatorAttestationResponse && 'getPublicKey' in AuthenticatorAttestationResponse.prototype;
+  if (!window.PublicKeyCredential || !navigator.credentials || (kind === 'register' && !canCreate)) {
+    // Boxes that start hidden stay hidden; others say why the button is missing.
+    button.hidden = true;
+    box.querySelector('[data-passkey-unsupported]')?.removeAttribute('hidden');
+    return;
+  }
+  box.hidden = false;
+  document.querySelectorAll('[data-passkey-alt]').forEach((part) => {
+    part.hidden = false;
+  });
+
+  let options = null; // the latest challenge and settings from the site
+  let autofill = null; // lets us cancel the passkey offer in the email box
+  let busy = false;
+  let tapped = false; // after the button's been used, the email box stops offering passkeys
+  const showError = (message) => {
+    if (!errorBox) return;
+    errorBox.textContent = message;
+    errorBox.hidden = !message;
+  };
+
+  // The site's options, turned into what the browser wants (bytes, not text).
+  const forBrowser = () => {
+    const publicKey = { ...options, challenge: toBytes(options.challenge) };
+    if (options.user) publicKey.user = { ...options.user, id: toBytes(options.user.id) };
+    for (const list of ['allowCredentials', 'excludeCredentials']) {
+      if (options[list]) publicKey[list] = options[list].map((c) => ({ ...c, id: toBytes(c.id) }));
+    }
+    return publicKey;
+  };
+
+  async function load() {
+    autofill?.abort();
+    autofill = null;
+    button.disabled = true; // until the new challenge is here
+    try {
+      const reply = await fetch(optionsUrl, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+      options = await reply.json(); // or { error, redirect }, e.g. "confirm it's you first"
+    } catch {
+      options = { error: 'Could not reach the site. Check your connection, then reload this page.' };
+    }
+    button.disabled = false;
+    if (box.hasAttribute('data-passkey-autofill') && options.challenge && !tapped) offerInEmailBox();
+  }
+
+  // On the sign-in page, phones and browsers can offer saved passkeys right
+  // in the email box ("conditional mediation"), so there's nothing to tap first.
+  async function offerInEmailBox() {
+    if (!(await PublicKeyCredential.isConditionalMediationAvailable?.())) return;
+    const controller = new AbortController();
+    autofill = controller;
+    try {
+      const credential = await navigator.credentials.get({ publicKey: forBrowser(), mediation: 'conditional', signal: controller.signal });
+      busy = true;
+      await send(credential);
+    } catch (err) {
+      // Cancelled by us (the button was tapped, or the page refreshed its challenge) or by the browser: nothing to say.
+      if (err.fromSite) failed(err);
+    } finally {
+      busy = false;
+    }
+  }
+
+  // Sends the signed answer. The site replies with the page to go to next.
+  async function send(credential) {
+    const answer = credential.response;
+    const fields = { _csrf: csrf, id: toText(credential.rawId), clientDataJSON: toText(answer.clientDataJSON) };
+    if (kind === 'register') {
+      Object.assign(fields, {
+        authenticatorData: toText(answer.getAuthenticatorData()),
+        publicKey: toText(answer.getPublicKey()),
+        publicKeyAlgorithm: String(answer.getPublicKeyAlgorithm()),
+      });
+    } else {
+      Object.assign(fields, {
+        authenticatorData: toText(answer.authenticatorData),
+        signature: toText(answer.signature),
+        userHandle: answer.userHandle ? toText(answer.userHandle) : '',
+        next: box.dataset.next || document.querySelector('input[name="next"]')?.value || '',
+      });
+    }
+    const reply = await fetch(sendUrl, { method: 'POST', body: new URLSearchParams(fields), credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const result = await reply.json().catch(() => ({}));
+    if (result.redirect) {
+      window.location.href = result.redirect;
+      return;
+    }
+    throw Object.assign(new Error(result.error || 'Something went wrong. Please reload this page and try again.'), { fromSite: true });
+  }
+
+  function failed(err) {
+    if (err.fromSite) showError(err.message);
+    else if (err.name === 'InvalidStateError') showError('This device already has a passkey for your account. You can use it to sign in.');
+    else if (err.name === 'NotAllowedError') {
+      showError(kind === 'register'
+        ? 'No passkey was added (it was cancelled or took too long). Tap the button to try again.'
+        : "No passkey was used (it was cancelled, took too long, or this device doesn't have one for this site). Tap the button to try again.");
+    } else showError(`Passkeys didn't work here (${err.message}). Please try again.`);
+    load(); // a fresh challenge for the next try
+  }
+
+  button.addEventListener('click', async () => {
+    showError('');
+    if (options.redirect) {
+      window.location.href = options.redirect;
+      return;
+    }
+    if (!options.challenge) return showError(options.error || 'Please reload this page and try again.');
+    autofill?.abort(); // the button takes over from the email box
+    autofill = null;
+    tapped = true;
+    busy = true;
+    button.disabled = true;
+    try {
+      // Called straight away (no waiting first), so iPhones allow the prompt.
+      const publicKey = forBrowser();
+      const credential = kind === 'register' ? await navigator.credentials.create({ publicKey }) : await navigator.credentials.get({ publicKey });
+      await send(credential);
+    } catch (err) {
+      failed(err);
+    } finally {
+      busy = false;
+    }
+  });
+
+  load();
+  setInterval(() => {
+    if (!busy) load();
+  }, REFRESH_MS);
+  window.addEventListener('pageshow', (event) => {
+    if (event.persisted && !busy) load(); // back to this page from the next one
   });
 }

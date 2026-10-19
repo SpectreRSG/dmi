@@ -123,7 +123,9 @@ async function loadUser(req, res, next) {
     req.session.signedInAt ??= Date.now(); // sessions from before this rule start counting now
     const user = Date.now() - req.session.signedInAt < MAX_SESSION_MS
       ? await db.get(
-          'SELECT id, name, email, phone, role, employee_id, client_id, totp_enabled_at FROM users WHERE id = ? AND active = 1',
+          `SELECT id, name, email, phone, role, employee_id, client_id, totp_enabled_at,
+             (SELECT COUNT(*)::int FROM passkeys p WHERE p.user_id = users.id) AS passkey_count
+           FROM users WHERE id = ? AND active = 1`,
           req.session.userId
         )
       : null;
@@ -160,9 +162,9 @@ function requireBackOffice(req, res, next) {
 // page works. Sessions that never entered a code (signed in before it was
 // turned on) are asked for one.
 function requireTwoStep(req, res, next) {
-  const enabled = Boolean(req.user.totp_enabled_at);
+  const enabled = twoStep.hasSecondStep(req.user);
   if (!enabled && !twoStep.isRequired(req.user, res.locals.settings)) return next();
-  if (req.path.startsWith('/account/two-step') || req.path === '/account/confirm') return next();
+  if (req.path.startsWith('/account/two-step') || req.path.startsWith('/account/confirm') || req.path.startsWith('/account/passkeys')) return next();
   if (enabled && req.session.twoStep) return next();
   if (req.method === 'GET') {
     return res.redirect(enabled ? `/account/confirm?next=${encodeURIComponent(req.originalUrl)}` : '/account/two-step');
@@ -180,7 +182,7 @@ function hasRecentCode(req) {
 }
 
 function requireRecentCode(req, res, next) {
-  if (!req.user.totp_enabled_at || hasRecentCode(req)) return next();
+  if (!twoStep.hasSecondStep(req.user) || hasRecentCode(req)) return next();
   let back = req.originalUrl;
   if (req.method !== 'GET') {
     // After the code, go back to the page the form was on.
@@ -190,7 +192,7 @@ function requireRecentCode(req, res, next) {
     } catch {
       back = homeFor(req.user);
     }
-    req.flash('warning', 'For your security, enter a code from your authenticator app, then try again.');
+    req.flash('warning', "For your security, confirm it's you, then try again.");
   }
   res.redirect(`/account/confirm?next=${encodeURIComponent(back)}`);
 }

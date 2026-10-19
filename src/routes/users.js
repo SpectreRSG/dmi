@@ -16,7 +16,8 @@ const ROLES = ['pending', 'officer', 'client', 'manager', 'admin'];
 
 function findUser(id) {
   return db.get(
-    `SELECT id, name, email, phone, role, requested_role, employee_id, client_id, active, last_login_at, created_at, totp_enabled_at
+    `SELECT id, name, email, phone, role, requested_role, employee_id, client_id, active, last_login_at, created_at, totp_enabled_at,
+       (SELECT COUNT(*)::int FROM passkeys p WHERE p.user_id = users.id) AS passkey_count
      FROM users WHERE id = ?`,
     id
   );
@@ -114,7 +115,9 @@ async function saveUser(req, values, password, existing) {
 
 router.get('/', async (req, res) => {
   const users = await db.all(
-    `SELECT u.*, e.first_name, e.last_name, c.name AS client_name FROM users u
+    `SELECT u.*, e.first_name, e.last_name, c.name AS client_name,
+       (SELECT COUNT(*)::int FROM passkeys p WHERE p.user_id = u.id) AS passkey_count
+     FROM users u
      LEFT JOIN employees e ON e.id = u.employee_id LEFT JOIN clients c ON c.id = u.client_id
      ORDER BY (u.role = 'pending' AND u.active = 1) DESC, u.active DESC, u.name`
   );
@@ -164,7 +167,7 @@ router.post('/:id/reset-two-step', async (req, res) => {
   await twoStep.reset(user.id);
   if (user.id !== req.user.id) await endSessionsForUser(user.id);
   await logActivity(req, `Reset two-step sign-in for ${user.name}`);
-  req.flash('success', `Two-step sign-in reset for ${user.name}. They'll set it up again with their phone the next time they sign in.`);
+  req.flash('success', `Two-step sign-in reset for ${user.name}. Their passkeys were removed too. They'll set it up again the next time they sign in.`);
   res.redirect(`/users/${user.id}/edit`);
 });
 

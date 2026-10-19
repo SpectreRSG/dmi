@@ -1,13 +1,28 @@
 <%- include('../partials/top') %>
 <div class="page-head">
   <div>
-    <h1>Set up two-step sign-in</h1>
-    <p class="page-sub">After your password, you'll type a 6-digit code from an app on your phone. Then a stolen or guessed password isn't enough to get into your account. It takes about two minutes, once.</p>
+    <% if (hasPasskey) { %>
+      <h1>Add an authenticator app</h1>
+      <p class="page-sub">You already sign in with a passkey. An authenticator app is a second way in, for when the device with your passkey isn't with you.</p>
+    <% } else { %>
+      <h1>Set up two-step sign-in</h1>
+      <p class="page-sub">Then a stolen or guessed password isn't enough to get into your account. Pick one of the two ways below. It takes about two minutes, once.</p>
+    <% } %>
   </div>
   <% if (!required) { %><div class="page-actions"><a class="btn btn-ghost" href="/account">Not now</a></div><% } %>
 </div>
 <%- include('../partials/form-error') %>
+<% if (!hasPasskey) { %>
+  <%# Shown by public/js/app.js where this phone or computer can make passkeys. %>
+  <div class="card card-pad passkey-choice" data-passkey="register" hidden>
+    <h2><%- icon('passkey') %> Easiest: a passkey</h2>
+    <p>Your phone or computer remembers you. Next time, you sign in with Face ID, Touch ID or its screen lock: no password and no codes to type. On iPhone it's kept in iCloud Keychain, so it works on your other Apple devices too.</p>
+    <button type="button" class="btn btn-primary" data-passkey-start>Add a passkey</button>
+    <div class="flash flash-error" role="alert" data-passkey-error hidden></div>
+  </div>
+<% } %>
 <div class="card card-pad two-step-setup">
+  <% if (!hasPasskey) { %><h2 data-passkey-alt hidden>Or: an authenticator app</h2><% } %>
   <ol class="setup-list">
     <li>
       <strong>Get an authenticator app</strong> on your phone, free from the App Store or Google Play:
