@@ -132,6 +132,16 @@ automatically with the database, for trying the officer pages. Its password was 
 owner; it can't be used until the first admin account exists. Deactivate it under **User accounts**
 when you no longer need it.
 
+A **demo client account** (`demo.client@example.com`) is created the same way, for trying the client
+pages. It belongs to a pretend client, **Demo Client**, with two pretend sites ("Demo Site: Front
+Gate" and "Demo Site: Warehouse") and no shifts. Its password was given to the site owner.
+- A site can only ask for officers by name once they've worked there, so to try that, first put the
+  Test Officer on any shift at a demo site.
+- Approving a demo request offers the shifts to officers like any real request. On the live site,
+  ask for 1 officer and name the Test Officer (they get first choice, and nobody else hears about
+  it if they claim it straight away), or decline the request instead.
+- Deactivate it under **User accounts** when you're done.
+
 ### Important rules the app follows
 
 - **Overtime** is counted per week (Monday–Sunday). By default, hours over 40 pay 1.5×. Change this in **Settings**.

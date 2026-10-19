@@ -181,12 +181,20 @@ test('a brand-new site sends you to the setup page', async () => {
   assert.equal(res.location, '/setup');
 });
 
-test('a test officer account comes with the database, but setup still needs an admin first', async () => {
+test('test officer and demo client accounts come with the database, but setup still needs an admin first', async () => {
   const account = await db.get("SELECT * FROM users WHERE email = 'test.officer@example.com'");
   assert.equal(account.role, 'officer');
   const employee = await db.get('SELECT * FROM employees WHERE id = ?', account.employee_id);
   assert.equal(`${employee.first_name} ${employee.last_name}`, 'Test Officer');
   assert.match(account.password_hash, /^scrypt\$/);
+  // The demo client: a client sign-in for a pretend client with two pretend sites, and no shifts.
+  const demo = await db.get("SELECT * FROM users WHERE email = 'demo.client@example.com'");
+  assert.equal(demo.role, 'client');
+  assert.match(demo.password_hash, /^scrypt\$/);
+  assert.equal((await db.get('SELECT name FROM clients WHERE id = ?', demo.client_id)).name, 'Demo Client');
+  const demoSites = await db.all('SELECT * FROM sites WHERE client_id = ? AND active = 1 ORDER BY name', demo.client_id);
+  assert.deepEqual(demoSites.map((s) => s.name), ['Demo Site: Front Gate', 'Demo Site: Warehouse']);
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM shifts WHERE site_id = ANY(?::int[])', demoSites.map((s) => s.id))).n, 0);
   assert.equal((await makeClient().get('/login')).location, '/setup', 'nobody can sign in until the first admin exists');
 });
 
@@ -1346,6 +1354,20 @@ test('passkeys: Face ID instead of a password and code, as the second step, and 
   assert.equal(twoStep.hasSecondStep({ totp_enabled_at: null, passkey_count: 0 }), false);
   await db.run("DELETE FROM login_attempts WHERE key LIKE 'passkey|%'");
   notify.setSender(null);
+});
+
+test('the demo client can sign in, set up two-step sign-in, and ask for a shift at its pretend sites', async () => {
+  const { hashPassword } = require('../src/auth');
+  await db.run("UPDATE users SET password_hash = ? WHERE email = 'demo.client@example.com'", hashPassword('demo password for tests 9'));
+  const demo = makeClient();
+  await signIn(demo, 'demo.client@example.com', 'demo password for tests 9');
+  assert.match((await demo.get('/my/schedule')).text, /Demo Client/);
+  const form = await demo.get('/my/requests/new');
+  assert.equal(form.status, 200);
+  assert.match(form.text, /Demo Site: Front Gate[\s\S]*Demo Site: Warehouse/);
+  assert.doesNotMatch(form.text, /Harbour Mall|Northgate/, "only its own sites");
+  await db.run("UPDATE users SET active = 0 WHERE email = 'demo.client@example.com'"); // as the office would when done
+  assert.match((await demo.get('/my/schedule')).location, /^\/login/);
 });
 
 test('every main page loads', async () => {
