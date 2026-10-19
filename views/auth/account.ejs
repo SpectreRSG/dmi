@@ -23,4 +23,7 @@
     <div class="form-actions"><button type="submit" class="btn btn-primary">Change password</button></div>
   </form>
 </div>
+<div class="narrow">
+  <%- include('../partials/notifications', { pushWhat: ['admin', 'manager'].includes(currentUser.role) ? 'Free alerts on this phone or computer, like a text message: call-outs, and open shifts nobody has claimed.' : currentUser.role === 'officer' ? 'Free alerts on this phone or computer, like a text message: open shifts, schedule changes and pay day.' : null }) %>
+</div>
 <%- include('../partials/bottom') %>

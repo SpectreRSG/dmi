@@ -25,4 +25,7 @@
   <p class="hint form-note">You sign in with <strong><%= currentUser.email %></strong>. To change that, ask the office. To change your password, go to <a href="/account">My account</a>.</p>
   <div class="form-actions"><button type="submit" class="btn btn-primary">Save</button></div>
 </form>
+<div id="notifications">
+  <%- include('../partials/notifications', { pushWhat: 'Free alerts on this phone, like a text message: open shifts you can take, changes to your shifts, and pay day.' }) %>
+</div>
 <%- include('../partials/bottom') %>

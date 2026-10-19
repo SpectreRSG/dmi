@@ -9,6 +9,8 @@ const { homeFor } = require('../auth');
 const { entryHours, round2, calculatePayLine } = require('../services/payroll');
 const { recordFinishedShifts } = require('../services/hoursFromSchedule');
 const { findPayLine, payLineTimesheet, timesheetFileName } = require('../services/payTimesheet');
+const openShifts = require('../services/openShifts');
+const notify = require('../services/notify');
 const { sendUpload } = require('../uploads');
 
 const router = express.Router();
@@ -42,9 +44,12 @@ router.get('/', (req, res) => res.redirect('/my/schedule'));
 
 // What an officer still needs to do once, after their account is set up.
 // After that, there's nothing to fill in: hours come from the schedule.
-async function setupSteps(employeeId) {
+async function setupSteps(employeeId, userId) {
   const me = await db.get('SELECT * FROM employees WHERE id = ?', employeeId);
   const steps = [];
+  if (!(await db.get('SELECT 1 FROM push_subscriptions WHERE user_id = ? LIMIT 1', userId))) {
+    steps.push({ label: 'Turn on app notifications (for open shifts and schedule changes)', href: '/my/details#notifications' });
+  }
   if (!me.phone) steps.push({ label: 'Add your phone number', href: '/my/details' });
   if (!me.emergency_contact_name || !me.emergency_contact_phone) steps.push({ label: 'Add an emergency contact', href: '/my/details' });
   if (me.tax_form === '1099' && !(await db.get('SELECT 1 FROM tax_profiles WHERE employee_id = ?', employeeId))) {
@@ -106,6 +111,8 @@ router.get('/schedule', async (req, res) => {
   const items = [
     ...shifts.map((s) => ({
       kind: 'shift',
+      id: s.id,
+      canCallOut: isOfficer && s.status === 'scheduled' && s.start_at > time.nowStr(),
       start_at: s.start_at,
       end_at: s.end_at,
       status: s.status,
@@ -148,7 +155,8 @@ router.get('/schedule', async (req, res) => {
     ? []
     : await db.all('SELECT name, address, instructions FROM sites WHERE client_id = ? AND active = 1 ORDER BY name', scopeId);
   const client = isOfficer ? null : await db.get('SELECT name FROM clients WHERE id = ?', scopeId);
-  const setup = isOfficer ? await setupSteps(scopeId) : [];
+  const setup = isOfficer ? await setupSteps(scopeId, req.user.id) : [];
+  const offers = isOfficer ? await openShifts.openShiftsFor(scopeId) : [];
 
   res.render('my/schedule', {
     title: isOfficer ? 'My schedule' : 'Schedule',
@@ -164,6 +172,7 @@ router.get('/schedule', async (req, res) => {
     next: nextShift,
     sites,
     setup,
+    openShifts: offers,
     totals: {
       shifts: live.length,
       hours: round2(live.reduce((sum, i) => sum + i.hours, 0)),
@@ -268,6 +277,67 @@ router.get('/timesheets/:id/pdf', officerOnly, async (req, res) => {
   );
 });
 
+// ---- Can't make a shift / open shifts (officers) --------------------------------------
+// "I can't make it" takes them off the shift and offers it to the officers who
+// could take it; the first to claim it gets it. The office only hears about it
+// (and only has to act) if nobody does.
+
+async function myUpcomingShift(req, res, next) {
+  const shift = await openShifts.findShift(req.params.id);
+  if (!shift || shift.employee_id !== req.me.id) return notFound(res, 'shift');
+  if (shift.status !== 'scheduled' || shift.start_at <= time.nowStr()) {
+    req.flash('error', "This shift has already started or changed. If you can't work it, please call the office.");
+    return res.redirect('/my/schedule');
+  }
+  req.shift = shift;
+  next();
+}
+
+router.get('/shifts/:id/call-out', officerOnly, myUpcomingShift, (req, res) => {
+  res.render('my/call-out', { title: "Can't make a shift", shift: req.shift, hoursNotice: time.hoursBetween(time.nowStr(), req.shift.start_at) });
+});
+
+router.post('/shifts/:id/call-out', officerOnly, myUpcomingShift, async (req, res) => {
+  const reason = String(req.body.reason || '').trim().slice(0, 200) || null;
+  const result = await openShifts.callOut(req.shift.id, {
+    employeeId: req.me.id, reason, userId: req.user.id, settings: res.locals.settings,
+  });
+  if (result.error) {
+    req.flash('error', result.error);
+    return res.redirect('/my/schedule');
+  }
+  await logActivity(req, `${employeeName(req.me)} called out of shift #${req.shift.id} (${req.shift.start_at.slice(0, 10)})${reason ? `: ${reason}` : ''}`);
+  req.flash('success', "Thanks for letting us know. You're off that shift, and the office has been told." +
+    (result.asked ? ' Other officers are being offered it.' : ''));
+  res.redirect(`/my/schedule?month=${req.shift.start_at.slice(0, 7)}`);
+});
+
+router.get('/open-shifts/:id', officerOnly, async (req, res) => {
+  const offer = await db.get('SELECT * FROM shift_offers WHERE id = ?', req.params.id);
+  const offered = offer && (await db.get(
+    'SELECT 1 FROM shift_offer_recipients WHERE offer_id = ? AND employee_id = ? AND notified_at IS NOT NULL', offer.id, req.me.id
+  ));
+  if (!offered) return notFound(res, 'open shift');
+  const shift = await db.get(
+    `SELECT s.*, si.name AS site_name, si.address AS site_address, si.instructions AS site_instructions, c.name AS client_name
+     FROM shifts s JOIN sites si ON si.id = s.site_id JOIN clients c ON c.id = si.client_id WHERE s.id = ?`,
+    offer.shift_id
+  );
+  const open = offer.status === 'open' && !shift.employee_id && shift.status === 'scheduled' && shift.start_at > time.nowStr();
+  res.render('my/open-shift', { title: 'Open shift', offer, shift, open, mine: offer.filled_by === req.me.id, hours: round2(entryHours(shift)) });
+});
+
+router.post('/open-shifts/:id/claim', officerOnly, async (req, res) => {
+  const result = await openShifts.claimShift(Number(req.params.id), req.me.id, res.locals.settings);
+  if (result.error) {
+    req.flash('error', result.error);
+    return res.redirect(`/my/open-shifts/${req.params.id}`);
+  }
+  await logActivity(req, `${employeeName(req.me)} claimed open shift #${result.shift.id} (${result.shift.start_at.slice(0, 10)})`);
+  req.flash('success', `It's yours: ${time.fmtDay(result.shift.start_at)}, ${time.fmtRange(result.shift.start_at, result.shift.end_at)} at ${result.shift.site_name}. It's on your schedule now.`);
+  res.redirect(`/my/schedule?month=${result.shift.start_at.slice(0, 7)}`);
+});
+
 // ---- My details (officers) ---------------------------------------------------------
 // Their phone, email, address and emergency contact: the office sees the
 // changes straight away on their staff record.
@@ -292,13 +362,15 @@ function readDetails(body) {
   return { values, error };
 }
 
-router.get('/details', officerOnly, (req, res) => {
-  res.render('my/details', { title: 'My details', values: req.me, error: null });
-});
+async function renderDetails(res, values, error, status = 200) {
+  res.status(status).render('my/details', { title: 'My details', values, error, pushKey: await notify.publicKey() });
+}
+
+router.get('/details', officerOnly, (req, res) => renderDetails(res, req.me, null));
 
 router.post('/details', officerOnly, async (req, res) => {
   const { values, error } = readDetails(req.body);
-  if (error) return res.status(400).render('my/details', { title: 'My details', values, error });
+  if (error) return renderDetails(res, values, error, 400);
   const changed = DETAIL_FIELDS.filter((f) => (values[f] || null) !== (req.me[f] || null));
   if (changed.length) {
     await db.transaction(async (tx) => {

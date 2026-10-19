@@ -232,6 +232,8 @@ async function coverOptions(shift, settings) {
     const theirs = shifts.filter((s) => s.employee_id === employee.id);
     const blockers = [];
     const warnings = [];
+    // The same problems as yes/no flags, for deciding who may claim an open shift.
+    const flags = { restProblem: false, overtime: false, complianceProblem: false };
 
     const clash = theirs.find((s) => overlaps(s, shift));
     if (clash) blockers.push(`Already booked ${time.fmtRange(clash.start_at, clash.end_at)} at ${clash.site_name}`);
@@ -244,6 +246,7 @@ async function coverOptions(shift, settings) {
         if (gap !== null && gap < settings.min_rest_hours * 60) {
           const when = s.end_at <= shift.start_at ? 'after' : 'before';
           warnings.push(gap === 0 ? `No rest: straight ${when} their shift at ${s.site_name}` : `Only ${round2(gap / 60)} h rest ${when} their shift at ${s.site_name}`);
+          flags.restProblem = true;
           break;
         }
       }
@@ -252,14 +255,17 @@ async function coverOptions(shift, settings) {
     const weekHours = round2(theirs.filter((s) => time.startOfWeek(s.start_at.slice(0, 10)) === week).reduce((sum, s) => sum + entryHours(s), 0));
     if (settings.overtime_weekly_hours > 0 && weekHours + thisShiftHours > settings.overtime_weekly_hours) {
       warnings.push(`Would go into overtime (${round2(weekHours + thisShiftHours)} h that week)`);
+      flags.overtime = true;
     }
 
     for (const item of compliance.get(employee.id).items) {
       if (item.status === 'missing') warnings.push(`${item.label} missing`);
       else if (item.expires_on && item.expires_on < date) warnings.push(`${item.label} expired ${time.fmtDate(item.expires_on)}`);
+      else continue;
+      flags.complianceProblem = true;
     }
 
-    return { employee, blockers, warnings, weekHours, siteShifts: knowsSite.get(employee.id) || 0 };
+    return { employee, blockers, warnings, ...flags, weekHours, siteShifts: knowsSite.get(employee.id) || 0 };
   });
 
   // Free with no warnings first, then free with warnings, then busy. Within

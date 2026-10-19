@@ -70,6 +70,10 @@ document.addEventListener('DOMContentLoaded', () => {
     showNew();
   });
 
+  // App notifications: the "Turn on notifications" box (views/partials/notifications.ejs).
+  const pushBox = document.querySelector('[data-push]');
+  if (pushBox) setUpNotifications(pushBox);
+
   // Phone-sized screens: open and close the side menu.
   const toggle = document.querySelector('[data-nav-toggle]');
   if (toggle) {
@@ -89,3 +93,95 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+// Free "push" notifications on this device. The browser asks the person's
+// permission, then gives us an address for this device, which we save with
+// their account. public/sw.js shows the notifications when they arrive.
+function setUpNotifications(box) {
+  const $ = (selector) => box.querySelector(selector);
+  const status = $('[data-push-status]');
+  const show = (selector, visible) => {
+    $(selector).hidden = !visible;
+  };
+  const send = async (url, fields) => {
+    const body = new URLSearchParams({ _csrf: $('input[name="_csrf"]').value, ...fields });
+    const reply = await fetch(url, { method: 'POST', body, credentials: 'same-origin' });
+    if (!reply.ok) throw new Error(`the site answered ${reply.status}`);
+    return reply.json();
+  };
+  const ua = navigator.userAgent;
+  const isApple = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const onHomeScreen = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const deviceName = isApple ? 'iPhone or iPad' : /Android/.test(ua) ? 'Android phone' : 'Computer';
+  // The site's public key, as the bytes the browser wants.
+  const siteKey = () => {
+    const text = box.dataset.pushKey.replace(/-/g, '+').replace(/_/g, '/');
+    return Uint8Array.from(atob(text + '='.repeat((4 - (text.length % 4)) % 4)), (c) => c.charCodeAt(0));
+  };
+
+  async function refresh() {
+    ['[data-push-on]', '[data-push-off]', '[data-push-test]', '[data-push-apple]'].forEach((s) => show(s, false));
+    if (!supported) {
+      if (isApple && !onHomeScreen) {
+        status.textContent = 'Off. On an iPhone or iPad, add DMI to your Home Screen first:';
+        show('[data-push-apple]', true);
+      } else {
+        status.textContent = "This browser can't show notifications. Try Chrome, Edge, Firefox or Safari.";
+      }
+      return;
+    }
+    if (Notification.permission === 'denied') {
+      status.textContent = 'Blocked. Allow notifications for this site in your browser or phone settings, then reload this page.';
+      return;
+    }
+    const registration = await navigator.serviceWorker.register('/sw.js');
+    const subscription = await registration.pushManager.getSubscription();
+    status.textContent = subscription ? 'On for this device.' : 'Off on this device.';
+    show('[data-push-on]', !subscription);
+    show('[data-push-test]', Boolean(subscription));
+    show('[data-push-off]', Boolean(subscription));
+  }
+
+  $('[data-push-on]').addEventListener('click', async () => {
+    try {
+      status.textContent = 'Turning on…';
+      if ((await Notification.requestPermission()) !== 'granted') return refresh();
+      const registration = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: siteKey() });
+      const { keys } = subscription.toJSON();
+      await send('/account/push', { endpoint: subscription.endpoint, p256dh: keys.p256dh, auth: keys.auth, device: deviceName });
+      await refresh();
+    } catch (err) {
+      status.textContent = `Couldn't turn notifications on (${err.message}). Please try again.`;
+    }
+  });
+
+  $('[data-push-off]').addEventListener('click', async () => {
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        await send('/account/push/remove', { endpoint: subscription.endpoint });
+        await subscription.unsubscribe();
+      }
+      await refresh();
+    } catch (err) {
+      status.textContent = `Couldn't turn notifications off (${err.message}).`;
+    }
+  });
+
+  $('[data-push-test]').addEventListener('click', async () => {
+    try {
+      const { sent } = await send('/account/push/test', {});
+      status.textContent = sent ? 'Test sent. It should pop up in a few seconds.' : "Couldn't reach this device. Turn notifications off, then on again.";
+    } catch (err) {
+      status.textContent = `Couldn't send a test (${err.message}).`;
+    }
+  });
+
+  refresh().catch((err) => {
+    status.textContent = `Couldn't check notifications on this device (${err.message}).`;
+  });
+}

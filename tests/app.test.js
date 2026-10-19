@@ -740,6 +740,102 @@ test('timesheets officers sent before: the approved copy is in My pay to view or
   assert.equal((await makeClient().get(`/my/timesheets/${sheetId}/pdf`)).status, 302, 'needs a login');
 });
 
+test('call-outs: the shift is offered to officers who could take it, and the first to claim it gets it', async () => {
+  const notify = require('../src/services/notify');
+  const { advanceOffers, claimShift } = require('../src/services/openShifts');
+  const sent = [];
+  notify.setSender(async (subscription, payload) => sent.push({ to: subscription.endpoint.split('/').pop(), ...JSON.parse(payload) }));
+  const to = (who) => sent.filter((m) => m.to === who);
+  const device = (who) => ({ endpoint: `https://push.example.com/${who}`, p256dh: `BKey${who}`, auth: `auth${who}`, device: 'Android phone' });
+
+  // Turning on notifications saves the device with the account.
+  const owen = makeClient();
+  await signIn(owen, 'owen@example.com', 'other officer 1');
+  for (const [client, who] of [[officer, 'olivia'], [owen, 'owen'], [admin, 'alex']]) {
+    assert.deepEqual(JSON.parse((await client.post('/account/push', device(who))).text), { ok: true });
+  }
+  assert.equal((await officer.post('/account/push', { endpoint: 'http://not-secure.example.com', p256dh: 'x', auth: 'y' })).status, 400);
+  assert.deepEqual(JSON.parse((await officer.post('/account/push/test')).text), { sent: 1 });
+  assert.equal(to('olivia')[0].title, 'Notifications are on');
+  const testOfficer = await db.get("SELECT id, employee_id FROM users WHERE email = 'test.officer@example.com'");
+  await notify.saveSubscription(testOfficer.id, device('test'));
+
+  // Owen is a regular at the site; the test officer isn't. Both are licensed and trained.
+  const owenId = (await db.get("SELECT employee_id FROM users WHERE email = 'owen@example.com'")).employee_id;
+  await db.run('UPDATE employees SET license_required = 0 WHERE id = ?', owenId);
+  await db.run('UPDATE training_courses SET required = 0');
+  const before = time.addDays(time.todayStr(), -10);
+  await db.run("INSERT INTO shifts (site_id, employee_id, start_at, end_at, status) VALUES (?, ?, ?, ?, 'completed')", ids.site, owenId, `${before}T09:00`, `${before}T17:00`);
+
+  // Olivia can't make a shift in two days.
+  const day = time.addDays(time.todayStr(), 2);
+  await admin.post('/schedule', { site_id: ids.site, employee_id: ids.officer, date: day, start_time: '09:00', end_time: '17:00', break_minutes: '0' });
+  const shift = await db.get('SELECT * FROM shifts WHERE employee_id = ? AND start_at = ?', ids.officer, `${day}T09:00`);
+  assert.equal(to('olivia').at(-1).title, 'New shift', 'she was told about it');
+  assert.match((await officer.get(`/my/schedule?month=${day.slice(0, 7)}`)).text, new RegExp(`/my/shifts/${shift.id}/call-out`));
+  assert.equal((await officer.get(`/my/shifts/${shift.id}/call-out`)).status, 200);
+  let res = await officer.post(`/my/shifts/${shift.id}/call-out`, { reason: 'Sick' });
+  assert.equal(res.status, 302);
+  assert.equal((await db.get('SELECT employee_id FROM shifts WHERE id = ?', shift.id)).employee_id, null);
+  const callout = await db.get('SELECT * FROM shift_callouts WHERE shift_id = ?', shift.id);
+  assert.equal(callout.reason, 'Sick');
+  assert.ok(callout.hours_notice > 24);
+  const offer = await db.get("SELECT * FROM shift_offers WHERE shift_id = ? AND status = 'open'", shift.id);
+  assert.match(to('alex').at(-1).title, /^Call-out: Olivia O\./, 'the office hears about it');
+  assert.match(to('owen').at(-1).title, /^Open shift:/, 'the regular hears first');
+  assert.equal(to('owen').at(-1).url, `/my/open-shifts/${offer.id}`);
+  assert.equal(to('test').length, 0, 'everyone else hears ten minutes later');
+  assert.ok(!(await db.get('SELECT 1 FROM shift_offer_recipients WHERE offer_id = ? AND employee_id = ?', offer.id, ids.officer)), 'never offered back to her');
+  assert.match((await claimShift(offer.id, testOfficer.employee_id, (await require('../src/settings').getSettings()))).error, /wasn't offered to you/);
+
+  // Ten minutes on: the next wave. Thirty minutes on with no claim: the office. Each only once.
+  await db.run("UPDATE shift_offers SET next_wave_at = '2000-01-01T00:00' WHERE id = ?", offer.id);
+  await advanceOffers();
+  await advanceOffers();
+  assert.equal(to('test').length, 1);
+  await db.run("UPDATE shift_offers SET escalate_at = '2000-01-01T00:00' WHERE id = ?", offer.id);
+  await advanceOffers();
+  await advanceOffers();
+  assert.equal(sent.filter((m) => m.to === 'alex' && m.title.startsWith('Still open')).length, 1);
+  assert.match((await admin.get('/')).text, /Nobody has claimed it/);
+
+  // Owen sees it and both claim at the same moment: exactly one gets it.
+  assert.match((await owen.get('/my/schedule')).text, /Open shifts you can take/);
+  assert.match((await owen.get(`/my/open-shifts/${offer.id}`)).text, /Claim this shift/);
+  const settings = await require('../src/settings').getSettings();
+  const claims = await Promise.all([claimShift(offer.id, owenId, settings), claimShift(offer.id, testOfficer.employee_id, settings)]);
+  assert.equal(claims.filter((c) => c.shift).length, 1, 'only one winner');
+  const winner = claims.find((c) => c.shift).employee.id;
+  assert.equal((await db.get('SELECT employee_id FROM shifts WHERE id = ?', shift.id)).employee_id, winner);
+  assert.equal((await db.get('SELECT status, filled_by FROM shift_offers WHERE id = ?', offer.id)).filled_by, winner);
+  assert.match(claims.find((c) => c.error).error, /Someone else already took this shift/);
+  assert.match(to('alex').at(-1).title, /^Covered:/);
+  if (winner !== owenId) {
+    res = await owen.post(`/my/open-shifts/${offer.id}/claim`);
+    assert.match((await owen.get(res.location)).text, /Someone else already took this shift/);
+  }
+
+  // The office notes a call-out for someone who phoned in, then assigns cover itself.
+  const later = time.addDays(day, 1);
+  await admin.post('/schedule', { site_id: ids.site, employee_id: owenId, date: later, start_time: '09:00', end_time: '17:00', break_minutes: '0' });
+  const second = await db.get('SELECT * FROM shifts WHERE employee_id = ? AND start_at = ?', owenId, `${later}T09:00`);
+  res = await admin.post(`/schedule/${second.id}/call-out`, { reason: 'Car broke down' });
+  assert.equal(res.status, 302);
+  assert.equal(to('owen').at(-1).title, 'Taken off a shift');
+  assert.match((await admin.get(res.location)).text, /Offered to officers/);
+  res = await admin.post(`/schedule/${second.id}/assign`, { employee_id: testOfficer.employee_id });
+  assert.equal((await db.get("SELECT status FROM shift_offers WHERE shift_id = ? ORDER BY id DESC", second.id)).status, 'withdrawn');
+  assert.equal(to('test').at(-1).title, 'New shift');
+
+  // An unfilled shift can be offered straight away too.
+  await admin.post('/schedule', { site_id: ids.site, date: later, start_time: '18:00', end_time: '22:00', break_minutes: '0' });
+  const unfilled = await db.get('SELECT id FROM shifts WHERE employee_id IS NULL AND start_at = ?', `${later}T18:00`);
+  res = await admin.post(`/schedule/${unfilled.id}/offer`);
+  assert.ok(await db.get("SELECT 1 FROM shift_offers WHERE shift_id = ? AND status = 'open'", unfilled.id));
+  assert.match((await admin.get('/schedule?week=' + time.startOfWeek(later))).text, /Offered to officers/);
+  notify.setSender(null);
+});
+
 test('every main page loads', async () => {
   for (const url of ['/', '/schedule', '/timesheets?status=all', '/pay', `/pay/${ids.payRun}`, '/staff', `/staff/${ids.employee}`,
     '/clients', `/clients/${ids.client}`, '/contracts', '/training', '/training/records', '/training/sessions',

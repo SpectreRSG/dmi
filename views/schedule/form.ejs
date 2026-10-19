@@ -70,6 +70,39 @@
       <p class="muted">When this shift ends, its hours are recorded and approved by themselves, ready for pay day. If the officer's real hours were different, change the times above (before the pay run is finalized) and the hours follow.</p>
     <% } %>
   </div>
+  <% if (shift.upcoming || shift.offer || (shift.callouts && shift.callouts.length)) { %>
+  <div class="card form-card">
+    <h2>Call-outs and cover</h2>
+    <% for (const c of shift.callouts || []) { %>
+      <p class="small"><%- badge('Called out', 'amber') %> <%= c.first_name %> <%= c.last_name %>, <%= c.hours_notice %> h before the start<%= c.reason ? ` – "${c.reason}"` : '' %></p>
+    <% } %>
+    <% const o = shift.offer; %>
+    <% if (o && o.status === 'open') { %>
+      <p><%- badge('Offered to officers', 'blue') %> Told <%= o.told %> officer<%= o.told === 1 ? '' : 's' %><%= o.waiting ? `, ${o.waiting} more at ${fmtTime(o.next_wave_at)}` : '' %>. The first to claim it gets it.
+        <%= o.escalated_at ? 'Nobody has claimed it yet.' : `If nobody has by ${fmtTime(o.escalate_at)}, the office is told.` %></p>
+      <form method="post" action="/schedule/<%= shift.id %>/withdraw-offer" class="inline-form">
+        <%- include('../partials/csrf') %>
+        <button type="submit" class="btn btn-sm btn-ghost">Withdraw the offer</button>
+      </form>
+    <% } else if (o && o.status === 'filled') { %>
+      <p><%- badge('Covered', 'green') %> <%= o.filled_first %> <%= o.filled_last %> claimed it at <%= fmtTime(o.filled_at) %>.</p>
+    <% } %>
+    <% if (shift.upcoming && shift.employee_id) { %>
+      <p class="muted small">Officer phoned in and can't make it? This takes them off and offers the shift to the officers who are free, rested and qualified. Regulars at this site hear first.</p>
+      <form method="post" action="/schedule/<%= shift.id %>/call-out" class="inline-form" data-confirm="Take <%= shift.first_name %> off this shift and offer it to other officers?">
+        <%- include('../partials/csrf') %>
+        <label class="inline">Reason <input name="reason" maxlength="200" placeholder="optional"></label>
+        <button type="submit" class="btn">Note call-out and offer it</button>
+      </form>
+    <% } else if (shift.upcoming && !shift.employee_id && !(o && o.status === 'open')) { %>
+      <p class="muted small">Let officers claim this shift themselves: it's offered to everyone who is free, rested and qualified, and the first to claim it gets it.</p>
+      <form method="post" action="/schedule/<%= shift.id %>/offer" class="inline-form">
+        <%- include('../partials/csrf') %>
+        <button type="submit" class="btn">Offer to officers</button>
+      </form>
+    <% } %>
+  </div>
+  <% } %>
   <details class="danger-zone">
     <summary>Delete this shift</summary>
     <p>If it simply isn't happening any more, you can set its status to <strong>Cancelled</strong> instead, which keeps a record.</p>

@@ -1,0 +1,28 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/my/schedule">← My schedule</a></p>
+    <h1>Open shift</h1>
+  </div>
+</div>
+<div class="card card-pad narrow">
+  <p class="open-shift-when"><strong><%= fmtDay(shift.start_at) %> · <%= fmtRange(shift.start_at, shift.end_at) %></strong> <span class="muted">(<%= fmtHours(hours) %> hours<%= shift.break_minutes ? `, ${shift.break_minutes} min break` : '' %>)</span></p>
+  <p><%= shift.site_name %> (<%= shift.client_name %>)<% if (shift.site_address) { %><br><span class="muted small"><%= shift.site_address %></span><% } %></p>
+  <% if (shift.site_instructions) { %>
+    <details class="small"><summary>Site instructions</summary><p class="pre-line"><%= shift.site_instructions %></p></details>
+  <% } %>
+  <% if (open) { %>
+    <form method="post" action="/my/open-shifts/<%= offer.id %>/claim" class="form-actions">
+      <%- include('../partials/csrf') %>
+      <button type="submit" class="btn btn-primary">Claim this shift</button>
+      <span class="muted small">First to claim it gets it. It goes straight onto your schedule.</span>
+    </form>
+  <% } else if (mine) { %>
+    <p class="flash flash-success">It's yours. It's on <a href="/my/schedule">your schedule</a>.</p>
+  <% } else if (offer.status === 'filled' || shift.employee_id) { %>
+    <p class="flash flash-info">Someone else has already taken this shift. Thanks anyway!</p>
+  <% } else { %>
+    <p class="flash flash-info">This shift is no longer open.</p>
+  <% } %>
+</div>
+<%- include('../partials/bottom') %>

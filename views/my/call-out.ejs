@@ -1,0 +1,24 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/my/schedule?month=<%= shift.start_at.slice(0, 7) %>">← My schedule</a></p>
+    <h1>Can't make this shift?</h1>
+  </div>
+</div>
+<form method="post" action="/my/shifts/<%= shift.id %>/call-out" class="card form-card narrow">
+  <%- include('../partials/csrf') %>
+  <p><strong><%= fmtDay(shift.start_at) %> · <%= fmtRange(shift.start_at, shift.end_at) %></strong><br>
+    <%= shift.site_name %> (<%= shift.client_name %>)</p>
+  <% if (hoursNotice < 12) { %>
+    <p class="flash flash-warning">This shift starts in less than 12 hours. Please also call the office if you can.</p>
+  <% } %>
+  <p class="muted">You'll be taken off this shift straight away. It's then offered to the other officers who are free, and the first to claim it takes it. The office is told either way.</p>
+  <label>Reason (optional)
+    <input name="reason" maxlength="200" placeholder="e.g. sick, family emergency">
+  </label>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-danger" data-confirm="Take yourself off this shift?">I can't make it</button>
+    <a class="btn btn-ghost" href="/my/schedule?month=<%= shift.start_at.slice(0, 7) %>">Keep my shift</a>
+  </div>
+</form>
+<%- include('../partials/bottom') %>

@@ -5,6 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title><%= locals.title ? `${title} · ` : '' %><%= locals.settings ? settings.company_name : '' %> Admin</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <!-- So the site can be added to a phone's home screen like an app (needed for notifications on iPhones). -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-title" content="DMI">
+  <meta name="theme-color" content="#0f1b2d">
   <link rel="stylesheet" href="/css/style.css">
   <script src="/js/app.js" defer></script>
 </head>

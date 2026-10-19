@@ -7,6 +7,8 @@ const { entryHours, round2 } = require('../services/payroll');
 const { complianceForEmployee } = require('../services/compliance');
 const { TYPES, findConflicts, coverOptions } = require('../services/conflicts');
 const { recordFinishedShifts, hoursFromShift, syncHoursWithShift } = require('../services/hoursFromSchedule');
+const openShifts = require('../services/openShifts');
+const { tellAboutShiftChange, tellAboutNewShifts } = require('../services/shiftNews');
 
 const router = express.Router();
 numericIdParam(router);
@@ -157,7 +159,11 @@ router.get('/', async (req, res) => {
   }
   await recordFinishedShifts(); // so shifts that have ended show as completed
   const [shifts, sites, staff, conflicts] = await Promise.all([
-    db.all(`${SHIFT_SELECT} WHERE ${where.join(' AND ')} ORDER BY s.start_at, si.name`, ...params),
+    db.all(
+      `SELECT x.*, EXISTS (SELECT 1 FROM shift_offers o WHERE o.shift_id = x.id AND o.status = 'open') AS offered
+       FROM (${SHIFT_SELECT} WHERE ${where.join(' AND ')}) x ORDER BY x.start_at, x.site_name`,
+      ...params
+    ),
     siteOptions(),
     staffOptions(),
     findConflicts(week, time.addDays(week, 6), res.locals.settings),
@@ -262,6 +268,8 @@ router.post('/:id/assign', async (req, res) => {
     return res.redirect(`/schedule/${shift.id}/cover?back=${encodeURIComponent(back)}`);
   }
   await db.run('UPDATE shifts SET employee_id = ? WHERE id = ?', employee.id, shift.id);
+  await openShifts.withdrawOffer(shift.id, 'Assigned by the office');
+  await tellAboutShiftChange(shift, await findShift(shift.id));
   const was = shift.employee_id ? ` (was ${employeeName(shift)})` : '';
   await logActivity(req, `Assigned ${employeeName(employee)} to shift #${shift.id} on ${shift.start_at.slice(0, 10)}${was}`);
   req.flash('success', `${employeeName(employee)} is now covering ${time.fmtDay(shift.start_at)} ${time.fmtRange(shift.start_at, shift.end_at)} at ${shift.site_name}.`);
@@ -304,6 +312,7 @@ router.post('/', async (req, res) => {
 
   let created = 0;
   let skipped = 0;
+  const made = [];
   await db.transaction(async (tx) => {
     for (const date of dates) {
       const offset = time.daysBetween(values.date, date);
@@ -318,11 +327,16 @@ router.post('/', async (req, res) => {
          VALUES (@site_id, @employee_id, @start_at, @end_at, @break_minutes, @notes)`,
         { ...values, start_at, end_at }
       );
+      made.push({ start_at, end_at });
       created += 1;
     }
   });
 
   await logActivity(req, `Added ${created} shift(s) starting ${values.date}`);
+  if (values.employee_id) {
+    const site = await db.get('SELECT name FROM sites WHERE id = ?', values.site_id);
+    await tellAboutNewShifts(values.employee_id, made.map((m) => ({ ...m, site_name: site.name })));
+  }
   req.flash('success', created === 1 ? 'Shift added.' : `${created} shifts added.`);
   if (skipped) req.flash('warning', `${skipped} repeat shift(s) were skipped because the person was already booked.`);
   if (values.employee_id) {
@@ -340,12 +354,29 @@ router.get('/:id/edit', async (req, res) => {
      WHERE t.shift_id = ?`,
     shift.id
   );
+  const [offer, callouts] = await Promise.all([
+    db.get(
+      `SELECT o.*, e.first_name AS filled_first, e.last_name AS filled_last,
+         (SELECT COUNT(*)::int FROM shift_offer_recipients r WHERE r.offer_id = o.id AND r.notified_at IS NOT NULL) AS told,
+         (SELECT COUNT(*)::int FROM shift_offer_recipients r WHERE r.offer_id = o.id AND r.notified_at IS NULL) AS waiting
+       FROM shift_offers o LEFT JOIN employees e ON e.id = o.filled_by WHERE o.shift_id = ? ORDER BY o.id DESC LIMIT 1`,
+      shift.id
+    ),
+    db.all(
+      `SELECT c.*, e.first_name, e.last_name FROM shift_callouts c JOIN employees e ON e.id = c.employee_id
+       WHERE c.shift_id = ? ORDER BY c.id`,
+      shift.id
+    ),
+  ]);
   await renderForm(res, {
     ...shift,
     date: shift.start_at.slice(0, 10),
     start_time: time.fmtTime(shift.start_at),
     end_time: time.fmtTime(shift.end_at),
     time_entry: timeEntry,
+    offer,
+    callouts,
+    upcoming: shift.status === 'scheduled' && shift.start_at > time.nowStr(),
   });
 });
 
@@ -375,6 +406,9 @@ router.post('/:id', async (req, res) => {
     await syncHoursWithShift(tx, shift.id); // the hours recorded from it follow
   });
 
+  const after = await findShift(shift.id);
+  if (after.employee_id || after.status !== 'scheduled') await openShifts.withdrawOffer(shift.id, 'Changed by the office');
+  await tellAboutShiftChange(shift, after);
   await logActivity(req, `Updated shift #${shift.id} on ${values.date}`);
   if (!recorded) req.flash('success', 'Shift saved.');
   else if (await hoursFromShift(db, shift.id)) req.flash('success', 'Shift saved, and the hours recorded from it now match.');
@@ -386,6 +420,59 @@ router.post('/:id', async (req, res) => {
   }
   res.redirect(`/schedule?week=${time.startOfWeek(values.date)}`);
 });
+
+// ---- Call-outs and open shifts -----------------------------------------------------
+
+// Someone phoned in: take them off and offer the shift to the officers who could take it.
+router.post('/:id/call-out', async (req, res) => {
+  const shift = await findShift(req.params.id);
+  if (!shift) return notFound(res, 'shift');
+  if (!shift.employee_id) {
+    req.flash('error', 'Nobody is on this shift.');
+    return res.redirect(`/schedule/${shift.id}/edit`);
+  }
+  const reason = String(req.body.reason || '').trim().slice(0, 200) || null;
+  const result = await openShifts.callOut(shift.id, {
+    employeeId: shift.employee_id, reason, userId: req.user.id, byOffice: true, settings: res.locals.settings,
+  });
+  if (result.error) {
+    req.flash('error', result.error);
+    return res.redirect(`/schedule/${shift.id}/edit`);
+  }
+  await logActivity(req, `Noted a call-out by ${employeeName(shift)} for shift #${shift.id} (${shift.start_at.slice(0, 10)})`);
+  flashOffer(req, result, `${employeeName(shift)} is off the shift.`);
+  res.redirect(`/schedule/${shift.id}/edit`);
+});
+
+router.post('/:id/offer', async (req, res) => {
+  const shift = await findShift(req.params.id);
+  if (!shift) return notFound(res, 'shift');
+  const result = await openShifts.offerShift(shift.id, { userId: req.user.id, settings: res.locals.settings });
+  if (result.error) {
+    req.flash('error', result.error);
+    return res.redirect(`/schedule/${shift.id}/edit`);
+  }
+  if (!result.already) await logActivity(req, `Offered shift #${shift.id} (${shift.start_at.slice(0, 10)}) to officers`);
+  flashOffer(req, { ...result, asked: result.already ? 0 : result.toldNow + result.toldLater }, '');
+  res.redirect(`/schedule/${shift.id}/edit`);
+});
+
+router.post('/:id/withdraw-offer', async (req, res) => {
+  const shift = await findShift(req.params.id);
+  if (!shift) return notFound(res, 'shift');
+  await openShifts.withdrawOffer(shift.id, 'Withdrawn by the office');
+  await logActivity(req, `Withdrew the offer of shift #${shift.id}`);
+  req.flash('success', "Offer withdrawn. Officers can't claim this shift any more.");
+  res.redirect(`/schedule/${shift.id}/edit`);
+});
+
+function flashOffer(req, result, start) {
+  if (result.already) req.flash('success', `${start} It was already offered to officers.`.trim());
+  else if (result.asked) {
+    const later = result.toldLater ? ` (${result.toldNow} regulars now, ${result.toldLater} more in 10 minutes)` : '';
+    req.flash('success', `${start} Offered to ${result.asked} officer${result.asked === 1 ? '' : 's'}${later}. The first to claim it gets it; you'll be told if nobody does.`.trim());
+  } else req.flash('warning', `${start} Nobody else is free, rested and qualified for it. Use "Find cover" to see who's closest.`.trim());
+}
 
 router.post('/:id/delete', async (req, res) => {
   const shift = await findShift(req.params.id);
@@ -399,6 +486,7 @@ router.post('/:id/delete', async (req, res) => {
     if (recorded) await tx.run('DELETE FROM time_entries WHERE id = ?', recorded.id); // its hours go with it
     await tx.run('DELETE FROM shifts WHERE id = ?', shift.id);
   });
+  await tellAboutShiftChange(shift, null);
   await logActivity(req, `Deleted shift #${shift.id} (${shift.site_name}, ${shift.start_at.slice(0, 10)})`);
   req.flash('success', recorded ? 'Shift deleted, with the hours recorded from it.' : 'Shift deleted.');
   res.redirect(`/schedule?week=${time.startOfWeek(shift.start_at.slice(0, 10))}`);

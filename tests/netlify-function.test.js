@@ -94,6 +94,29 @@ test('every library the app needs is listed in the function, so Netlify packages
   }
 });
 
+test('the 5-minute job lists every library its code needs, and runs', async () => {
+  // Follow the require() lines from the job's code to find the libraries it loads.
+  const { builtinModules } = require('module');
+  const libraries = new Set();
+  const seen = new Set();
+  (function walk(file) {
+    if (seen.has(file)) return;
+    seen.add(file);
+    for (const [, name] of fs.readFileSync(file, 'utf8').matchAll(/require\('([^']+)'\)/g)) {
+      if (name.startsWith('.')) walk(require.resolve(path.resolve(path.dirname(file), name)));
+      else if (!builtinModules.includes(name)) libraries.add(name);
+    }
+  })(path.join(__dirname, '..', 'src', 'services', 'jobs.js'));
+  const functionFile = fs.readFileSync(path.join(__dirname, '..', 'netlify', 'functions', 'autopilot.mjs'), 'utf8');
+  for (const name of libraries) {
+    assert.match(functionFile, new RegExp(`^import (.* from )?'${name}';$`, 'm'), `add "import '${name}';" to netlify/functions/autopilot.mjs`);
+  }
+
+  const { default: job, config } = await import('../netlify/functions/autopilot.mjs');
+  assert.equal(config.schedule, '*/5 * * * *');
+  assert.equal(await (await job()).text(), 'ok');
+});
+
 test('the officer timesheet page is still served', async () => {
   const res = await handler(site('/timesheet/'), context);
   assert.equal(res.status, 200);

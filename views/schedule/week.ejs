@@ -51,6 +51,7 @@
             <span class="shift-who"><%= s.employee_id ? `${s.first_name} ${s.last_name}` : 'Unfilled' %></span>
             <span class="shift-where"><%= s.site_name %> · <%= s.client_name %></span>
             <% if (s.status !== 'scheduled') { %><span class="shift-status"><%= capitalize(s.status) %></span><% } %>
+            <% if (s.offered) { %><span class="shift-status">Offered to officers</span><% } %>
           </a>
         </div>
       <% } %>

@@ -17,6 +17,21 @@
   </div>
 <% } %>
 
+<% if (openShifts.length) { %>
+  <section class="card card-pad open-shifts" id="open-shifts">
+    <h2>Open shifts you can take</h2>
+    <p class="muted small">Someone can't make these. The first person to claim one gets it.</p>
+    <ul>
+      <% for (const o of openShifts) { %>
+        <li>
+          <span><strong><%= fmtDay(o.start_at) %> · <%= fmtRange(o.start_at, o.end_at) %></strong><br><span class="muted small"><%= o.site_name %> (<%= o.client_name %>)</span></span>
+          <a class="btn btn-sm btn-primary" href="/my/open-shifts/<%= o.offer_id %>">See and claim</a>
+        </li>
+      <% } %>
+    </ul>
+  </section>
+<% } %>
+
 <% if (next) { %>
   <div class="card card-pad next-shift">
     <span class="muted small">Your next shift</span>
@@ -97,6 +112,7 @@
             <% if (item.instructions) { %>
               <details class="small"><summary>Site instructions</summary><p class="pre-line"><%= item.instructions %></p></details>
             <% } %>
+            <% if (item.canCallOut) { %><a class="small callout-link" href="/my/shifts/<%= item.id %>/call-out">I can't make it</a><% } %>
           <% } else { %>
             <% if (item.guard) { %><strong><%= item.guard %></strong><% } else { %><%- badge('Not yet assigned', 'amber') %><% } %>
             <span class="muted">· <%= item.site %></span>

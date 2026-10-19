@@ -7,6 +7,8 @@ A private website for running the business side of a security company:
 | **Dashboard** | One screen with everything that needs attention: unfilled shifts, hours to approve, expired licenses, contracts ending. |
 | **Schedule** | A weekly roster. Add shifts (including overnight ones), repeat them on chosen days of the week, see unfilled shifts in red. It stops you double-booking a guard and warns you if they aren't licensed or trained. |
 | **Conflict checker** | Scans the roster ahead of time for double bookings, too little rest between shifts, overtime, clashes with training, expired licenses and unfilled shifts. "Find cover" lists who is free (best choices first) and assigns them in one click. |
+| **Call-outs & open shifts** | An officer who can't make a shift presses **I can't make it** (or the office notes it). The shift is offered to the officers who are free, rested, licensed and trained: regulars at that site first, everyone else 10 minutes later. The first to claim it gets it. The office is only told if nobody has claimed it after 30 minutes (15 when the shift is close). |
+| **App notifications** | Free alerts on phones and computers, like a text message, with no texting company or phone numbers. Officers hear about open shifts, changes to their shifts and pay day. The office hears about call-outs and shifts nobody has claimed. Each person turns them on once per device. |
 | **Officer & client accounts** | Anyone can sign up at `/register`; an admin approves them and gives them a role. **Officers** see their shifts on a monthly calendar, their pay (payslips and their DMI timesheet for each pay day) and their 1099, and keep their contact details up to date. They fill in their W-9 once at the start; there are no timesheets to fill in. **Clients** see the monthly schedule for their sites. Neither ever sees pay rates or other people's details. |
 | **1099 forms** | Works out what each contractor was paid in a year (from finalized pay runs), makes Form 1099-NEC (Copy B and 2 for the officer, C and 1 for the company), shares it in the officer's account if they agreed, and gives you a filing summary for sending Copy A to the IRS. Admins only. |
 | **Timesheets** | Hours actually worked. When a shift ends, its hours are recorded and approved from the schedule by themselves. You only fix the exceptions (edit the shift or the hours), or type in hours that weren't on the schedule and approve them. |
@@ -77,7 +79,12 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
 4. **Officers and clients sign up** at `https://dmi.codehound.org/register`. Their account waits
    (the dashboard tells you) until you open **User accounts**, press **Approve**, and choose a role:
    for an officer, pick their staff record (or "make a new one"); for a client, pick the client.
-5. **Hours record themselves:** when a shift ends, its hours go into **Timesheets**, already
+5. **Call-outs fill themselves:** when an officer presses **I can't make it** (or you open the shift
+   and press **Note call-out and offer it** after they phone in), the shift is offered to the officers
+   who could take it, and the first to claim it gets it. You get a notification when it's covered, or
+   if nobody has claimed it in time (then press **Find cover**). Open shifts are listed on the
+   dashboard. You can also **Offer to officers** any unfilled shift.
+6. **Hours record themselves:** when a shift ends, its hours go into **Timesheets**, already
    approved (marked "from the schedule"). Nobody fills in a timesheet. You only fix the exceptions,
    before the pay run is finalized:
    - **left early, stayed late, or someone else covered:** change the shift's times or officer and
@@ -87,14 +94,14 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
    Hours are only recorded for shifts from the pay period this was switched on in onwards, so
    older shifts don't suddenly turn into hours. (Timesheets officers sent themselves before this
    are still under **Timesheets → Sent by officers (PDF)**, and in the officer's **My pay**.)
-6. **Approve hours you typed in** (they're the only ones waiting): tick the rows, then press "Approve".
-7. **Pay day:** in **Pay**, create a pay run for the period. Check it, add any bonuses or
+7. **Approve hours you typed in** (they're the only ones waiting): tick the rows, then press "Approve".
+8. **Pay day:** in **Pay**, create a pay run for the period. Check it, add any bonuses or
    deductions, then choose the **pay date** and press **Finalize**. Download the spreadsheet for
    your accountant, or print payslips. Each officer then sees their payslip and their **DMI
    timesheet** (filled in from their hours, with your name and the date after "APPROVED BY") under
    **My pay** in their account. You can open the same timesheets from the pay run.
-8. **Keep an eye on the dashboard** for expiring licenses, training and contracts.
-9. **Every January (1099s):** fill in the company's legal name, EIN and address once under
+9. **Keep an eye on the dashboard** for expiring licenses, training and contracts.
+10. **Every January (1099s):** fill in the company's legal name, EIN and address once under
    **Settings → 1099 forms**. Make sure officers have filled in their W-9 details (their account
    asks them to when they first sign in; it's under **My pay → Tax forms**). Then in **1099 forms**, pick last year, press **Make 1099** for each contractor,
    check the PDFs, and press **Mark as issued**. By **January 31**:
@@ -111,7 +118,7 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
 
 - **Admin**: everything, including pay, pay rates, user accounts and settings.
 - **Manager**: schedule, timesheets, staff, clients, contracts and training. Managers never see pay, pay rates or tax details.
-- **Officer**: their own monthly schedule, their pay (payslips and DMI timesheets), their contact details, W-9 and 1099s. Nothing else.
+- **Officer**: their own monthly schedule (including "I can't make it" and claiming open shifts), their pay (payslips and DMI timesheets), their contact details, W-9 and 1099s. Nothing else.
 - **Client**: the monthly schedule for their own sites, with guards shown as "first name + last initial".
 - **Waiting for approval**: someone who signed up but hasn't been given a role yet. They see nothing.
 
@@ -177,6 +184,10 @@ src/
     hoursFromSchedule.js  records the hours of shifts that have ended (and keeps them in step with the shift)
     officerTimesheet.js  pay periods + filling in the DMI timesheet PDF
     payTimesheet.js  each person's DMI timesheet for a finalized pay run
+    openShifts.js    call-outs, offering open shifts in waves, first-to-claim, telling the office
+    notify.js        app notifications (web push)
+    shiftNews.js     tells officers when the office changes their upcoming shifts
+    jobs.js          the timed jobs (finished shifts, open-shift waves)
     tax1099.js       who was paid what in a year, W-9 checks, payer details
     form1099Pdf.js   draws Form 1099-NEC (Copies B, 2, C and 1)
     timesheetApproval.js  the approved copy of an officer's timesheet ("APPROVED BY" filled in)
@@ -188,6 +199,7 @@ assets/              the blank DMI timesheet PDF the app fills in
 netlify/
   database/migrations/   the database tables (like spreadsheet tabs), applied by Netlify
   functions/app.mjs      runs the whole app on Netlify
+  functions/autopilot.mjs  the timed jobs, every 5 minutes on the live site
 netlify.toml         Netlify settings
 scripts/
   start.js           "npm start": starts the local database, then the website
@@ -253,6 +265,18 @@ their details, and keep a copy of it somewhere safe: without it those numbers ca
   - To choose your own instead, set `SETUP_CODE` (and/or `SESSION_SECRET`) in
     **Project configuration → Environment variables**.
 - **Give everyone their own account.** Never share logins. Deactivate accounts when people leave.
+
+**App notifications** need nothing set up: the site makes its own key pair the first time (kept
+in the database). Each person turns them on under **My details** (officers) or **My account**
+(office), once per phone or computer. On an **iPhone or iPad** (iOS 16.4 or newer), they first add
+the site to the Home Screen (Safari → Share → **Add to Home Screen**) and open it from there; the
+page shows these steps. Notifications are free: they go through Apple's, Google's or Mozilla's own
+push services.
+
+**Timed jobs:** every 5 minutes the live site records the hours of shifts that have ended and moves
+open-shift offers along (`netlify/functions/autopilot.mjs`). Netlify only runs timed jobs on the
+live site, so on the preview (and on your computer) the same jobs run when someone loads a page,
+at most once a minute. That's about 8,600 short runs a month, a few of Netlify's credits.
 
 **Running it somewhere else:** any host that can run Node.js and a Postgres database works. Set
 `DATABASE_URL` to the database's address, `SESSION_SECRET`, and `HTTPS=true` once it's on https.

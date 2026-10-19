@@ -35,19 +35,6 @@ async function recordFinishedShifts() {
   return rows.length;
 }
 
-// Ordinary page loads also record finished shifts, at most once a minute, so
-// the hours are there whoever looks next. A problem here never stops the page.
-let lastCatchUp = 0;
-async function catchUp() {
-  if (Date.now() - lastCatchUp < 60 * 1000) return;
-  lastCatchUp = Date.now();
-  try {
-    await recordFinishedShifts();
-  } catch (err) {
-    console.error('Recording finished shifts failed:', err);
-  }
-}
-
 // The hours recorded from a shift, and whether they've been paid already.
 function hoursFromShift(dbOrTx, shiftId) {
   return dbOrTx.get(
@@ -79,4 +66,4 @@ async function syncHoursWithShift(tx, shiftId) {
   );
 }
 
-module.exports = { recordFinishedShifts, catchUp, hoursFromShift, syncHoursWithShift };
+module.exports = { recordFinishedShifts, hoursFromShift, syncHoursWithShift };

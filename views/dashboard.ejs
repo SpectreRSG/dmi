@@ -41,6 +41,22 @@
   </a>
 </div>
 
+<% if (openOffers.length) { %>
+  <section class="card card-pad open-offers">
+    <div class="card-title-row"><h2>Open shifts offered to officers</h2></div>
+    <p class="muted small">Someone called out, so these were offered to the officers who could take them. The first to claim one gets it.</p>
+    <ul class="plain-list">
+      <% for (const o of openOffers) { %>
+        <li>
+          <a href="/schedule/<%= o.shift_id %>/edit"><strong><%= fmtDay(o.start_at) %> · <%= fmtRange(o.start_at, o.end_at) %></strong></a>
+          <span class="muted">· <%= o.site_name %> (<%= o.client_name %>)</span>
+          <% if (o.escalated_at) { %><%- badge('Nobody has claimed it', 'red') %> <a href="/schedule/<%= o.shift_id %>/cover">Find cover →</a><% } else { %><%- badge('Waiting for a claim', 'blue') %><% } %>
+        </li>
+      <% } %>
+    </ul>
+  </section>
+<% } %>
+
 <% if (stats.overdueShifts) { %>
   <div class="flash flash-warning">
     <%= stats.overdueShifts %> finished shift<%= stats.overdueShifts === 1 ? ' is' : 's are' %> from before hours were recorded from the schedule, so <%= stats.overdueShifts === 1 ? 'it has' : 'they have' %> no hours yet.

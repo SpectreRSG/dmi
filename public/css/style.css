@@ -949,6 +949,13 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
 
 /* ---- Officer / client monthly calendar (/my/schedule) ------------------- */
 .next-shift { display: flex; flex-direction: column; gap: 2px; border-left: 4px solid var(--primary); }
+.open-shifts { border-left: 4px solid var(--green); }
+.open-shifts ul { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
+.open-shifts li { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.callout-link { display: inline-block; margin-top: 4px; color: var(--red); }
+.push-status { font-weight: 600; margin: 8px 0; }
+.push-apple ol { margin: 0 0 10px; padding-left: 20px; display: grid; gap: 4px; }
+.open-shift-when { font-size: 17px; margin-bottom: 6px; }
 .setup-steps { border-left: 4px solid var(--amber); }
 .setup-steps h2 { margin-bottom: 2px; }
 .setup-steps ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }
@@ -1114,3 +1121,5 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
   .table.stack-on-phone td.stack-full { display: block; padding-top: 10px; }
   .table.stack-on-phone td.stack-full::before { display: block; margin-bottom: 6px; }
 }
+.open-offers { border-left: 4px solid var(--primary); }
+.open-offers .plain-list { list-style: none; padding-left: 0; }

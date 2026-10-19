@@ -14,6 +14,7 @@ const { calculatePayLine, entryHours, round2 } = require('../services/payroll');
 const { recordFinishedShifts } = require('../services/hoursFromSchedule');
 const { findPayLine, payLineTimesheet, timesheetFileName } = require('../services/payTimesheet');
 const { sendUpload } = require('../uploads');
+const { notifyEmployees } = require('../services/notify');
 
 const router = express.Router();
 numericIdParam(router);
@@ -245,6 +246,13 @@ router.post('/:id/finalize', async (req, res) => {
     run.id
   );
   await logActivity(req, `Finalized pay run #${run.id} (${run.period_start} to ${run.period_end})`);
+  const paid = await db.all('SELECT employee_id FROM pay_run_items WHERE pay_run_id = ?', run.id);
+  await notifyEmployees(paid.map((p) => p.employee_id), {
+    title: 'Pay day',
+    body: `Your payslip and timesheet for ${time.fmtDate(run.period_start)} – ${time.fmtDate(run.period_end)} are ready.`,
+    url: '/my/pay',
+    tag: `pay-${run.id}`,
+  });
   req.flash('success', 'Pay run finalized using the latest approved hours. Those hours are now locked, and each officer can see their payslip and DMI timesheet under My pay.');
   res.redirect(`/pay/${run.id}`);
 });

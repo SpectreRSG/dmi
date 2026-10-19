@@ -1,0 +1,19 @@
+<section class="card card-pad push-box" data-push data-push-key="<%= pushKey %>">
+  <h2>App notifications</h2>
+  <p class="muted small"><%= locals.pushWhat || 'Free alerts on this phone or computer, like a text message.' %> Turn them on separately on each phone or computer you use.</p>
+  <%- include('csrf') %>
+  <p class="push-status" data-push-status>Checking this device…</p>
+  <div class="push-apple" data-push-apple hidden>
+    <ol>
+      <li>In Safari, tap the <strong>Share</strong> button (the square with an arrow pointing up).</li>
+      <li>Choose <strong>Add to Home Screen</strong>, then <strong>Add</strong>.</li>
+      <li>Open <strong>DMI</strong> from your home screen, sign in, and come back to this page.</li>
+    </ol>
+  </div>
+  <div class="btn-row">
+    <button type="button" class="btn btn-primary" data-push-on hidden>Turn on notifications</button>
+    <button type="button" class="btn" data-push-test hidden>Send me a test</button>
+    <button type="button" class="btn btn-ghost" data-push-off hidden>Turn off on this device</button>
+  </div>
+  <noscript><p class="muted small">Notifications need JavaScript turned on.</p></noscript>
+</section>

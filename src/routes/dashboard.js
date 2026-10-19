@@ -55,6 +55,13 @@ router.get('/', async (req, res) => {
       ),
     ]);
 
+  // Shifts offered to officers that nobody has claimed yet.
+  const openOffers = await db.all(
+    `SELECT o.id, o.escalated_at, s.id AS shift_id, s.start_at, s.end_at, si.name AS site_name, c.name AS client_name
+     FROM shift_offers o JOIN shifts s ON s.id = o.shift_id JOIN sites si ON si.id = s.site_id JOIN clients c ON c.id = si.client_id
+     WHERE o.status = 'open' ORDER BY s.start_at`
+  );
+
   // New sign-ups waiting for an admin to give them a role.
   const waitingAccounts = res.locals.isAdmin
     ? (await db.get("SELECT COUNT(*)::int AS n FROM users WHERE role = 'pending' AND active = 1")).n
@@ -67,6 +74,7 @@ router.get('/', async (req, res) => {
   res.render('dashboard', {
     title: 'Dashboard',
     today,
+    openOffers,
     stats: {
       activeStaff: employees.length,
       shiftsNext7: upcomingShifts.length,

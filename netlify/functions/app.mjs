@@ -19,6 +19,7 @@ import 'express-session';
 import 'helmet';
 import 'multer';
 import 'pdf-lib';
+import 'web-push';
 import app from '../../src/app.js';
 
 // Requests reach the app from 127.0.0.1, with the visitor's real address
