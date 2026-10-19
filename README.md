@@ -110,6 +110,11 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
 - **Client**: the monthly schedule for their own sites, with guards shown as "first name + last initial".
 - **Waiting for approval**: someone who signed up but hasn't been given a role yet. They see nothing.
 
+A **test officer account** (`test.officer@example.com`, staff record "Test Officer") is created
+automatically with the database, for trying the officer pages. Its password was given to the site
+owner; it can't be used until the first admin account exists. Deactivate it under **User accounts**
+when you no longer need it.
+
 ### Important rules the app follows
 
 - **Overtime** is counted per week (Monday–Sunday). By default, hours over 40 pay 1.5×. Change this in **Settings**.

@@ -102,6 +102,15 @@ test('a brand-new site sends you to the setup page', async () => {
   assert.equal(res.location, '/setup');
 });
 
+test('a test officer account comes with the database, but setup still needs an admin first', async () => {
+  const account = await db.get("SELECT * FROM users WHERE email = 'test.officer@example.com'");
+  assert.equal(account.role, 'officer');
+  const employee = await db.get('SELECT * FROM employees WHERE id = ?', account.employee_id);
+  assert.equal(`${employee.first_name} ${employee.last_name}`, 'Test Officer');
+  assert.match(account.password_hash, /^scrypt\$/);
+  assert.equal((await makeClient().get('/login')).location, '/setup', 'nobody can sign in until the first admin exists');
+});
+
 test('setup needs the setup code, then creates the first admin and signs them in', async () => {
   const blocked = await fetch(`${base}/setup`, { method: 'POST' }); // no cookie, no token
   assert.equal(blocked.status, 403);
@@ -116,7 +125,7 @@ test('setup needs the setup code, then creates the first admin and signs them in
   const wrongCode = await admin.post('/setup', { ...form, setup_code: 'guess' }, '/setup');
   assert.equal(wrongCode.status, 400);
   assert.match(wrongCode.text, /setup code is not right/);
-  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM users')).n, 0);
+  assert.equal((await db.get("SELECT COUNT(*)::int AS n FROM users WHERE role = 'admin'")).n, 0);
 
   const setup = await admin.post('/setup', { ...form, setup_code: 'test-setup-code' }, '/setup');
   assert.equal(setup.status, 302);
@@ -129,7 +138,7 @@ test('setup needs the setup code, then creates the first admin and signs them in
 test('forms without the security token are rejected, even when signed in', async () => {
   const res = await admin.raw('POST', '/staff', { first_name: 'X', last_name: 'Y' });
   assert.equal(res.status, 403);
-  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM employees')).n, 0);
+  assert.equal((await db.get("SELECT COUNT(*)::int AS n FROM employees WHERE first_name = 'X'")).n, 0);
 });
 
 test('add a client, a site and a staff member', async () => {

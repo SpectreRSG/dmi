@@ -32,15 +32,15 @@ async function seed(db) {
   const { calculatePayLine } = require('../src/services/payroll');
   const { getSettings, saveSettings } = require('../src/settings');
 
-  if (await db.get('SELECT 1 FROM employees LIMIT 1')) {
-    console.log('The database already has staff in it, so demo data was NOT added.');
+  if (await db.get('SELECT 1 FROM clients LIMIT 1')) {
+    console.log('The database already has clients in it, so demo data was NOT added.');
     console.log('To start fresh, stop the app, delete the "data" folder, and run this again.');
     return;
   }
 
   // ---- Login ----------------------------------------------------------------------
   let adminLogin = null;
-  if (!(await db.get('SELECT 1 FROM users LIMIT 1'))) {
+  if (!(await db.get("SELECT 1 FROM users WHERE role = 'admin' LIMIT 1"))) {
     const password = crypto.randomBytes(9).toString('base64url');
     await db.run("INSERT INTO users (name, email, password_hash, role) VALUES ('Demo Admin', 'admin@example.com', ?, 'admin')", hashPassword(password));
     await db.run("INSERT INTO users (name, email, password_hash, role) VALUES ('Demo Manager', 'manager@example.com', ?, 'manager')", hashPassword(password));
@@ -260,7 +260,7 @@ async function seed(db) {
 
   // Demo officer and client accounts, to see what they see.
   if (adminLogin) {
-    const guard = await db.get("SELECT * FROM employees WHERE status = 'active' ORDER BY id LIMIT 1");
+    const guard = await db.get("SELECT * FROM employees WHERE status = 'active' AND NOT EXISTS (SELECT 1 FROM users u WHERE u.employee_id = employees.id) ORDER BY id LIMIT 1");
     const client = await db.get('SELECT * FROM clients ORDER BY id LIMIT 1');
     await db.run(
       "INSERT INTO users (name, email, password_hash, role, employee_id) VALUES (?, 'officer@example.com', ?, 'officer', ?)",

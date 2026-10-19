@@ -49,7 +49,7 @@ test('with no SETUP_CODE set, the app makes one, and setup needs it', async () =
   const account = { _csrf, company_name: 'DMI', name: 'Alex', email: 'alex@example.com', password: 'correct horse battery', confirm: 'correct horse battery' };
   const wrong = await handler(site('/setup', form(cookie, { ...account, setup_code: 'aaaa-bbbb-cccc' })), context);
   assert.equal(wrong.status, 400);
-  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM users')).n, 0);
+  assert.equal((await db.get("SELECT COUNT(*)::int AS n FROM users WHERE role = 'admin'")).n, 0);
 
   const right = await handler(site('/setup', form(cookie, { ...account, setup_code: code })), context);
   assert.equal(right.status, 302);

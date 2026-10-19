@@ -13,9 +13,11 @@ const router = express.Router();
 // same time either way (attackers can't tell which emails are real).
 const DUMMY_HASH = auth.hashPassword(crypto.randomBytes(16).toString('hex'));
 
+// Setup is finished once there's an admin account (other accounts, like the
+// test officer, don't count: someone still has to be able to run the site).
 let setupDone = false;
 async function hasUsers() {
-  if (!setupDone) setupDone = Boolean(await db.get('SELECT 1 FROM users LIMIT 1'));
+  if (!setupDone) setupDone = Boolean(await db.get("SELECT 1 FROM users WHERE role = 'admin' LIMIT 1"));
   return setupDone;
 }
 
