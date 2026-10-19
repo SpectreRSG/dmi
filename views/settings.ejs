@@ -44,6 +44,16 @@
       <span class="hint">For licenses, training certificates and contracts.</span>
     </label>
   </div>
+  <h2>Sign-in security</h2>
+  <div class="form-grid">
+    <label>Two-step sign-in is required for
+      <select name="two_step_required_for">
+        <option value="everyone" <%= values.two_step_required_for !== 'office' ? 'selected' : '' %>>Everyone (recommended)</option>
+        <option value="office" <%= values.two_step_required_for === 'office' ? 'selected' : '' %>>Office staff only (admins and managers)</option>
+      </select>
+      <span class="hint">After their password, people type a code from an authenticator app on their phone. Admins and managers always need it. Officers and clients can still turn it on themselves.</span>
+    </label>
+  </div>
   <h2>1099 forms (the "payer")</h2>
   <p class="hint">Exactly as the company is registered with the IRS. These go on every 1099-NEC.</p>
   <div class="form-grid">

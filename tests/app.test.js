@@ -10,6 +10,7 @@ const { startLocalDatabase } = require('../scripts/local-db');
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'dmi-test-'));
 process.env.SETUP_CODE = 'test-setup-code';
 const time = require('../src/time');
+const totp = require('../src/services/totp');
 
 let app;
 let db;
@@ -39,6 +40,8 @@ function makeClient() {
   return {
     get: (url) => request('GET', url),
     raw: request,
+    // The session's id, from the (signed) login cookie.
+    sessionId: () => decodeURIComponent(cookies.get('dmi.sid') || '').replace(/^s:/, '').replace(/\.[^.]*$/, ''),
     async token(url = '/login') {
       const page = await request('GET', url);
       return page.text.match(/name="_csrf" value="([^"]+)"/)[1];
@@ -60,6 +63,30 @@ function makeClient() {
       return request('POST', url, data);
     },
   };
+}
+
+// Two-step sign-in, done the way a person with an authenticator app would:
+// set it up by reading the key off the page, then type the current code.
+async function setUpTwoStep(client) {
+  const page = await client.get('/account/two-step');
+  const secret = page.text.match(/data-secret="([A-Z2-7]+)"/)[1];
+  return client.post('/account/two-step', { code: totp.codeAt(secret, totp.currentStep()) }, '/account/two-step');
+}
+
+// A code that hasn't been used yet (a code only works once).
+async function codeFor(email) {
+  const { decrypt } = require('../src/secureData');
+  const user = await db.get('SELECT totp_secret, totp_last_step FROM users WHERE lower(email) = lower(?)', email);
+  return totp.codeAt(await decrypt(user.totp_secret), Math.max(totp.currentStep(), Number(user.totp_last_step ?? -1) + 1));
+}
+
+// Signs in with the password, then the code (setting two-step up the first time).
+async function signIn(client, email, password) {
+  const res = await client.post('/login', { email, password }, '/login');
+  if (res.location === '/login/verify') return client.post('/login/verify', { code: await codeFor(email) }, '/login/verify');
+  const user = await db.get('SELECT role, totp_enabled_at FROM users WHERE lower(email) = lower(?)', email);
+  if (res.status === 302 && user && !user.totp_enabled_at && user.role !== 'pending') await setUpTwoStep(client);
+  return res;
 }
 
 const admin = makeClient();
@@ -130,6 +157,19 @@ test('setup needs the setup code, then creates the first admin and signs them in
   const setup = await admin.post('/setup', { ...form, setup_code: 'test-setup-code' }, '/setup');
   assert.equal(setup.status, 302);
   assert.equal(setup.location, '/');
+
+  // Before anything else, two-step sign-in: scan the code, type the 6 digits, keep the backup codes.
+  assert.equal((await admin.get('/')).location, '/account/two-step');
+  const page = await admin.get('/account/two-step');
+  assert.match(page.text, /<svg[^>]*viewBox/, 'a QR code to scan');
+  const badCode = await admin.post('/account/two-step', { code: '000000' }, '/account/two-step');
+  assert.equal(badCode.status, 400);
+  const turnedOn = await setUpTwoStep(admin);
+  assert.equal(turnedOn.status, 200);
+  assert.equal((turnedOn.text.match(/<li><code>[a-z0-9]{4}-[a-z0-9]{4}<\/code><\/li>/g) || []).length, 10, 'ten backup codes');
+  const account = await db.get("SELECT totp_secret, totp_enabled_at FROM users WHERE email = 'alex@example.com'");
+  assert.ok(account.totp_enabled_at);
+  assert.doesNotMatch(account.totp_secret, /^[A-Z2-7]{32}$/, 'the key is stored encrypted');
   const home = await admin.get('/');
   assert.equal(home.status, 200);
   assert.match(home.text, /Test Security/);
@@ -284,8 +324,7 @@ test('managers cannot see pay, and cannot change pay rates', async () => {
   assert.match(duplicate.text, /already uses that email/);
 
   const manager = makeClient();
-  const _csrf = await manager.token('/login');
-  res = await manager.post('/login', { email: 'morgan@example.com', password: 'another long password', _csrf }, '/login');
+  res = await signIn(manager, 'morgan@example.com', 'another long password');
   assert.equal(res.location, '/');
 
   assert.equal((await manager.get('/pay')).status, 403);
@@ -475,7 +514,6 @@ test('conflict checker: finds problems, and "find cover" assigns someone who is 
 });
 
 const officer = makeClient();
-const signIn = async (client, email, password) => client.post('/login', { email, password }, '/login');
 
 test('sign-up: new accounts wait for approval, then an admin makes them an officer', async () => {
   const form = { requested_role: 'officer', name: 'Olivia Officer', email: 'olivia@example.com', phone: '555-0100', password: 'officer password 1', confirm: 'officer password 1' };
@@ -502,6 +540,10 @@ test('sign-up: new accounts wait for approval, then an admin makes them an offic
   const employee = await db.get('SELECT * FROM employees WHERE id = ?', user.employee_id);
   assert.equal(`${employee.first_name} ${employee.last_name}`, 'Olivia Officer');
   ids.officer = employee.id;
+
+  // First, two-step sign-in (needed for every account with a role).
+  assert.equal((await officer.get('/my')).location, '/account/two-step');
+  assert.equal((await setUpTwoStep(officer)).status, 200);
 
   // Officers get their own pages, and nothing from the back office.
   assert.equal((await officer.get('/')).location, '/my');
@@ -833,6 +875,117 @@ test('call-outs: the shift is offered to officers who could take it, and the fir
   res = await admin.post(`/schedule/${unfilled.id}/offer`);
   assert.ok(await db.get("SELECT 1 FROM shift_offers WHERE shift_id = ? AND status = 'open'", unfilled.id));
   assert.match((await admin.get('/schedule?week=' + time.startOfWeek(later))).text, /Offered to officers/);
+  notify.setSender(null);
+});
+
+test('security: two-step codes, backup codes, remembered devices, signing out, and the office resetting it', async () => {
+  const notify = require('../src/services/notify');
+  const twoStep = require('../src/services/twoStep');
+  notify.setSender(async () => {}); // she has notifications on: sign-in alerts go there
+  const login = { email: 'olivia@example.com', password: 'officer password 1' };
+  const oliviaId = (await db.get("SELECT id FROM users WHERE email = 'olivia@example.com'")).id;
+
+  // A new phone: the password alone doesn't sign her in.
+  const phone = makeClient();
+  let res = await phone.post('/login', login, '/login');
+  assert.equal(res.location, '/login/verify');
+  assert.match((await phone.get('/my/schedule')).location, /^\/login/, 'not signed in until the code');
+  res = await phone.post('/login/verify', { code: '000000' }, '/login/verify');
+  assert.equal(res.status, 400);
+  const code = await codeFor(login.email);
+  res = await phone.post('/login/verify', { code, remember: '1' }, '/login/verify');
+  assert.equal(res.location, '/my');
+  const page = await phone.get('/my/schedule');
+  assert.equal(page.status, 200);
+  assert.equal(page.headers.get('cache-control'), 'no-store', 'the browser never keeps signed-in pages');
+  assert.match(page.text, /class="mobile-signout"/, 'a Sign out button on phones');
+  assert.match((await admin.get('/activity')).text, /Signed in \(/);
+
+  // A code only works once.
+  const other = makeClient();
+  await other.post('/login', login, '/login');
+  assert.match((await other.post('/login/verify', { code }, '/login/verify')).text, /already used/);
+
+  // On the remembered phone, the password is enough next time.
+  await phone.post('/logout');
+  assert.match((await phone.get('/my/schedule')).location, /^\/login/, 'signed out');
+  assert.equal((await phone.post('/login', login, '/login')).location, '/my', 'no code on a remembered device');
+
+  // Sensitive things ask for a fresh code: here, new backup codes.
+  res = await phone.post('/account/two-step/backup-codes');
+  assert.match(res.location, /^\/account\/confirm\?next=/);
+  res = await phone.post('/account/confirm', { code: await codeFor(login.email), next: '/account' }, '/account/confirm?next=/account');
+  assert.equal(res.location, '/account');
+  res = await phone.post('/account/two-step/backup-codes');
+  const backupCodes = [...res.text.matchAll(/<li><code>([a-z0-9]{4}-[a-z0-9]{4})<\/code><\/li>/g)].map((m) => m[1]);
+  assert.equal(backupCodes.length, 10);
+
+  // A backup code works once, instead of the app.
+  const laptop = makeClient();
+  await laptop.post('/login', login, '/login');
+  res = await laptop.post('/login/verify', { code: backupCodes[0] }, '/login/verify');
+  assert.equal(res.location, '/my');
+  assert.match((await laptop.get('/my')).location, /\/my\/schedule/);
+  const again = makeClient();
+  await again.post('/login', login, '/login');
+  assert.equal((await again.post('/login/verify', { code: backupCodes[0] }, '/login/verify')).status, 400);
+
+  // Five wrong codes (counted across all devices) and signing in is blocked for 15 minutes.
+  await db.run('DELETE FROM login_attempts WHERE key = ?', `code|${oliviaId}`); // the wrong codes above count too
+  const guesser = makeClient();
+  await guesser.post('/login', login, '/login');
+  for (let i = 0; i < 4; i += 1) assert.equal((await guesser.post('/login/verify', { code: '111111' }, '/login/verify')).status, 400);
+  await guesser.post('/login/verify', { code: '111111' }, '/login/verify'); // the fifth
+  res = await guesser.post('/login/verify', { code: await codeFor(login.email) }, '/login');
+  assert.equal(res.location, '/login', 'even the right code is refused now');
+  assert.match((await admin.get('/activity')).text, /blocked after 5 wrong codes/);
+  await db.run('DELETE FROM login_attempts WHERE key = ?', `code|${oliviaId}`);
+
+  // "Sign out everywhere else" (from her first browser) signs out the phone and laptop, and forgets the phone.
+  res = await officer.post('/account/sign-out-others');
+  assert.equal(res.location, '/account');
+  assert.match((await laptop.get('/my/schedule')).location, /^\/login/);
+  assert.match((await phone.get('/my/schedule')).location, /^\/login/);
+  assert.equal((await phone.post('/login', login, '/login')).location, '/login/verify', 'the phone needs a code again');
+  assert.equal((await officer.get('/my/schedule')).status, 200, 'still signed in where she pressed it');
+
+  // Lost phone: the office resets it. She's signed out, and sets it up again at her next sign-in.
+  res = await admin.post(`/users/${oliviaId}/reset-two-step`);
+  assert.equal(res.status, 302);
+  assert.equal((await db.get('SELECT totp_enabled_at FROM users WHERE id = ?', oliviaId)).totp_enabled_at, null);
+  assert.match((await officer.get('/my/schedule')).location, /^\/login/);
+  await signIn(officer, login.email, login.password);
+  assert.equal((await officer.get('/my/schedule')).status, 200);
+  assert.ok((await db.get('SELECT totp_enabled_at FROM users WHERE id = ?', oliviaId)).totp_enabled_at);
+
+  // An admin whose last code was over 15 minutes ago is asked again before full tax ID numbers.
+  const desk = makeClient();
+  await signIn(desk, 'alex@example.com', 'correct horse battery');
+  await db.run("UPDATE sessions SET data = jsonb_set(data, '{codeAt}', '0'::jsonb) WHERE sid = ?", desk.sessionId());
+  res = await desk.get('/tax/filing');
+  assert.equal(res.location, '/account/confirm?next=%2Ftax%2Ffiling');
+  res = await desk.post('/users', { name: 'Nope', email: 'nope@example.com', role: 'manager', password: 'harbor lamp violin 42', confirm: 'harbor lamp violin 42' }, '/users/new');
+  assert.match(res.location, /^\/account\/confirm/);
+  assert.ok(!(await db.get("SELECT 1 FROM users WHERE email = 'nope@example.com'")), 'nothing changed without the code');
+  res = await desk.post('/account/confirm', { code: await codeFor('alex@example.com'), next: '/tax/filing' }, '/account/confirm?next=/tax/filing');
+  assert.equal(res.location, '/tax/filing');
+  assert.equal((await desk.get('/tax/filing')).status, 200);
+
+  // However busy, everyone signs in again after 12 hours.
+  await db.run("UPDATE sessions SET data = jsonb_set(data, '{signedInAt}', '0'::jsonb) WHERE sid = ?", desk.sessionId());
+  assert.match((await desk.get('/')).location, /^\/login/);
+
+  // Common passwords, and ones that are just your name, are refused.
+  for (const password of ['password123', 'oliviaofficer1']) {
+    res = await makeClient().post('/register', { requested_role: 'officer', name: 'Olivia Officer', email: 'olivia.second@example.com', password, confirm: password }, '/register');
+    assert.equal(res.status, 400, password);
+    assert.match(res.text, /too common|mostly your name/);
+  }
+  // Who needs it: everyone by default; the office can limit it to admins and managers.
+  assert.equal(twoStep.isRequired({ role: 'officer' }, { two_step_required_for: 'everyone' }), true);
+  assert.equal(twoStep.isRequired({ role: 'officer' }, { two_step_required_for: 'office' }), false);
+  assert.equal(twoStep.isRequired({ role: 'manager' }, { two_step_required_for: 'office' }), true);
+  assert.equal(twoStep.isRequired({ role: 'pending' }, { two_step_required_for: 'everyone' }), false);
   notify.setSender(null);
 });
 

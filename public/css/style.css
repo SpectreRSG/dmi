@@ -1066,27 +1066,24 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
 .choice-row { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0; padding: 0; border: 0; }
 .choice-row legend { margin-bottom: 6px; padding: 0; font-size: 13.5px; font-weight: 600; }
 
-/* ---- Officer timesheet form ------------------------------------------------ */
-.period-label { pointer-events: none; font-variant-numeric: tabular-nums; }
-.fill-from { margin: 18px 0 10px; }
-.timesheet-table input { min-width: 70px; padding: 6px 8px; }
-.timesheet-table td:last-child input { min-width: 160px; }
-.timesheet-table tr.is-weekend th { color: var(--muted); }
-.timesheet-table input[aria-invalid="true"] { border-color: var(--red); background: var(--red-bg); }
-.timesheet-table tfoot th, .timesheet-table tfoot td { font-weight: 700; }
-.sig-pad {
-  display: block;
-  width: 100%;
-  max-width: 600px;
-  aspect-ratio: 600 / 160;
-  border: 1px dashed var(--input-border);
-  border-radius: var(--radius);
-  background: #fff;
-  touch-action: none;
-  cursor: crosshair;
+/* ---- Two-step sign-in ------------------------------------------------------ */
+.code-input { font-size: 20px; letter-spacing: 0.15em; font-variant-numeric: tabular-nums; max-width: 12ch; }
+.setup-list { margin: 0; padding-left: 22px; display: grid; gap: 18px; }
+.qr-box { width: 200px; height: 200px; margin: 12px 0 6px; padding: 6px; background: #fff; border: 1px solid var(--border); border-radius: 8px; }
+.qr-box svg { display: block; width: 100%; height: 100%; }
+.secret-key { font-size: 15px; letter-spacing: 0.05em; word-break: break-all; }
+.code-form { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.backup-codes { list-style: none; margin: 8px 0 12px; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 24px; }
+.backup-codes code { font-size: 17px; letter-spacing: 0.05em; }
+.print-only { display: none; }
+.device-list { list-style: none; margin: 8px 0 12px; padding: 0; display: grid; gap: 8px; }
+.device-list li { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.mobile-signout { margin-left: auto; }
+.mobile-signout button { background: none; border: 0; color: #dbe4f0; font: inherit; font-size: 14px; display: flex; align-items: center; gap: 6px; padding: 8px; cursor: pointer; }
+.mobile-signout .icon { width: 18px; height: 18px; }
+@media print {
+  .print-only { display: block; }
 }
-.sig-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; }
-.confirm-line { margin-top: 18px; }
 
 /* ---- Tax forms (officer W-9 / 1099, admin 1099 pages) ---------------------- */
 .card-title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
@@ -1123,3 +1120,4 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
 }
 .open-offers { border-left: 4px solid var(--primary); }
 .open-offers .plain-list { list-style: none; padding-left: 0; }
+.small-heading { font-size: 13.5px; margin: 16px 0 4px; }

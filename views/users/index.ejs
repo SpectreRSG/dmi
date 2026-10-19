@@ -13,7 +13,7 @@
 <div class="card">
   <div class="table-wrap">
     <table class="table">
-      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Linked to</th><th>Last sign-in</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Linked to</th><th>Last sign-in</th><th>Two-step</th><th>Status</th><th></th></tr></thead>
       <tbody>
         <% const roleColors = { admin: 'blue', manager: 'gray', officer: 'green', client: 'gray', pending: 'amber' }; %>
         <% for (const u of users) { %>
@@ -26,6 +26,7 @@
               <% if (u.client_id) { %><a href="/clients/<%= u.client_id %>"><%= u.client_name %></a><% } %>
             </td>
             <td class="nowrap"><%= u.last_login_at ? fmtDateTime(u.last_login_at) : 'Never' %></td>
+            <td><%- u.totp_enabled_at ? badge('On', 'green') : u.role === 'pending' ? '' : badge('Not set up', 'amber') %></td>
             <td><%- u.active ? badge('Active', 'green') : badge('Deactivated', 'gray') %></td>
             <td class="actions">
               <% if (u.role === 'pending' && u.active) { %><a class="btn btn-sm btn-primary" href="/users/<%= u.id %>/edit">Approve</a><% } else { %><a href="/users/<%= u.id %>/edit">Edit</a><% } %>

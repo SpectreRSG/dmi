@@ -4,7 +4,60 @@
     <h1>My account</h1>
     <p class="page-sub"><%= currentUser.name %> · <%= currentUser.email %> · <%= ROLE_NAMES[currentUser.role] %></p>
   </div>
+  <div class="page-actions">
+    <form method="post" action="/logout" class="inline-form">
+      <%- include('../partials/csrf') %>
+      <button type="submit" class="btn"><%- icon('logout') %> Sign out</button>
+    </form>
+  </div>
 </div>
+
+<section class="card card-pad narrow" id="two-step">
+  <h2>Two-step sign-in</h2>
+  <% if (currentUser.totp_enabled_at) { %>
+    <p><%- badge('On', 'green') %> Since <%= fmtDate(currentUser.totp_enabled_at.slice(0, 10)) %>. After your password, you type a code from your authenticator app.</p>
+    <p class="muted small">Backup codes left: <strong><%= codesLeft %></strong> of 10.<%= codesLeft < 4 ? ' Make new ones soon.' : '' %> Each one gets you in once if you don't have your phone.</p>
+    <div class="btn-row">
+      <form method="post" action="/account/two-step/backup-codes" class="inline-form" data-confirm="Make new backup codes? Your old ones will stop working.">
+        <%- include('../partials/csrf') %>
+        <button type="submit" class="btn btn-sm">Make new backup codes</button>
+      </form>
+      <% if (!twoStepRequired) { %>
+        <form method="post" action="/account/two-step/off" class="inline-form" data-confirm="Turn off two-step sign-in? Your password alone will then sign you in.">
+          <%- include('../partials/csrf') %>
+          <button type="submit" class="btn btn-sm btn-ghost">Turn off</button>
+        </form>
+      <% } %>
+    </div>
+    <p class="muted small">New phone? Ask the office to reset your two-step sign-in, then set it up again on the new phone.</p>
+  <% } else { %>
+    <p><%- badge('Off', 'amber') %> Protect your account with a code from your phone as well as your password.</p>
+    <a class="btn btn-primary btn-sm" href="/account/two-step">Set up two-step sign-in</a>
+  <% } %>
+</section>
+
+<section class="card card-pad narrow">
+  <h2>Where you're signed in</h2>
+  <ul class="device-list">
+    <% for (const d of devices) { %>
+      <li><span><strong><%= d.device %></strong><%= d.current ? ' (this device)' : '' %></span><span class="muted small"><%= d.since ? `since ${fmtDateTime(d.since)}` : '' %></span></li>
+    <% } %>
+  </ul>
+  <% if (devices.length > 1) { %>
+    <form method="post" action="/account/sign-out-others" class="inline-form" data-confirm="Sign out on every other phone and computer?">
+      <%- include('../partials/csrf') %>
+      <button type="submit" class="btn btn-sm">Sign out everywhere else</button>
+    </form>
+  <% } %>
+  <% if (history.length) { %>
+    <h3 class="small-heading">Recent sign-ins</h3>
+    <ul class="plain-list small">
+      <% for (const h of history) { %><li><%= fmtDateTime(h.created_at.replace(' ', 'T').slice(0, 16)) %>: <%= h.action %></li><% } %>
+    </ul>
+    <p class="muted small">Don't recognise one? Change your password below and tell the office.</p>
+  <% } %>
+</section>
+
 <div class="card form-card narrow">
   <h2>Change password</h2>
   <%- include('../partials/form-error') %>
@@ -15,7 +68,7 @@
     </label>
     <label>New password
       <input type="password" name="password" required minlength="10" autocomplete="new-password">
-      <span class="hint">At least 10 characters. Changing it signs you out on other devices.</span>
+      <span class="hint">At least 10 characters. A few unrelated words work well, like "harbor lamp violin 42". Changing it signs you out on your other devices.</span>
     </label>
     <label>Type the new password again
       <input type="password" name="confirm" required minlength="10" autocomplete="new-password">
@@ -24,6 +77,6 @@
   </form>
 </div>
 <div class="narrow">
-  <%- include('../partials/notifications', { pushWhat: ['admin', 'manager'].includes(currentUser.role) ? 'Free alerts on this phone or computer, like a text message: call-outs, and open shifts nobody has claimed.' : currentUser.role === 'officer' ? 'Free alerts on this phone or computer, like a text message: open shifts, schedule changes and pay day.' : null }) %>
+  <%- include('../partials/notifications', { pushWhat: ['admin', 'manager'].includes(currentUser.role) ? 'Free alerts on this phone or computer, like a text message: call-outs, open shifts nobody has claimed, and sign-ins to your account.' : currentUser.role === 'officer' ? 'Free alerts on this phone or computer, like a text message: open shifts, schedule changes, pay day, and sign-ins to your account.' : null }) %>
 </div>
 <%- include('../partials/bottom') %>

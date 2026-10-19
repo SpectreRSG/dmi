@@ -1,4 +1,4 @@
-// First-time setup, signing in and signing out.
+// First-time setup, signing in (password, then a two-step code) and signing out.
 const express = require('express');
 const crypto = require('crypto');
 const db = require('../db');
@@ -6,6 +6,10 @@ const auth = require('../auth');
 const { getSetupCode } = require('../secrets');
 const { saveSettings } = require('../settings');
 const { clean, logActivity } = require('../helpers');
+const twoStep = require('../services/twoStep');
+const { notifyUsers } = require('../services/notify');
+const config = require('../config');
+const time = require('../time');
 
 const router = express.Router();
 
@@ -32,18 +36,35 @@ function sameText(a, b) {
   return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
 }
 
-function signIn(req, res, next, userId, redirectTo, flashMessage) {
-  // A fresh session on login stops "session fixation" attacks.
-  req.session.regenerate(async (err) => {
+// A fresh session (stops "session fixation" attacks), then the work.
+function freshSession(req, next, work) {
+  req.session.regenerate((err) => {
     if (err) return next(err);
-    try {
-      req.session.userId = userId;
-      if (flashMessage) req.session.flash = [{ type: 'success', message: flashMessage }];
-      await db.run('UPDATE users SET last_login_at = app_now() WHERE id = ?', userId);
-      res.redirect(redirectTo);
-    } catch (error) {
-      next(error);
+    Promise.resolve(work()).catch(next);
+  });
+}
+
+// Signs someone in. `how` is how they passed two-step sign-in: 'code' (typed
+// a code just now), 'device' (a remembered device), or null (not set up yet).
+function signIn(req, res, next, userId, redirectTo, { flash = null, how = null } = {}) {
+  freshSession(req, next, async () => {
+    const device = auth.describeDevice(req.get('user-agent'));
+    Object.assign(req.session, { userId, signedInAt: Date.now(), signedInLocal: time.nowStr(), device, ip: req.ip, twoStep: how });
+    if (how === 'code') req.session.codeAt = Date.now();
+    if (flash) req.session.flash = [{ type: 'success', message: flash }];
+    await db.run('UPDATE users SET last_login_at = app_now() WHERE id = ?', userId);
+    req.user = { id: userId };
+    await logActivity(req, `Signed in (${device}${how === 'device' ? ', remembered device' : ''})`);
+    // A heads-up on their other devices, in case it wasn't them.
+    if (how !== 'device') {
+      await notifyUsers([userId], {
+        title: 'New sign-in to your DMI account',
+        body: `${device}, just now. If this wasn't you, change your password and tell the office.`,
+        url: '/account',
+        tag: 'sign-in',
+      });
     }
+    res.redirect(redirectTo);
   });
 }
 
@@ -77,7 +98,7 @@ router.post('/setup', async (req, res, next) => {
     error = 'That setup code is not right.';
   } else if (!values.company_name || !values.name || !values.email) error = 'Please fill in every box.';
   else if (!/^\S+@\S+\.\S+$/.test(values.email)) error = 'Please enter a valid email address.';
-  else error = auth.passwordProblem(req.body.password, req.body.confirm);
+  else error = auth.passwordProblem(req.body.password, req.body.confirm, values);
   if (error) return renderSetup(res, values, error, 400);
 
   const userId = await db.insert(
@@ -90,7 +111,7 @@ router.post('/setup', async (req, res, next) => {
   setupDone = true;
   req.user = { id: userId };
   await logActivity(req, 'Created the first admin account');
-  signIn(req, res, next, userId, '/', 'Welcome! Your admin account is ready.');
+  signIn(req, res, next, userId, '/', { flash: 'Welcome! Your admin account is ready. Next, set up two-step sign-in.' });
 });
 
 router.get('/login', (req, res) => {
@@ -106,17 +127,88 @@ router.post('/login', async (req, res, next) => {
   const fail = (message) =>
     res.status(401).render('auth/login', { title: 'Sign in', email, error: message, next: nextUrl });
 
-  if (await auth.isLockedOut(key)) return fail('Too many failed attempts. Please wait 15 minutes and try again.');
+  // 5 wrong passwords for one email from one connection, or 30 for any emails
+  // (someone trying lots of accounts), and that connection waits 15 minutes.
+  const connectionKey = `ip|${req.ip}`;
+  if ((await auth.isLockedOut(key)) || (await auth.isLockedOut(connectionKey, 30))) {
+    return fail('Too many failed attempts. Please wait 15 minutes and try again.');
+  }
 
   const user = await db.get('SELECT * FROM users WHERE lower(email) = lower(?) AND active = 1', email);
   const passwordOk = auth.verifyPassword(password, user ? user.password_hash : DUMMY_HASH);
   if (!user || !passwordOk) {
     await auth.recordFailedLogin(key);
+    await auth.recordFailedLogin(connectionKey);
     return fail('Wrong email or password.');
   }
 
   await auth.clearFailedLogins(key);
-  signIn(req, res, next, user.id, nextUrl === '/' ? auth.homeFor(user) : nextUrl);
+  const goTo = nextUrl === '/' ? auth.homeFor(user) : nextUrl;
+  if (!user.totp_enabled_at) return signIn(req, res, next, user.id, goTo); // they're asked to set it up next, if needed
+  if (await twoStep.isTrustedDevice(req, user.id)) return signIn(req, res, next, user.id, goTo, { how: 'device' });
+  // Password right: now the code. Not signed in until then.
+  freshSession(req, next, () => {
+    req.session.twoStepPending = { userId: user.id, next: goTo, at: Date.now() };
+    res.redirect('/login/verify');
+  });
+});
+
+// ---- The second step: a code from their authenticator app (or a backup code) ----
+
+const PENDING_MS = 10 * 60 * 1000; // the password counts for 10 minutes
+
+function pendingUser(req) {
+  const pending = req.session.twoStepPending;
+  return pending && Date.now() - pending.at < PENDING_MS ? pending : null;
+}
+
+function renderVerify(res, error, status = 200) {
+  res.status(status).render('auth/verify', { title: 'Two-step sign-in', error, trustDays: twoStep.TRUST_DAYS });
+}
+
+router.get('/login/verify', (req, res) => {
+  if (!pendingUser(req)) return res.redirect('/login');
+  renderVerify(res, null);
+});
+
+router.post('/login/verify', async (req, res, next) => {
+  const pending = pendingUser(req);
+  if (!pending) {
+    req.flash('error', 'That took too long. Please sign in again.');
+    return res.redirect('/login');
+  }
+  const key = `code|${pending.userId}`;
+  if (await auth.isLockedOut(key)) {
+    delete req.session.twoStepPending;
+    req.flash('error', 'Too many wrong codes. Please wait 15 minutes and sign in again.');
+    return res.redirect('/login');
+  }
+  const result = await twoStep.verify(pending.userId, req.body.code);
+  if (!result.ok) {
+    await auth.recordFailedLogin(key);
+    if (await auth.isLockedOut(key)) {
+      req.user = { id: pending.userId };
+      await logActivity(req, 'Two-step sign-in blocked after 5 wrong codes');
+      await notifyUsers([pending.userId], {
+        title: 'Someone tried to sign in to your DMI account',
+        body: 'The right password was used, but not the right code. If this wasn\'t you, change your password and tell the office.',
+        url: '/account',
+        tag: 'sign-in',
+      });
+    }
+    const message = result.reused
+      ? 'That code was already used. Wait for the next one in your app (they change every 30 seconds).'
+      : 'That code is not right. Check your authenticator app and try again.';
+    return renderVerify(res, message, 400);
+  }
+  await auth.clearFailedLogins(key);
+  if (req.body.remember) await twoStep.trustDevice(res, pending.userId, auth.describeDevice(req.get('user-agent')), config.https);
+  let flash = null;
+  if (result.method === 'backup') {
+    const left = await twoStep.recoveryCodesLeft(pending.userId);
+    flash = `Signed in with a backup code. You have ${left} left${left < 4 ? ': make new ones under My account → Two-step sign-in' : ''}.`;
+  }
+  signIn(req, res, next, pending.userId, pending.next, { how: 'code', flash });
 });
 
 // ---- New accounts -----------------------------------------------------------
@@ -145,7 +237,7 @@ router.post('/register', async (req, res, next) => {
   let error = null;
   if (!values.name || !values.email) error = 'Please fill in your name and email.';
   else if (!/^\S+@\S+\.\S+$/.test(values.email)) error = 'Please enter a valid email address.';
-  else error = auth.passwordProblem(req.body.password, req.body.confirm);
+  else error = auth.passwordProblem(req.body.password, req.body.confirm, values);
   if (error) return renderRegister(res, values, error, 400);
 
   let userId;
@@ -165,7 +257,7 @@ router.post('/register', async (req, res, next) => {
   await auth.recordFailedLogin(key);
   req.user = { id: userId };
   await logActivity(req, `Signed up as a ${SIGNUP_KINDS[values.requested_role].toLowerCase()} (waiting for a role)`);
-  signIn(req, res, next, userId, '/waiting', 'Your account is created.');
+  signIn(req, res, next, userId, '/waiting', { flash: 'Your account is created.' });
 });
 
 router.get('/waiting', (req, res) => {
@@ -174,7 +266,8 @@ router.get('/waiting', (req, res) => {
   res.render('auth/waiting', { title: 'Waiting for approval' });
 });
 
-router.post('/logout', (req, res, next) => {
+router.post('/logout', async (req, res, next) => {
+  if (req.user) await logActivity(req, 'Signed out');
   req.session.destroy((err) => {
     if (err) return next(err);
     res.clearCookie('dmi.sid');

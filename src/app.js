@@ -11,7 +11,7 @@ const time = require('./time');
 const PgSessionStore = require('./sessionStore');
 const csrfProtection = require('./csrf');
 const { upload, MAX_FILE_MB } = require('./uploads');
-const { loadUser, requireLogin, requireAdmin, requireBackOffice, homeFor } = require('./auth');
+const { loadUser, requireLogin, requireAdmin, requireBackOffice, requireTwoStep, homeFor } = require('./auth');
 const { getSettings } = require('./settings');
 const { getSessionSecret } = require('./secrets');
 const viewHelpers = require('./viewHelpers');
@@ -68,6 +68,15 @@ app.use(async (req, res, next) => {
 app.use(express.urlencoded({ extended: false, limit: '200kb' }));
 app.use(loadUser);
 
+// Signed-in pages are never kept by the browser, so after signing out the
+// back button can't show them to the next person at a shared computer.
+// And no page may use the camera, microphone or location.
+app.use((req, res, next) => {
+  if (req.user) res.set('Cache-Control', 'no-store');
+  res.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  next();
+});
+
 // Values every page needs.
 app.use(async (req, res, next) => {
   const settings = await getSettings();
@@ -97,6 +106,7 @@ app.use(csrfProtection);
 // ---- Pages ------------------------------------------------------------------
 app.use(require('./routes/auth')); // /setup, /login, /register, /logout (no login needed)
 app.use(requireLogin); // everything below needs a login
+app.use(requireTwoStep); // ...and two-step sign-in, where it's required
 app.use(async (req, res, next) => {
   await catchUp(); // record finished shifts and move open-shift offers along (at most once a minute)
   next();

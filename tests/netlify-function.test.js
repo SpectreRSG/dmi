@@ -74,16 +74,21 @@ test('pages, cookies and form posts pass through the function', async () => {
   assert.equal(login.headers.get('location'), '/');
   assert.match(login.headers.get('set-cookie'), /; Secure/i, 'login cookies are https-only on Netlify');
 
+  // Admins must set up two-step sign-in before anything else.
   const dashboard = await handler(site('/', { headers: { cookie: cookieOf(login) } }), context);
-  assert.equal(dashboard.status, 200);
-  assert.match(await dashboard.text(), /Dashboard/);
+  assert.equal(dashboard.status, 302);
+  assert.equal(dashboard.headers.get('location'), '/account/two-step');
+  const setup = await handler(site('/account/two-step', { headers: { cookie: cookieOf(login) } }), context);
+  assert.equal(setup.status, 200);
+  assert.match(await setup.text(), /<svg[^>]*viewBox/, 'with a QR code to scan');
+  assert.equal(setup.headers.get('cache-control'), 'no-store');
 });
 
 test('wrong passwords are counted per visitor address', async () => {
   const page = await handler(site('/login'), context);
   await handler(site('/login', form(cookieOf(page), { _csrf: await tokenOf(page), email: 'alex@example.com', password: 'wrong password' })), context);
-  const row = await db.get('SELECT key FROM login_attempts');
-  assert.equal(row.key, '203.0.113.9|alex@example.com');
+  const keys = (await db.all('SELECT key FROM login_attempts ORDER BY key')).map((r) => r.key);
+  assert.deepEqual(keys, ['203.0.113.9|alex@example.com', 'ip|203.0.113.9']);
 });
 
 test('every library the app needs is listed in the function, so Netlify packages it', () => {

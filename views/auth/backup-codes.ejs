@@ -1,0 +1,17 @@
+<%- include('../partials/top') %>
+<div class="page-head no-print">
+  <div>
+    <h1><%= fresh ? 'Two-step sign-in is on' : 'New backup codes' %></h1>
+    <p class="page-sub">Keep these backup codes somewhere safe, like a note in a locked drawer or your password manager. If you lose your phone, each one gets you in once. They won't be shown again.</p>
+  </div>
+  <div class="page-actions"><button type="button" class="btn" data-print>Print</button></div>
+</div>
+<div class="card card-pad narrow">
+  <h2 class="print-only"><%= settings.company_name %> backup codes for <%= currentUser.email %></h2>
+  <ul class="backup-codes">
+    <% for (const code of codes) { %><li><code><%= code %></code></li><% } %>
+  </ul>
+  <p class="muted small"><%= fresh ? '' : 'Your old backup codes no longer work. ' %>Made <%= fmtDateTime(now) %>.</p>
+  <div class="form-actions no-print"><a class="btn btn-primary" href="<%= next %>">I've saved them, continue</a></div>
+</div>
+<%- include('../partials/bottom') %>

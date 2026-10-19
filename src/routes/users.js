@@ -2,18 +2,21 @@
 // People can sign up themselves; their account waits here until an admin gives it a role.
 const express = require('express');
 const db = require('../db');
-const { hashPassword, passwordProblem, endSessionsForUser } = require('../auth');
+const { hashPassword, passwordProblem, endSessionsForUser, requireRecentCode } = require('../auth');
+const twoStep = require('../services/twoStep');
 const { clean, toId, notFound, numericIdParam, logActivity, isDuplicateError } = require('../helpers');
 const { ROLE_NAMES } = require('../viewHelpers');
 
 const router = express.Router();
 numericIdParam(router);
+// Changing accounts asks for a fresh two-step code (if the last one was over 15 minutes ago).
+router.use((req, res, next) => (req.method === 'POST' ? requireRecentCode(req, res, next) : next()));
 
 const ROLES = ['pending', 'officer', 'client', 'manager', 'admin'];
 
 function findUser(id) {
   return db.get(
-    `SELECT id, name, email, phone, role, requested_role, employee_id, client_id, active, last_login_at, created_at
+    `SELECT id, name, email, phone, role, requested_role, employee_id, client_id, active, last_login_at, created_at, totp_enabled_at
      FROM users WHERE id = ?`,
     id
   );
@@ -56,7 +59,7 @@ async function readForm(req, existing) {
   else if (v.employee_id && !(await db.get('SELECT 1 FROM employees WHERE id = ?', v.employee_id))) error = 'Please choose a staff record from the list.';
   else if (v.role === 'client' && !v.client_id) error = 'Choose which client this person belongs to.';
   else if (v.client_id && !(await db.get('SELECT 1 FROM clients WHERE id = ?', v.client_id))) error = 'Please choose a client from the list.';
-  else if (!existing || password) error = passwordProblem(password, req.body.confirm);
+  else if (!existing || password) error = passwordProblem(password, req.body.confirm, v);
 
   // Stop admins locking themselves out.
   if (!error && existing?.id === req.user.id && (v.role !== 'admin' || !v.active)) {
@@ -146,10 +149,23 @@ router.post('/:id', async (req, res) => {
   if (saveError) return renderForm(res, { ...values, id: user.id, requested_role: user.requested_role }, saveError, 400);
   // A new password or deactivation signs the person out everywhere.
   if ((password || !values.active) && user.id !== req.user.id) await endSessionsForUser(user.id);
+  if (password || !values.active) await twoStep.forgetDevices(user.id);
   const roleNote = values.role !== user.role ? ` (now ${ROLE_NAMES[values.role].toLowerCase()})` : '';
   await logActivity(req, `Updated account for ${values.name}${roleNote}${password ? ' (password reset)' : ''}`);
   req.flash('success', values.new_employee ? `Account saved, and a staff record was made for ${values.name}. Set their pay rate on the Staff page.` : 'Account saved.');
   res.redirect('/users');
+});
+
+// Lost phone: turns off their two-step sign-in and signs them out everywhere.
+// They set it up again (with their new phone) at their next sign-in.
+router.post('/:id/reset-two-step', async (req, res) => {
+  const user = await findUser(req.params.id);
+  if (!user) return notFound(res, 'user');
+  await twoStep.reset(user.id);
+  if (user.id !== req.user.id) await endSessionsForUser(user.id);
+  await logActivity(req, `Reset two-step sign-in for ${user.name}`);
+  req.flash('success', `Two-step sign-in reset for ${user.name}. They'll set it up again with their phone the next time they sign in.`);
+  res.redirect(`/users/${user.id}/edit`);
 });
 
 module.exports = router;

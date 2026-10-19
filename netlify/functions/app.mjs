@@ -19,6 +19,7 @@ import 'express-session';
 import 'helmet';
 import 'multer';
 import 'pdf-lib';
+import 'qrcode-svg';
 import 'web-push';
 import app from '../../src/app.js';
 

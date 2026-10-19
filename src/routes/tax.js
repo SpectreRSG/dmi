@@ -6,6 +6,7 @@ const { toId, toNumber, notFound, numericIdParam, logActivity, employeeName } = 
 const time = require('../time');
 const tax = require('../services/tax1099');
 const { buildForm1099Pdf } = require('../services/form1099Pdf');
+const { requireRecentCode } = require('../auth');
 
 const router = express.Router();
 numericIdParam(router);
@@ -233,7 +234,11 @@ async function pdfData(form) {
   };
 }
 
-router.get('/forms/:id/pdf', async (req, res) => {
+// The company's copies (C and 1) and the filing summary show full tax ID
+// numbers, so they ask for a fresh two-step code first.
+const fullNumbersNeedCode = (req, res, next) => (req.query.copy === 'payer' ? requireRecentCode(req, res, next) : next());
+
+router.get('/forms/:id/pdf', fullNumbersNeedCode, async (req, res) => {
   const form = await findForm(req.params.id);
   if (!form) return notFound(res, '1099');
   const forPayer = req.query.copy === 'payer';
@@ -245,7 +250,7 @@ router.get('/forms/:id/pdf', async (req, res) => {
 });
 
 // Everything needed to file Copy A online with the IRS (IRIS) or on the red forms.
-router.get('/filing', async (req, res) => {
+router.get('/filing', requireRecentCode, async (req, res) => {
   const year = readYear(req.query.year);
   const forms = await db.all(`${FORM_SELECT} WHERE f.tax_year = ? AND f.status = 'issued' ORDER BY e.last_name, e.first_name`, year);
   for (const form of forms) form.fullTin = await tax.fullTin(form.recipient);

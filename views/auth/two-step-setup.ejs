@@ -1,0 +1,38 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Set up two-step sign-in</h1>
+    <p class="page-sub">After your password, you'll type a 6-digit code from an app on your phone. Then a stolen or guessed password isn't enough to get into your account. It takes about two minutes, once.</p>
+  </div>
+  <% if (!required) { %><div class="page-actions"><a class="btn btn-ghost" href="/account">Not now</a></div><% } %>
+</div>
+<%- include('../partials/form-error') %>
+<div class="card card-pad two-step-setup">
+  <ol class="setup-list">
+    <li>
+      <strong>Get an authenticator app</strong> on your phone, free from the App Store or Google Play:
+      Google Authenticator, Microsoft Authenticator or 1Password all work. Already have one? Use that.
+    </li>
+    <li>
+      <strong>Add <%= settings.company_name %> to the app.</strong> In the app, tap <em>+</em> or <em>Add</em>, then scan this code:
+      <div class="qr-box" aria-label="QR code for your authenticator app"><%- qr %></div>
+      <p class="small">On this phone? <a href="<%= link %>">Open it in my authenticator app</a>. Or type this key into the app:</p>
+      <p><code class="secret-key" data-secret="<%= secret %>"><%= secret.match(/.{1,4}/g).join(' ') %></code></p>
+    </li>
+    <li>
+      <strong>Type the 6-digit code</strong> the app now shows for <%= settings.company_name %>:
+      <form method="post" action="/account/two-step" class="inline-form code-form">
+        <%- include('../partials/csrf') %>
+        <input name="code" required inputmode="numeric" autocomplete="one-time-code" maxlength="7" placeholder="123 456" class="code-input" aria-label="6-digit code">
+        <button type="submit" class="btn btn-primary">Turn on two-step sign-in</button>
+      </form>
+    </li>
+  </ol>
+</div>
+<% if (required) { %>
+  <form method="post" action="/logout" class="center-note">
+    <%- include('../partials/csrf') %>
+    <button type="submit" class="btn btn-ghost">Sign out and do this later</button>
+  </form>
+<% } %>
+<%- include('../partials/bottom') %>

@@ -44,6 +44,10 @@
     <header class="mobile-bar">
       <button type="button" class="icon-button" data-nav-toggle aria-controls="sidebar" aria-expanded="false"><%- icon('menu') %><span class="sr-only">Menu</span></button>
       <a href="<%= homeFor(currentUser) %>" class="mobile-brand"><%= settings.company_name %></a>
+      <form method="post" action="/logout" class="mobile-signout">
+        <input type="hidden" name="_csrf" value="<%= locals.csrfToken || '' %>">
+        <button type="submit"><%- icon('logout') %><span>Sign out</span></button>
+      </form>
     </header>
     <main class="content">
       <%- include('flash') %>

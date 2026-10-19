@@ -3,6 +3,7 @@ const express = require('express');
 const { getSettings, saveSettings, TIMEZONES } = require('../settings');
 const { clean, toNumber, logActivity } = require('../helpers');
 const { US_STATES, digitsOnly, zipOk } = require('../services/tax1099');
+const { requireRecentCode } = require('../auth');
 
 
 const router = express.Router();
@@ -15,9 +16,9 @@ router.get('/', async (req, res) => {
   render(res, await getSettings(), null);
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireRecentCode, async (req, res) => {
   const v = clean(req.body, [
-    'company_name', 'timezone', 'currency_symbol', 'overtime_weekly_hours', 'overtime_multiplier', 'expiry_warning_days', 'min_rest_hours',
+    'company_name', 'timezone', 'currency_symbol', 'overtime_weekly_hours', 'overtime_multiplier', 'expiry_warning_days', 'min_rest_hours', 'two_step_required_for',
     'payer_name', 'payer_ein', 'payer_address', 'payer_city', 'payer_state', 'payer_zip', 'payer_phone', 'payer_state_id',
   ]);
   const ein = digitsOnly(v.payer_ein);
@@ -29,6 +30,7 @@ router.post('/', async (req, res) => {
     overtime_multiplier: toNumber(v.overtime_multiplier, 1),
     expiry_warning_days: toNumber(v.expiry_warning_days, 30),
     min_rest_hours: toNumber(v.min_rest_hours, 8),
+    two_step_required_for: v.two_step_required_for === 'office' ? 'office' : 'everyone',
     payer_name: (v.payer_name || '').slice(0, 120),
     payer_ein: ein.length === 9 ? `${ein.slice(0, 2)}-${ein.slice(2)}` : v.payer_ein || '',
     payer_address: (v.payer_address || '').slice(0, 120),
@@ -61,7 +63,8 @@ router.post('/', async (req, res) => {
   if (error) return render(res, values, error, 400);
 
   await saveSettings(values);
-  await logActivity(req, 'Updated company settings');
+  const before = res.locals.settings.two_step_required_for;
+  await logActivity(req, `Updated company settings${before !== values.two_step_required_for ? ` (two-step sign-in now required for ${values.two_step_required_for === 'office' ? 'office staff only' : 'everyone'})` : ''}`);
   req.flash('success', 'Settings saved.');
   res.redirect('/settings');
 });
