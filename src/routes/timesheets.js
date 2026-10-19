@@ -1,4 +1,5 @@
-// Timesheets: hours actually worked, waiting to be approved and paid.
+// Timesheets: hours actually worked. Most are recorded (and approved) from the
+// schedule by themselves when a shift ends; the office adds or fixes the rest.
 const express = require('express');
 const db = require('../db');
 const { clean, toId, toNumber, asArray, notFound, numericIdParam, logActivity, goBack, employeeName } = require('../helpers');
@@ -6,6 +7,7 @@ const time = require('../time');
 const { entryHours, round2 } = require('../services/payroll');
 const { sendUpload } = require('../uploads');
 const { finishCheckedTimesheets, makeApprovedCopy } = require('../services/timesheetApproval');
+const { recordFinishedShifts } = require('../services/hoursFromSchedule');
 
 const router = express.Router();
 numericIdParam(router);
@@ -160,6 +162,7 @@ router.get('/', async (req, res) => {
     params.push(`${time.addDays(to, 1)}T00:00`);
   }
 
+  await recordFinishedShifts();
   const [entries, countRows, staff] = await Promise.all([
     db.all(`${ENTRY_SELECT} WHERE ${where.join(' AND ')} ORDER BY t.start_at DESC LIMIT 500`, ...params),
     db.all('SELECT status, COUNT(*)::int AS n FROM time_entries GROUP BY status'),
@@ -290,8 +293,9 @@ router.post('/:id', async (req, res) => {
   const { values, error } = await readForm(req.body, entry.id);
   if (error) return renderForm(res, { ...values, id: entry.id, status: entry.status }, error, 400);
   await db.run(
+    // Edited here, they're the office's hours now: changing the shift no longer changes them.
     `UPDATE time_entries SET employee_id = @employee_id, site_id = @site_id, start_at = @start_at, end_at = @end_at,
-     break_minutes = @break_minutes, notes = @notes WHERE id = @id`,
+     break_minutes = @break_minutes, notes = @notes, source = CASE WHEN source = 'schedule' THEN 'office' ELSE source END WHERE id = @id`,
     { ...values, id: entry.id }
   );
   await logActivity(req, `Edited hours #${entry.id} for ${employeeName(entry)}`);

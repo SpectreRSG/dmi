@@ -1,0 +1,110 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>My pay</h1>
+    <p class="page-sub">Your hours are recorded from the schedule when each shift ends, so there's no timesheet to fill in. If something's wrong, tell the office before pay day.</p>
+  </div>
+</div>
+
+<% if (needsW9) { %>
+  <div class="flash flash-warning">One thing to do: <a href="/my/tax/w9">fill in your W-9</a> so the office can prepare your 1099. It takes about two minutes.</div>
+<% } %>
+
+<div class="stats">
+  <div class="stat">
+    <span class="stat-label">Recorded, not paid yet</span>
+    <span class="stat-value"><%= fmtHours(recordedHours) %></span>
+    <span class="stat-note">hours<%= waiting ? `, ${waiting} entr${waiting === 1 ? 'y' : 'ies'} waiting for the office` : '' %></span>
+  </div>
+  <div class="stat">
+    <span class="stat-label">Estimated pay for those</span>
+    <span class="stat-value"><%= money(estimate.gross_pay) %></span>
+    <span class="stat-note">before tax, at <%= money(me.hourly_rate) %> an hour<%= estimate.overtime_hours ? `, with ${fmtHours(estimate.overtime_hours)} h overtime` : '' %></span>
+  </div>
+  <a class="stat" href="/my/tax">
+    <span class="stat-label">Tax forms</span>
+    <span class="stat-value"><%= taxFormsReady %></span>
+    <span class="stat-note"><%= taxFormsReady === 1 ? '1099 ready to download' : '1099s ready to download' %></span>
+  </a>
+</div>
+
+<section class="card">
+  <div class="card-head"><h2>Paid</h2></div>
+  <% if (!paid.length) { %>
+    <p class="empty">Nothing paid yet. After each pay day, your payslip and your DMI timesheet appear here.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table stack-on-phone">
+        <thead><tr><th>Pay period</th><th>Paid on</th><th class="num">Hours</th><th class="num">Gross pay</th><th>Documents</th></tr></thead>
+        <tbody>
+          <% for (const p of paid) { %>
+            <tr>
+              <td data-label="Pay period"><%= fmtDate(p.period_start) %> – <%= fmtDate(p.period_end) %></td>
+              <td class="nowrap" data-label="Paid on"><%= p.paid_on ? fmtDate(p.paid_on) : '—' %></td>
+              <td class="num" data-label="Hours"><%= fmtHours(p.regular_hours + p.overtime_hours) %></td>
+              <td class="num" data-label="Gross pay"><strong><%= money(p.gross_pay) %></strong></td>
+              <td class="nowrap stack-full" data-label="Documents">
+                <div class="btn-row">
+                  <a class="btn btn-sm" href="/my/pay/<%= p.id %>">Payslip</a>
+                  <a class="btn btn-sm" href="/my/pay/<%= p.id %>/timesheet.pdf" target="_blank" rel="noopener"><%- icon('file') %> Timesheet</a>
+                  <a class="btn btn-sm btn-ghost" href="/my/pay/<%= p.id %>/timesheet.pdf?download=1">Download</a>
+                </div>
+              </td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Recorded, not paid yet</h2></div>
+  <% if (!recorded.length) { %>
+    <p class="empty">No hours waiting to be paid. Shifts appear here once they end.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table stack-on-phone">
+        <thead><tr><th>Date</th><th>Site</th><th>Time</th><th class="num">Hours</th><th>Status</th></tr></thead>
+        <tbody>
+          <% for (const e of recorded) { %>
+            <tr>
+              <td class="nowrap" data-label="Date"><%= fmtDay(e.start_at) %></td>
+              <td data-label="Site"><%= e.site_name || '—' %></td>
+              <td class="nowrap" data-label="Time"><span><%= fmtRange(e.start_at, e.end_at) %><% if (e.break_minutes) { %> <span class="muted small">(<%= e.break_minutes %> min break)</span><% } %></span></td>
+              <td class="num" data-label="Hours"><%= fmtHours(e.hours) %></td>
+              <td data-label="Status"><%- e.status === 'approved' ? badge('Recorded', 'green') : badge('Office is checking', 'amber') %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</section>
+
+<% if (sent.length) { %>
+  <section class="card">
+    <div class="card-head"><h2>Timesheets you sent before</h2></div>
+    <div class="table-wrap">
+      <table class="table stack-on-phone">
+        <thead><tr><th>Pay period</th><th class="num">Hours</th><th>Timesheet</th></tr></thead>
+        <tbody>
+          <% for (const s of sent) { %>
+            <tr>
+              <td data-label="Pay period"><%= fmtDate(s.period_start) %> – <%= fmtDate(s.period_end) %></td>
+              <td class="num" data-label="Hours"><%= fmtHours(s.total_hours) %></td>
+              <td class="nowrap stack-full" data-label="Timesheet">
+                <div class="btn-row">
+                  <a class="btn btn-sm" href="/my/timesheets/<%= s.id %>/pdf" target="_blank" rel="noopener"><%- icon('file') %> View</a>
+                  <a class="btn btn-sm btn-ghost" href="/my/timesheets/<%= s.id %>/pdf?download=1">Download</a>
+                </div>
+                <div class="muted small"><%= s.approved_file_name ? `Approved copy · ${s.approver_name || 'Office'}, ${fmtDate(s.approved_at.slice(0, 10))}` : 'As you signed it' %></div>
+              </td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+<% } %>
+<%- include('../partials/bottom') %>

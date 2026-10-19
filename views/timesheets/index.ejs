@@ -2,7 +2,7 @@
 <div class="page-head">
   <div>
     <h1>Timesheets</h1>
-    <p class="page-sub">Hours actually worked. Approve them so they can be paid.</p>
+    <p class="page-sub">Hours actually worked. When a shift ends, its hours are recorded and approved from the schedule by themselves. Only hours added by hand wait here for approval. To fix someone's hours, edit their shift or the hours below before the pay run is finalized.</p>
   </div>
   <div class="page-actions"><a class="btn btn-primary" href="/timesheets/new"><%- icon('plus') %> Add hours</a></div>
 </div>
@@ -57,7 +57,7 @@
                   <% if (t.submission_id) { %><br><a class="small" href="/timesheets/submissions/<%= t.submission_id %>/pdf">Officer's PDF</a><% } %></td>
                 <td class="num"><%= fmtHours(t.hours) %></td>
                 <td><%- statusBadge(t.status) %>
-                  <% if (t.approver_name && t.status !== 'pending') { %><br><span class="muted small">by <%= t.approver_name %></span><% } %>
+                  <% if (t.approver_name && t.status !== 'pending') { %><br><span class="muted small">by <%= t.approver_name %></span><% } else if (t.source === 'schedule' && t.status === 'approved') { %><br><span class="muted small">from the schedule</span><% } %>
                   <% if (locked) { %><br><span class="muted small">Paid</span><% } else if (t.pay_run_id) { %><br><span class="muted small">In draft pay run</span><% } %></td>
                 <td class="actions nowrap">
                   <% if (!locked) { %>

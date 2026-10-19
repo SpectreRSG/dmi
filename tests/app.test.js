@@ -153,22 +153,60 @@ test('add a client, a site and a staff member', async () => {
   assert.equal((await db.get('SELECT hourly_rate FROM employees WHERE id = ?', ids.employee)).hourly_rate, 30);
 });
 
-test('shifts: double-booking is blocked, and "mark as worked" creates timesheet hours', async () => {
+test('shifts: double-booking is blocked, and finished shifts become approved hours by themselves', async () => {
+  const { recordFinishedShifts } = require('../src/services/hoursFromSchedule');
+  // Hours are recorded from the start of the pay period this was switched on in.
+  const since = (await db.get("SELECT value FROM settings WHERE key = 'hours_from_schedule_since'")).value;
+  assert.ok(time.isValidDate(since) && time.dayOfWeek(since) === 6, 'a Sunday, when a pay period starts');
+
+  // Nothing from before then turns into hours.
+  await db.run("UPDATE settings SET value = ? WHERE key = 'hours_from_schedule_since'", time.todayStr());
   const shift = { site_id: ids.site, employee_id: ids.employee, date: lastMonday, start_time: '08:00', end_time: '18:30', break_minutes: '30' };
   let res = await admin.post('/schedule', shift);
   assert.equal(res.status, 302);
   ids.shift = (await db.get('SELECT id FROM shifts ORDER BY id DESC')).id;
+  await recordFinishedShifts();
+  assert.ok(!(await db.get('SELECT 1 FROM time_entries WHERE shift_id = ?', ids.shift)), 'older than the switch-on date');
+  await db.run("UPDATE settings SET value = '2000-01-01' WHERE key = 'hours_from_schedule_since'"); // these tests use earlier dates
 
   res = await admin.post('/schedule', { ...shift, start_time: '12:00', end_time: '20:00' });
   assert.equal(res.status, 400);
   assert.match(res.text, /already booked/);
 
-  res = await admin.post(`/schedule/${ids.shift}/complete`);
-  assert.equal(res.status, 302);
+  // Nobody presses anything: once a shift has ended, its hours are recorded and approved.
+  assert.match((await admin.get('/timesheets?status=all')).text, /from the schedule/);
   const entry = await db.get('SELECT * FROM time_entries WHERE shift_id = ?', ids.shift);
-  assert.equal(entry.status, 'pending');
+  assert.equal(entry.status, 'approved');
+  assert.equal(entry.source, 'schedule');
   assert.equal(entry.end_at, `${lastMonday}T18:30`);
+  assert.equal(entry.break_minutes, 30);
+  assert.equal((await db.get('SELECT status FROM shifts WHERE id = ?', ids.shift)).status, 'completed');
   ids.entry = entry.id;
+  // Never twice, even when two run at the same moment.
+  await Promise.all([recordFinishedShifts(), recordFinishedShifts()]);
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM time_entries WHERE shift_id = ?', ids.shift)).n, 1);
+
+  // Shifts still to come aren't recorded.
+  const tomorrow = time.addDays(time.todayStr(), 1);
+  await admin.post('/schedule', { ...shift, date: tomorrow });
+  const future = await db.get('SELECT id FROM shifts WHERE start_at = ?', `${tomorrow}T08:00`);
+  await recordFinishedShifts();
+  assert.ok(!(await db.get('SELECT 1 FROM time_entries WHERE shift_id = ?', future.id)));
+  await admin.post(`/schedule/${future.id}/delete`);
+
+  // The office fixes an exception by changing the shift: its hours follow.
+  const saturday = time.addDays(lastMonday, 5);
+  await admin.post('/schedule', { ...shift, date: saturday, end_time: '12:00', break_minutes: '0' });
+  const extra = await db.get('SELECT id FROM shifts WHERE start_at = ?', `${saturday}T08:00`);
+  await recordFinishedShifts();
+  res = await admin.post(`/schedule/${extra.id}`, { site_id: ids.site, employee_id: ids.employee, date: saturday, start_time: '08:00', end_time: '11:00', break_minutes: '0', status: 'completed' });
+  assert.equal(res.status, 302);
+  assert.equal((await db.get('SELECT end_at FROM time_entries WHERE shift_id = ?', extra.id)).end_at, `${saturday}T11:00`);
+  // Cancelling or deleting it takes the hours away.
+  await admin.post(`/schedule/${extra.id}`, { site_id: ids.site, employee_id: ids.employee, date: saturday, start_time: '08:00', end_time: '11:00', break_minutes: '0', status: 'cancelled' });
+  assert.ok(!(await db.get('SELECT 1 FROM time_entries WHERE shift_id = ?', extra.id)));
+  await admin.post(`/schedule/${extra.id}/delete`);
+  assert.ok(!(await db.get('SELECT 1 FROM shifts WHERE id = ?', extra.id)));
 });
 
 test('timesheets: overlapping hours are blocked; approve in bulk', async () => {
@@ -181,8 +219,9 @@ test('timesheets: overlapping hours are blocked; approve in bulk', async () => {
     res = await admin.post('/timesheets', { employee_id: ids.employee, site_id: ids.site, date: time.addDays(lastMonday, d), start_time: '08:00', end_time: '18:30', break_minutes: '30' });
     assert.equal(res.status, 302);
   }
+  // Hours added by hand wait for approval (the shift's were approved by themselves).
   const pendingIds = (await db.all("SELECT id FROM time_entries WHERE status = 'pending'")).map((r) => r.id);
-  assert.equal(pendingIds.length, 5);
+  assert.equal(pendingIds.length, 4);
 
   res = await admin.postList('/timesheets/bulk', [['action', 'approve'], ...pendingIds.map((id) => ['ids', String(id)])]);
   assert.equal(res.status, 302);
@@ -221,6 +260,17 @@ test('pay run: overtime is calculated and finalized hours are locked', async () 
 
   res = await admin.post(`/timesheets/${ids.entry}/delete`);
   assert.ok(await db.get('SELECT 1 FROM time_entries WHERE id = ?', ids.entry), 'paid hours must not be deleted');
+  res = await admin.post(`/schedule/${ids.shift}/delete`);
+  assert.ok(await db.get('SELECT 1 FROM shifts WHERE id = ?', ids.shift), 'nor the shift they came from');
+
+  // Each person's DMI timesheet for the pay run, stamped with who finalized it.
+  const alex = await db.get("SELECT id FROM users WHERE email = 'alex@example.com'");
+  assert.equal((await db.get('SELECT finalized_by FROM pay_runs WHERE id = ?', ids.payRun)).finalized_by, alex.id);
+  const line = await db.get('SELECT id FROM pay_run_items WHERE pay_run_id = ?', ids.payRun);
+  const sheet = await admin.get(`/pay/${ids.payRun}/items/${line.id}/timesheet.pdf`);
+  assert.equal(sheet.status, 200);
+  assert.ok(sheet.text.startsWith('%PDF'));
+  assert.match(sheet.headers.get('content-disposition'), /^inline; filename="DMI_Timesheet_Guard_Sam_/);
   res = await admin.post(`/pay/${ids.payRun}/delete`);
   assert.ok(await db.get('SELECT 1 FROM pay_runs WHERE id = ?', ids.payRun), 'finalized pay runs must not be deleted');
 });
@@ -424,8 +474,6 @@ test('conflict checker: finds problems, and "find cover" assigns someone who is 
   ids.conflictDay = day;
 });
 
-// A tiny valid PNG picture, standing in for a drawn signature.
-const SIGNATURE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 const officer = makeClient();
 const signIn = async (client, email, password) => client.post('/login', { email, password }, '/login');
 
@@ -486,60 +534,55 @@ test('calendar: officers see their own month, clients see their sites with short
   res = await client.get('/my/schedule');
   assert.match(res.text, /Olivia O\./);
   assert.doesNotMatch(res.text, /Olivia Officer/);
-  assert.equal((await client.get('/my/timesheets')).status, 403, 'timesheets are for officers');
+  assert.equal((await client.get('/my/pay')).status, 403, 'pay is for officers');
   assert.equal((await client.get('/staff')).location, '/my');
 });
 
-test('officer timesheet: sending it saves hours for approval and the filled-in DMI PDF', async () => {
+test('officers: no timesheets to fill in; their hours from the schedule show in My pay', async () => {
   const { periodStartFor } = require('../src/services/officerTimesheet');
   const period = time.addDays(periodStartFor(time.todayStr()), -14);
   const monday = time.addDays(period, 1);
   await admin.post('/schedule', { site_id: ids.site, employee_id: ids.officer, date: monday, start_time: '08:00', end_time: '16:00', break_minutes: '0' });
 
-  const form = await officer.get(`/my/timesheets/new?period=${period}`);
-  assert.equal(form.status, 200);
-  assert.match(form.text, /Officer, Olivia/);
-  assert.match((await officer.get(`/my/timesheets/new?period=${period}&fill=schedule`)).text, /value="0800"/, 'can start from the schedule');
+  assert.equal((await officer.get('/my/timesheets')).location, '/my/pay', 'old links go to My pay');
+  assert.equal((await officer.get(`/my/timesheets/new?period=${period}`)).location, '/my/pay');
+  assert.notEqual((await officer.post('/my/timesheets', { period, in_1: '0800', out_1: '1600', confirm: '1' })).status, 302);
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM timesheet_submissions')).n, 0, 'officers no longer send timesheets');
 
-  const sheet = { period, phone: '555-0100', location: 'Harbour Mall', in_1: '0800', out_1: '1600', comment_1: 'Main gate', in_2: '2200', out_2: '0600', confirm: '1' };
-  let res = await officer.post('/my/timesheets', sheet);
-  assert.equal(res.status, 400);
-  assert.match(res.text, /sign in the signature box/);
-  res = await officer.post('/my/timesheets', { ...sheet, out_2: '2500', signature: SIGNATURE });
-  assert.equal(res.status, 400);
-  assert.match(res.text, /Check the clock times/);
+  const page = await officer.get('/my/pay');
+  assert.equal(page.status, 200);
+  assert.match(page.text, /Main entrance/);
+  assert.match(page.text, /08:00–16:00/);
+  assert.match(page.text, /fill in your W-9/);
+  const entry = await db.get('SELECT * FROM time_entries WHERE employee_id = ? AND start_at = ?', ids.officer, `${monday}T08:00`);
+  assert.equal(entry.status, 'approved');
+  assert.equal(entry.source, 'schedule');
+  // A one-time list of things to set up.
+  assert.match((await officer.get('/my/schedule')).text, /Finish setting up/);
+});
 
-  res = await officer.post('/my/timesheets', { ...sheet, signature: SIGNATURE });
+test('my details: officers keep their contact details up to date', async () => {
+  let res = await officer.post('/my/details', { phone: '12', email: 'olivia@example.com' });
+  assert.equal(res.status, 400);
+  assert.match(res.text, /phone number/);
+  res = await officer.post('/my/details', {
+    phone: '(213) 555-0199', email: 'olivia.o@example.com', address: '1 Test St, Los Angeles',
+    emergency_contact_name: 'Oscar Officer', emergency_contact_phone: '213-555-0123',
+  });
   assert.equal(res.status, 302);
-  const submission = await db.get("SELECT * FROM timesheet_submissions WHERE employee_id = ? AND status = 'submitted'", ids.officer);
-  assert.equal(submission.total_hours, 16);
-  const entries = await db.all('SELECT * FROM time_entries WHERE submission_id = ? ORDER BY start_at', submission.id);
-  assert.equal(entries.length, 2);
-  assert.ok(entries.every((e) => e.status === 'pending'));
-  assert.equal(entries[0].site_id, ids.site, 'linked to the scheduled shift');
-  assert.equal((await db.get('SELECT status FROM shifts WHERE id = ?', entries[0].shift_id)).status, 'completed');
-  assert.equal(entries[1].end_at, `${time.addDays(period, 3)}T06:00`, 'an overnight shift ends the next day');
+  const me = await db.get('SELECT * FROM employees WHERE id = ?', ids.officer);
+  assert.equal(me.phone, '(213) 555-0199');
+  assert.equal(me.email, 'olivia.o@example.com');
+  assert.equal(me.emergency_contact_phone, '213-555-0123');
+  const account = await db.get('SELECT * FROM users WHERE employee_id = ?', ids.officer);
+  assert.equal(account.phone, '(213) 555-0199');
+  assert.equal(account.email, 'olivia@example.com', 'the email she signs in with stays the same');
+  assert.match((await admin.get('/activity')).text, /Olivia Officer updated their phone, email, address, emergency contact, emergency contact phone/);
+  assert.match((await admin.get(`/staff/${ids.officer}`)).text, /Oscar Officer/);
 
-  const pdf = await officer.get(`/my/timesheets/${submission.id}/pdf`);
-  assert.equal(pdf.status, 200);
-  assert.ok(pdf.text.startsWith('%PDF'));
-  const office = await admin.get('/timesheets/submissions');
-  assert.match(office.text, /Olivia Officer/);
-  assert.ok((await admin.get(`/timesheets/submissions/${submission.id}/pdf`)).text.startsWith('%PDF'));
-  assert.match((await admin.get('/timesheets')).text, /Officer&#39;s PDF|Officer's PDF/);
-
-  // Sending again replaces the earlier one (while the office hasn't checked it).
-  res = await officer.post('/my/timesheets', { ...sheet, in_1: '0900', out_1: '1700', in_2: '', out_2: '', signature: SIGNATURE });
-  assert.equal(res.status, 302);
-  assert.equal((await db.get('SELECT status FROM timesheet_submissions WHERE id = ?', submission.id)).status, 'replaced');
-  const current = await db.all('SELECT * FROM time_entries WHERE employee_id = ?', ids.officer);
-  assert.equal(current.length, 1);
-
-  // Once the office approves it, it can't be changed from the officer's side.
-  await admin.post(`/timesheets/${current[0].id}/approve`);
-  res = await officer.post('/my/timesheets', { ...sheet, signature: SIGNATURE });
-  assert.equal(res.status, 400);
-  assert.match(res.text, /already checked/);
+  const schedule = await officer.get('/my/schedule');
+  assert.doesNotMatch(schedule.text, /Add your phone number|Add an emergency contact/);
+  assert.match(schedule.text, /Fill in your W-9/, 'only the W-9 is left');
 });
 
 test('1099-NEC: W-9 details, company details, issuing and sharing online', async () => {
@@ -552,6 +595,26 @@ test('1099-NEC: W-9 details, company details, issuing and sharing online', async
   const payRun = Number(res.location.split('/').pop());
   await admin.post(`/pay/${payRun}/finalize`, { paid_on: time.todayStr() });
   assert.equal((await db.get('SELECT paid_on FROM pay_runs WHERE id = ?', payRun)).paid_on, time.todayStr());
+
+  // Her payslip and DMI timesheet are in My pay.
+  const line = await db.get('SELECT * FROM pay_run_items WHERE pay_run_id = ? AND employee_id = ?', payRun, ids.officer);
+  assert.match((await officer.get('/my/pay')).text, new RegExp(`/my/pay/${line.id}/timesheet\\.pdf`));
+  assert.match((await officer.get(`/my/pay/${line.id}`)).text, /\$200\.00/);
+  let sheet = await officer.get(`/my/pay/${line.id}/timesheet.pdf`);
+  assert.equal(sheet.status, 200);
+  assert.ok(sheet.text.startsWith('%PDF'));
+  assert.match(sheet.headers.get('content-disposition'), /^inline;/);
+  const kept = (await db.get('SELECT timesheet_file FROM pay_run_items WHERE id = ?', line.id)).timesheet_file;
+  sheet = await officer.get(`/my/pay/${line.id}/timesheet.pdf?download=1`);
+  assert.match(sheet.headers.get('content-disposition'), /^attachment/);
+  assert.equal((await db.get('SELECT timesheet_file FROM pay_run_items WHERE id = ?', line.id)).timesheet_file, kept, 'made once, then kept');
+  // Nobody else's.
+  res = await admin.post('/users', { name: 'Owen Other', email: 'owen@example.com', role: 'officer', employee_id: 'new', password: 'other officer 1', confirm: 'other officer 1', active: '1' });
+  assert.equal(res.status, 302);
+  const other = makeClient();
+  await signIn(other, 'owen@example.com', 'other officer 1');
+  assert.equal((await other.get(`/my/pay/${line.id}`)).status, 404);
+  assert.equal((await other.get(`/my/pay/${line.id}/timesheet.pdf`)).status, 404);
 
   // Her W-9 details.
   assert.match((await officer.get('/my/tax')).text, /Fill in now/);
@@ -626,48 +689,55 @@ test('1099-NEC: W-9 details, company details, issuing and sharing online', async
   assert.deepEqual([corrected.status, corrected.corrected], ['draft', 1]);
 });
 
-test('approved timesheets: the officer views or downloads the approved copy in their account', async () => {
-  // The earlier approval made the approved copy.
-  const submission = await db.get("SELECT * FROM timesheet_submissions WHERE employee_id = ? AND status = 'submitted' AND approved_at IS NOT NULL", ids.officer);
-  assert.ok(submission.approved_file_name);
-  assert.notEqual(submission.approved_file_name, submission.file_name);
-  const list = await officer.get('/my/timesheets');
-  assert.match(list.text, /Approved copy · Alex Admin/);
-  assert.match(list.text, new RegExp(`/my/timesheets/${submission.id}/pdf\\?download=1`));
+test('timesheets officers sent before: the approved copy is in My pay to view or download', async () => {
+  // A timesheet Olivia sent herself, before hours came from the schedule.
+  const { periodStartFor, buildTimesheetPdf } = require('../src/services/officerTimesheet');
+  const { saveUpload } = require('../src/uploads');
+  const period = time.addDays(periodStartFor(time.todayStr()), -28);
+  const pdf = await buildTimesheetPdf({ name: 'Officer, Olivia', location: 'Harbour Mall', phone: '555-0100', start: period, worked: [] });
+  const stored = await saveUpload({ originalname: 'timesheet.pdf', buffer: pdf, size: pdf.length });
+  const sheetId = await db.insert(
+    'INSERT INTO timesheet_submissions (employee_id, period_start, period_end, total_hours, file_name) VALUES (?, ?, ?, 12, ?)',
+    ids.officer, period, time.addDays(period, 13), stored.file_name
+  );
+  for (const [day, end] of [[1, '16:00'], [2, '12:00']]) {
+    const date = time.addDays(period, day);
+    await db.run("INSERT INTO time_entries (employee_id, start_at, end_at, submission_id, source) VALUES (?, ?, ?, ?, 'officer')", ids.officer, `${date}T08:00`, `${date}T${end}`, sheetId);
+  }
 
-  // "View" opens it in the browser; "Download" saves it.
-  let res = await officer.get(`/my/timesheets/${submission.id}/pdf`);
+  // The approved copy is made when the LAST waiting day is checked.
+  const [first, second] = await db.all('SELECT id FROM time_entries WHERE submission_id = ? ORDER BY start_at', sheetId);
+  await admin.post(`/timesheets/${first.id}/approve`);
+  assert.equal((await db.get('SELECT approved_file_name FROM timesheet_submissions WHERE id = ?', sheetId)).approved_file_name, null, 'not while a day is still waiting');
+  assert.match((await officer.get(`/my/timesheets/${sheetId}/pdf`)).headers.get('content-disposition'), /filename="[^"]*\d\.pdf"/, 'until then, the copy they signed');
+  let res = await admin.post(`/timesheets/${second.id}/reject`);
+  const done = await db.get('SELECT * FROM timesheet_submissions WHERE id = ?', sheetId);
+  assert.ok(done.approved_file_name, 'one day approved and one rejected still counts as checked');
+  assert.notEqual(done.approved_file_name, done.file_name);
+  assert.match((await admin.get(res.location)).text, /now fully approved/);
+  assert.match((await admin.get('/timesheets/submissions')).text, /View approved copy/);
+  res = await admin.get(`/timesheets/submissions/${sheetId}/approved-pdf`);
+  assert.match(res.headers.get('content-disposition'), /^inline;/);
+  assert.ok(res.text.startsWith('%PDF'));
+
+  // In her account: "View" opens it in the browser; "Download" saves it.
+  const list = await officer.get('/my/pay');
+  assert.match(list.text, /Timesheets you sent before/);
+  assert.match(list.text, /Approved copy · Alex Admin/);
+  assert.match(list.text, new RegExp(`/my/timesheets/${sheetId}/pdf\\?download=1`));
+  res = await officer.get(`/my/timesheets/${sheetId}/pdf`);
   assert.equal(res.status, 200);
   assert.ok(res.text.startsWith('%PDF'));
   assert.equal(res.headers.get('content-type'), 'application/pdf');
   assert.match(res.headers.get('content-disposition'), /^inline; filename=".*_approved\.pdf"/);
-  res = await officer.get(`/my/timesheets/${submission.id}/pdf?download=1`);
+  res = await officer.get(`/my/timesheets/${sheetId}/pdf?download=1`);
   assert.match(res.headers.get('content-disposition'), /^attachment; filename="?.*_approved\.pdf/);
 
   // Nobody else can open it.
   const client = makeClient();
   await signIn(client, 'carla@example.com', 'client password 1');
-  assert.equal((await client.get(`/my/timesheets/${submission.id}/pdf`)).status, 403);
-  assert.equal((await makeClient().get(`/my/timesheets/${submission.id}/pdf`)).status, 302, 'needs a login');
-
-  // The approved copy is made when the LAST waiting day is checked.
-  const { periodStartFor } = require('../src/services/officerTimesheet');
-  const period = time.addDays(periodStartFor(time.todayStr()), -28);
-  res = await officer.post('/my/timesheets', { period, in_1: '0800', out_1: '1600', in_2: '0800', out_2: '1200', confirm: '1', signature: SIGNATURE });
-  assert.equal(res.status, 302);
-  const sheet = await db.get("SELECT * FROM timesheet_submissions WHERE employee_id = ? AND period_start = ? AND status = 'submitted'", ids.officer, period);
-  const [first, second] = await db.all('SELECT id FROM time_entries WHERE submission_id = ? ORDER BY start_at', sheet.id);
-  await admin.post(`/timesheets/${first.id}/approve`);
-  assert.equal((await db.get('SELECT approved_file_name FROM timesheet_submissions WHERE id = ?', sheet.id)).approved_file_name, null, 'not while a day is still waiting');
-  assert.match((await officer.get(`/my/timesheets/${sheet.id}/pdf`)).headers.get('content-disposition'), /filename="[^"]*\d\.pdf"/, 'until then, the copy they signed');
-  res = await admin.post(`/timesheets/${second.id}/reject`);
-  const done = await db.get('SELECT * FROM timesheet_submissions WHERE id = ?', sheet.id);
-  assert.ok(done.approved_file_name, 'one day approved and one rejected still counts as checked');
-  assert.match((await admin.get(res.location)).text, /now fully approved/);
-  assert.match((await admin.get('/timesheets/submissions')).text, /View approved copy/);
-  res = await admin.get(`/timesheets/submissions/${sheet.id}/approved-pdf`);
-  assert.match(res.headers.get('content-disposition'), /^inline;/);
-  assert.ok(res.text.startsWith('%PDF'));
+  assert.equal((await client.get(`/my/timesheets/${sheetId}/pdf`)).status, 403);
+  assert.equal((await makeClient().get(`/my/timesheets/${sheetId}/pdf`)).status, 302, 'needs a login');
 });
 
 test('every main page loads', async () => {

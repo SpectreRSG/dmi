@@ -778,8 +778,6 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
 .shift-who { font-weight: 500; }
 .shift-where { color: var(--muted); font-size: 12px; }
 .shift-status { margin-top: 2px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
-.shift-action { margin: 6px 0 0; }
-.shift-action .btn { font-size: 11.5px; padding: 3px 7px; }
 
 .shift.is-open { background: var(--red-bg); border-left-color: var(--red); }
 .shift.is-open .shift-who { color: var(--red); font-weight: 700; }
@@ -951,6 +949,9 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
 
 /* ---- Officer / client monthly calendar (/my/schedule) ------------------- */
 .next-shift { display: flex; flex-direction: column; gap: 2px; border-left: 4px solid var(--primary); }
+.setup-steps { border-left: 4px solid var(--amber); }
+.setup-steps h2 { margin-bottom: 2px; }
+.setup-steps ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }
 .month-totals { margin: 0; }
 .site-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 20px; }
 .site-cards .card { margin: 0; }
@@ -1100,6 +1101,7 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
 .page-actions label.inline { white-space: nowrap; }
 .form-card h2.spaced { margin-top: 26px; }
 .form-card > p.hint { margin: 0 0 12px; }
+.form-card > p.hint.form-note { margin: 16px 0 0; }
 .btn-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
 
 /* Tables that turn into one card per row on phones (e.g. an officer's timesheets). */

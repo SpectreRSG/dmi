@@ -1,14 +1,15 @@
 // "My" pages for officers and clients: their monthly schedule, and (officers)
-// timesheets and tax forms. They never see pay rates, other people's phone
-// numbers or anything else from the back office.
+// their pay, contact details and tax forms. They never see other people's pay,
+// phone numbers or anything else from the back office.
 const express = require('express');
 const db = require('../db');
-const { notFound, numericIdParam, logActivity, employeeName } = require('../helpers');
+const { clean, notFound, numericIdParam, logActivity, employeeName } = require('../helpers');
 const time = require('../time');
 const { homeFor } = require('../auth');
-const { entryHours, round2 } = require('../services/payroll');
-const sheets = require('../services/officerTimesheet');
-const { saveUpload, sendUpload } = require('../uploads');
+const { entryHours, round2, calculatePayLine } = require('../services/payroll');
+const { recordFinishedShifts } = require('../services/hoursFromSchedule');
+const { findPayLine, payLineTimesheet, timesheetFileName } = require('../services/payTimesheet');
+const { sendUpload } = require('../uploads');
 
 const router = express.Router();
 numericIdParam(router);
@@ -38,6 +39,19 @@ async function officerOnly(req, res, next) {
 }
 
 router.get('/', (req, res) => res.redirect('/my/schedule'));
+
+// What an officer still needs to do once, after their account is set up.
+// After that, there's nothing to fill in: hours come from the schedule.
+async function setupSteps(employeeId) {
+  const me = await db.get('SELECT * FROM employees WHERE id = ?', employeeId);
+  const steps = [];
+  if (!me.phone) steps.push({ label: 'Add your phone number', href: '/my/details' });
+  if (!me.emergency_contact_name || !me.emergency_contact_phone) steps.push({ label: 'Add an emergency contact', href: '/my/details' });
+  if (me.tax_form === '1099' && !(await db.get('SELECT 1 FROM tax_profiles WHERE employee_id = ?', employeeId))) {
+    steps.push({ label: 'Fill in your W-9 (for your 1099)', href: '/my/tax/w9' });
+  }
+  return steps;
+}
 
 // ---- Monthly calendar ---------------------------------------------------------
 
@@ -134,6 +148,7 @@ router.get('/schedule', async (req, res) => {
     ? []
     : await db.all('SELECT name, address, instructions FROM sites WHERE client_id = ? AND active = 1 ORDER BY name', scopeId);
   const client = isOfficer ? null : await db.get('SELECT name FROM clients WHERE id = ?', scopeId);
+  const setup = isOfficer ? await setupSteps(scopeId) : [];
 
   res.render('my/schedule', {
     title: isOfficer ? 'My schedule' : 'Schedule',
@@ -148,6 +163,7 @@ router.get('/schedule', async (req, res) => {
     monthItems,
     next: nextShift,
     sites,
+    setup,
     totals: {
       shifts: live.length,
       hours: round2(live.reduce((sum, i) => sum + i.hours, 0)),
@@ -156,187 +172,90 @@ router.get('/schedule', async (req, res) => {
   });
 });
 
-// ---- Timesheets (officers) ------------------------------------------------------
+// ---- My pay (officers) ------------------------------------------------------------
+// Hours come from the schedule by themselves, so officers don't fill in
+// timesheets: they just see what's been recorded and what they were paid.
 
-async function submissionStatus(submissionId) {
-  const rows = await db.all(
-    `SELECT t.status, p.status AS pay_run_status, COUNT(*)::int AS n FROM time_entries t
-     LEFT JOIN pay_runs p ON p.id = t.pay_run_id WHERE t.submission_id = ? GROUP BY t.status, p.status`,
-    submissionId
-  );
-  const count = (status) => rows.filter((r) => r.status === status).reduce((sum, r) => sum + r.n, 0);
-  return {
-    pending: count('pending'),
-    approved: count('approved'),
-    rejected: count('rejected'),
-    paid: rows.filter((r) => r.pay_run_status === 'finalized').reduce((sum, r) => sum + r.n, 0),
-  };
+router.get('/pay', officerOnly, async (req, res) => {
+  await recordFinishedShifts();
+  const [recorded, paid, sent, taxProfile, taxForms] = await Promise.all([
+    // Hours not paid yet (not in a finalized pay run).
+    db.all(
+      `SELECT t.*, si.name AS site_name FROM time_entries t
+       LEFT JOIN sites si ON si.id = t.site_id LEFT JOIN pay_runs p ON p.id = t.pay_run_id
+       WHERE t.employee_id = ? AND t.status != 'rejected' AND (p.id IS NULL OR p.status != 'finalized')
+       ORDER BY t.start_at DESC LIMIT 200`,
+      req.me.id
+    ),
+    db.all(
+      `SELECT i.*, p.period_start, p.period_end, p.paid_on FROM pay_run_items i JOIN pay_runs p ON p.id = i.pay_run_id
+       WHERE i.employee_id = ? AND p.status = 'finalized' ORDER BY p.period_end DESC LIMIT 52`,
+      req.me.id
+    ),
+    // Timesheets they sent in themselves, before hours came from the schedule.
+    db.all(
+      `SELECT s.*, u.name AS approver_name FROM timesheet_submissions s LEFT JOIN users u ON u.id = s.approved_by
+       WHERE s.employee_id = ? AND s.status = 'submitted' ORDER BY s.period_start DESC LIMIT 52`,
+      req.me.id
+    ),
+    db.get('SELECT 1 FROM tax_profiles WHERE employee_id = ?', req.me.id),
+    db.get("SELECT COUNT(*)::int AS n FROM tax_forms WHERE employee_id = ? AND status = 'issued' AND released = 1", req.me.id),
+  ]);
+  for (const entry of recorded) entry.hours = round2(entryHours(entry));
+  const approved = recorded.filter((e) => e.status === 'approved');
+  const { settings } = res.locals;
+  const estimate = calculatePayLine({
+    entries: approved,
+    hourlyRate: req.me.hourly_rate,
+    weeklyLimit: settings.overtime_weekly_hours,
+    multiplier: settings.overtime_multiplier,
+  });
+  res.render('my/pay', {
+    title: 'My pay',
+    recorded,
+    recordedHours: round2(recorded.reduce((sum, e) => sum + e.hours, 0)),
+    waiting: recorded.filter((e) => e.status === 'pending').length,
+    estimate,
+    paid,
+    sent,
+    needsW9: req.me.tax_form === '1099' && !taxProfile,
+    taxFormsReady: taxForms.n,
+  });
+});
+
+// One of their pay lines from a finalized pay run (never drafts, never anyone else's).
+async function myPayLine(req, res, next) {
+  const line = await findPayLine(req.params.id);
+  if (!line || line.employee_id !== req.me.id || line.run_status !== 'finalized') return notFound(res, 'payslip');
+  req.line = line;
+  next();
 }
 
-function currentSubmission(employeeId, periodStart) {
-  return db.get(
-    "SELECT * FROM timesheet_submissions WHERE employee_id = ? AND period_start = ? AND status = 'submitted' ORDER BY id DESC LIMIT 1",
-    employeeId,
-    periodStart
-  );
-}
-
-router.get('/timesheets', officerOnly, async (req, res) => {
-  const submissions = await db.all(
-    `SELECT s.*, u.name AS approver_name FROM timesheet_submissions s LEFT JOIN users u ON u.id = s.approved_by
-     WHERE s.employee_id = ? AND s.status = 'submitted' ORDER BY s.period_start DESC LIMIT 52`,
+router.get('/pay/:id', officerOnly, myPayLine, async (req, res) => {
+  const run = await db.get('SELECT * FROM pay_runs WHERE id = ?', req.line.pay_run_id);
+  const item = { ...req.line, position: req.me.position };
+  const entries = await db.all(
+    `SELECT t.*, si.name AS site_name FROM time_entries t LEFT JOIN sites si ON si.id = t.site_id
+     WHERE t.pay_run_id = ? AND t.employee_id = ? ORDER BY t.start_at`,
+    run.id,
     req.me.id
   );
-  for (const s of submissions) s.counts = await submissionStatus(s.id);
-  const current = sheets.periodStartFor(time.todayStr());
-  res.render('my/timesheets', {
-    title: 'Timesheets',
-    submissions,
-    currentPeriod: current,
-    previousPeriod: time.addDays(current, -sheets.PERIOD_DAYS),
-  });
+  for (const entry of entries) entry.hours = round2(entryHours(entry));
+  res.render('pay/payslip', { title: 'Payslip', run, item, entries, back: '/my/pay', timesheetHref: `/my/pay/${item.id}/timesheet.pdf` });
 });
 
-// "Last, First" like the paper form.
-const sheetName = (e) => `${e.last_name}, ${e.first_name}`;
-
-async function renderSheet(req, res, start, values, error, status = 200) {
-  const existing = await currentSubmission(req.me.id, start);
-  const counts = existing ? await submissionStatus(existing.id) : null;
-  res.status(status).render('my/timesheet-form', {
-    title: `Timesheet ${sheets.periodLabel(start)}`,
-    start,
-    end: sheets.periodEnd(start),
-    prev: time.addDays(start, -sheets.PERIOD_DAYS),
-    next: time.addDays(start, sheets.PERIOD_DAYS),
-    current: sheets.periodStartFor(time.todayStr()),
-    values,
-    error,
-    existing,
-    locked: Boolean(counts && (counts.approved || counts.rejected)),
-    short: sheets.short,
-  });
-}
-
-router.get('/timesheets/new', officerOnly, async (req, res) => {
-  const start = sheets.periodStartFor(time.isValidDate(req.query.period) ? req.query.period : time.todayStr());
-  const end = sheets.periodEnd(start);
-  const existing = await currentSubmission(req.me.id, start);
-  const last = await db.get('SELECT location, phone FROM timesheet_submissions WHERE employee_id = ? ORDER BY id DESC LIMIT 1', req.me.id);
-  const values = {
-    name: sheetName(req.me),
-    phone: existing?.phone || last?.phone || req.user.phone || req.me.phone || '',
-    location: existing?.location || last?.location || '',
-    rows: {},
-  };
-  const toRow = (startAt, endAt, comment) => ({
-    in: time.fmtTime(startAt).replace(':', ''),
-    out: time.fmtTime(endAt).replace(':', ''),
-    comment: comment || '',
-  });
-  if (req.query.fill === 'schedule') {
-    // Start from the shifts on the schedule so far (the officer then fixes any times that were different).
-    const planned = await db.all(
-      `SELECT s.start_at, s.end_at, si.name AS site_name FROM shifts s JOIN sites si ON si.id = s.site_id
-       WHERE s.employee_id = ? AND s.status != 'cancelled' AND s.start_at >= ? AND s.start_at < ? AND s.start_at <= ?
-       AND NOT EXISTS (SELECT 1 FROM time_entries t WHERE t.shift_id = s.id AND t.submission_id IS NULL)
-       ORDER BY s.start_at`,
-      req.me.id,
-      `${start}T00:00`,
-      `${time.addDays(end, 1)}T00:00`,
-      time.nowStr() // only shifts that have started, not ones still to come
-    );
-    for (const s of planned) values.rows[s.start_at.slice(0, 10)] ??= toRow(s.start_at, s.end_at, s.site_name);
-    if (!values.location && planned.length) values.location = planned[0].site_name;
-  } else if (existing) {
-    const entries = await db.all('SELECT start_at, end_at, notes FROM time_entries WHERE submission_id = ? ORDER BY start_at', existing.id);
-    for (const e of entries) values.rows[e.start_at.slice(0, 10)] = toRow(e.start_at, e.end_at, e.notes);
-  }
-  await renderSheet(req, res, start, values, null);
+// Their DMI timesheet for that pay period: opens in the browser; ?download=1 saves it.
+router.get('/pay/:id/timesheet.pdf', officerOnly, myPayLine, async (req, res) => {
+  const file = await payLineTimesheet(req.line);
+  await sendUpload(res, file, timesheetFileName(req.line), { inline: !req.query.download });
 });
 
-router.post('/timesheets', officerOnly, async (req, res) => {
-  const start = sheets.periodStartFor(time.isValidDate(req.body.period) ? req.body.period : time.todayStr());
-  const { rows, worked, error: rowError } = sheets.readRows(req.body, start);
-  const values = {
-    name: sheetName(req.me),
-    phone: String(req.body.phone || '').trim().slice(0, 40),
-    location: String(req.body.location || '').trim().slice(0, 80),
-    rows: Object.fromEntries(rows.map((r) => [r.date, { in: r.clock_in, out: r.clock_out, comment: r.comment }])),
-  };
-  const fail = (message) => renderSheet(req, res, start, values, message, 400);
-  if (rowError) return fail(rowError);
-  const future = worked.find((r) => r.date > time.todayStr());
-  if (future) return fail(`${sheets.short(future.date)} hasn't happened yet. Only send hours you've already worked.`);
-  const signature = sheets.readSignature(req.body.signature);
-  if (!signature) return fail('Please sign in the signature box.');
-  if (!req.body.confirm) return fail('Please tick the box to confirm these hours are correct.');
+// Old links to the timesheet pages now go to My pay.
+router.get(['/timesheets', '/timesheets/new'], officerOnly, (req, res) => res.redirect('/my/pay'));
 
-  const previous = await currentSubmission(req.me.id, start);
-  if (previous) {
-    const counts = await submissionStatus(previous.id);
-    if (counts.approved || counts.rejected) {
-      return fail('The office has already checked this timesheet, so it can no longer be changed here. Please contact the office.');
-    }
-  }
-  // The same hours can't be claimed twice (within this sheet, or against other entries).
-  for (let i = 1; i < worked.length; i += 1) {
-    if (worked[i].start_at < worked[i - 1].end_at) {
-      return fail(`The hours on ${sheets.short(worked[i - 1].date)} and ${sheets.short(worked[i].date)} overlap.`);
-    }
-  }
-  for (const row of worked) {
-    const overlap = await db.get(
-      `SELECT start_at, end_at FROM time_entries WHERE employee_id = ? AND status != 'rejected'
-       AND (submission_id IS NULL OR submission_id != ?) AND start_at < ? AND end_at > ? LIMIT 1`,
-      req.me.id,
-      previous?.id || 0,
-      row.end_at,
-      row.start_at
-    );
-    if (overlap) {
-      return fail(`The hours on ${sheets.short(row.date)} overlap hours already recorded for you (${time.fmtDay(overlap.start_at)} ${time.fmtRange(overlap.start_at, overlap.end_at)}). The office may have entered them already.`);
-    }
-  }
-
-  const pdf = await sheets.buildTimesheetPdf({ ...values, start, worked, signature });
-  const stored = await saveUpload({ originalname: 'timesheet.pdf', buffer: pdf, size: pdf.length });
-  const totalHours = round2(worked.reduce((sum, r) => sum + r.hours, 0));
-
-  await db.transaction(async (tx) => {
-    if (previous) {
-      await tx.run("DELETE FROM time_entries WHERE submission_id = ? AND status = 'pending'", previous.id);
-      await tx.run("UPDATE timesheet_submissions SET status = 'replaced' WHERE id = ?", previous.id);
-    }
-    const submissionId = await tx.insert(
-      `INSERT INTO timesheet_submissions (employee_id, user_id, period_start, period_end, location, phone, total_hours, file_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      req.me.id, req.user.id, start, sheets.periodEnd(start), values.location, values.phone, totalHours, stored.file_name
-    );
-    for (const row of worked) {
-      // Link the hours to the matching shift on the schedule, if there is one.
-      const shift = await tx.get(
-        `SELECT s.id, s.site_id FROM shifts s WHERE s.employee_id = ? AND s.status != 'cancelled'
-         AND s.start_at < ? AND s.end_at > ? AND NOT EXISTS (SELECT 1 FROM time_entries t WHERE t.shift_id = s.id)
-         ORDER BY s.start_at LIMIT 1`,
-        req.me.id, row.end_at, row.start_at
-      );
-      await tx.run(
-        `INSERT INTO time_entries (employee_id, site_id, shift_id, start_at, end_at, notes, submission_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        req.me.id, shift?.site_id ?? null, shift?.id ?? null, row.start_at, row.end_at, row.comment || null, submissionId
-      );
-      if (shift) await tx.run("UPDATE shifts SET status = 'completed' WHERE id = ?", shift.id);
-    }
-  });
-  await logActivity(req, `${employeeName(req.me)} sent a timesheet for ${sheets.periodLabel(start)} (${totalHours} h)${previous ? ', replacing an earlier one' : ''}`);
-  req.flash('success', `Timesheet sent: ${worked.length} day(s), ${sheets.fmtHours(totalHours)} hours. The office will check it.`);
-  res.redirect('/my/timesheets');
-});
-
-// The officer's timesheet PDF: the approved copy once the office has approved
-// it, otherwise the one they signed. It opens in the browser to look at;
-// ?download=1 saves it instead.
+// A timesheet they sent before hours came from the schedule: the approved copy
+// once the office approved it, otherwise the one they signed. It opens in the
+// browser to look at; ?download=1 saves it instead.
 router.get('/timesheets/:id/pdf', officerOnly, async (req, res) => {
   const submission = await db.get('SELECT * FROM timesheet_submissions WHERE id = ? AND employee_id = ?', req.params.id, req.me.id);
   if (!submission?.file_name) return notFound(res, 'timesheet');
@@ -347,6 +266,53 @@ router.get('/timesheets/:id/pdf', officerOnly, async (req, res) => {
     `DMI_Timesheet_${submission.period_start}_to_${submission.period_end}${approved ? '_approved' : ''}.pdf`,
     { inline: !req.query.download }
   );
+});
+
+// ---- My details (officers) ---------------------------------------------------------
+// Their phone, email, address and emergency contact: the office sees the
+// changes straight away on their staff record.
+
+const DETAIL_FIELDS = ['phone', 'email', 'address', 'emergency_contact_name', 'emergency_contact_phone'];
+const DETAIL_LABELS = {
+  phone: 'phone',
+  email: 'email',
+  address: 'address',
+  emergency_contact_name: 'emergency contact',
+  emergency_contact_phone: 'emergency contact phone',
+};
+const looksLikePhone = (value) => (value.match(/\d/g) || []).length >= 7;
+
+function readDetails(body) {
+  const values = clean(body, DETAIL_FIELDS);
+  for (const field of DETAIL_FIELDS) if (values[field]) values[field] = values[field].slice(0, field === 'address' ? 200 : 100);
+  let error = null;
+  if (!values.phone || !looksLikePhone(values.phone)) error = 'Please enter your phone number, so the office can reach you about shifts.';
+  else if (values.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email)) error = 'That email address doesn\'t look right.';
+  else if (values.emergency_contact_phone && !looksLikePhone(values.emergency_contact_phone)) error = 'Please check the emergency contact\'s phone number.';
+  return { values, error };
+}
+
+router.get('/details', officerOnly, (req, res) => {
+  res.render('my/details', { title: 'My details', values: req.me, error: null });
+});
+
+router.post('/details', officerOnly, async (req, res) => {
+  const { values, error } = readDetails(req.body);
+  if (error) return res.status(400).render('my/details', { title: 'My details', values, error });
+  const changed = DETAIL_FIELDS.filter((f) => (values[f] || null) !== (req.me[f] || null));
+  if (changed.length) {
+    await db.transaction(async (tx) => {
+      await tx.run(
+        `UPDATE employees SET phone = @phone, email = @email, address = @address,
+         emergency_contact_name = @emergency_contact_name, emergency_contact_phone = @emergency_contact_phone WHERE id = @id`,
+        { ...values, id: req.me.id }
+      );
+      await tx.run('UPDATE users SET phone = ? WHERE id = ?', values.phone, req.user.id);
+    });
+    await logActivity(req, `${employeeName(req.me)} updated their ${changed.map((f) => DETAIL_LABELS[f]).join(', ')}`);
+  }
+  req.flash('success', changed.length ? 'Your details were saved. The office can see them now.' : 'Nothing had changed.');
+  res.redirect('/my/details');
 });
 
 router.use('/tax', officerOnly, require('./myTax'));

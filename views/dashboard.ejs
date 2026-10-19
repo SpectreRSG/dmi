@@ -43,8 +43,8 @@
 
 <% if (stats.overdueShifts) { %>
   <div class="flash flash-warning">
-    <%= stats.overdueShifts %> finished shift<%= stats.overdueShifts === 1 ? ' has' : 's have' %> not been marked as worked yet.
-    Open them in the <a href="/schedule">schedule</a> and press <strong>Mark as worked</strong> so the hours go to timesheets.
+    <%= stats.overdueShifts %> finished shift<%= stats.overdueShifts === 1 ? ' is' : 's are' %> from before hours were recorded from the schedule, so <%= stats.overdueShifts === 1 ? 'it has' : 'they have' %> no hours yet.
+    If <%= stats.overdueShifts === 1 ? 'it was' : 'they were' %> worked, <a href="/timesheets/new">add the hours</a> in Timesheets.
   </div>
 <% } %>
 

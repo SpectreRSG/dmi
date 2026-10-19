@@ -15,6 +15,7 @@ const { loadUser, requireLogin, requireAdmin, requireBackOffice, homeFor } = req
 const { getSettings } = require('./settings');
 const { getSessionSecret } = require('./secrets');
 const viewHelpers = require('./viewHelpers');
+const { catchUp } = require('./services/hoursFromSchedule');
 
 const app = express();
 
@@ -96,6 +97,10 @@ app.use(csrfProtection);
 // ---- Pages ------------------------------------------------------------------
 app.use(require('./routes/auth')); // /setup, /login, /register, /logout (no login needed)
 app.use(requireLogin); // everything below needs a login
+app.use(async (req, res, next) => {
+  await catchUp(); // record the hours of shifts that have ended (at most once a minute)
+  next();
+});
 
 app.use('/account', require('./routes/account')); // every kind of account
 app.use('/my', require('./routes/my')); // officers' and clients' own pages

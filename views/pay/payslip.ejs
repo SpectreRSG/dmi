@@ -1,7 +1,10 @@
 <%- include('../partials/top') %>
 <div class="page-head no-print">
-  <div><p class="page-sub"><a href="/pay/<%= run.id %>">← Back to pay run</a></p></div>
-  <div class="page-actions"><button type="button" class="btn btn-primary" data-print>Print / save as PDF</button></div>
+  <div><p class="page-sub"><a href="<%= locals.back || `/pay/${run.id}` %>">← Back to <%= locals.back ? 'my pay' : 'pay run' %></a></p></div>
+  <div class="page-actions">
+    <% if (locals.timesheetHref) { %><a class="btn" href="<%= timesheetHref %>" target="_blank" rel="noopener"><%- icon('file') %> DMI timesheet</a><% } %>
+    <button type="button" class="btn btn-primary" data-print>Print / save as PDF</button>
+  </div>
 </div>
 <article class="card payslip">
   <header class="payslip-head">

@@ -6,6 +6,7 @@ const time = require('../time');
 const { entryHours, round2 } = require('../services/payroll');
 const { complianceForEmployee } = require('../services/compliance');
 const { TYPES, findConflicts, coverOptions } = require('../services/conflicts');
+const { recordFinishedShifts, hoursFromShift, syncHoursWithShift } = require('../services/hoursFromSchedule');
 
 const router = express.Router();
 numericIdParam(router);
@@ -154,6 +155,7 @@ router.get('/', async (req, res) => {
     where.push('s.employee_id = ?');
     params.push(employeeId);
   }
+  await recordFinishedShifts(); // so shifts that have ended show as completed
   const [shifts, sites, staff, conflicts] = await Promise.all([
     db.all(`${SHIFT_SELECT} WHERE ${where.join(' AND ')} ORDER BY s.start_at, si.name`, ...params),
     siteOptions(),
@@ -333,13 +335,17 @@ router.post('/', async (req, res) => {
 router.get('/:id/edit', async (req, res) => {
   const shift = await findShift(req.params.id);
   if (!shift) return notFound(res, 'shift');
-  const timeEntry = await db.get('SELECT id FROM time_entries WHERE shift_id = ?', shift.id);
+  const timeEntry = await db.get(
+    `SELECT t.id, t.source, t.status, p.status AS pay_run_status FROM time_entries t LEFT JOIN pay_runs p ON p.id = t.pay_run_id
+     WHERE t.shift_id = ?`,
+    shift.id
+  );
   await renderForm(res, {
     ...shift,
     date: shift.start_at.slice(0, 10),
     start_time: time.fmtTime(shift.start_at),
     end_time: time.fmtTime(shift.end_at),
-    time_entry_id: timeEntry?.id,
+    time_entry: timeEntry,
   });
 });
 
@@ -353,15 +359,27 @@ router.post('/:id', async (req, res) => {
     const clash = await findClash(db, values.employee_id, values.start_at, values.end_at, shift.id);
     if (clash) return renderForm(res, { ...values, id: shift.id }, clashMessage(clash), 400);
   }
+  // Once its hours are paid, only the notes can change.
+  const recorded = await hoursFromShift(db, shift.id);
+  if (recorded?.pay_run_status === 'finalized') {
+    const same = ['site_id', 'employee_id', 'start_at', 'end_at', 'break_minutes', 'status'].every((f) => values[f] === shift[f]);
+    if (!same) return renderForm(res, { ...values, id: shift.id }, 'The hours from this shift have already been paid, so only its notes can change now.', 400);
+  }
 
-  await db.run(
-    `UPDATE shifts SET site_id = @site_id, employee_id = @employee_id, start_at = @start_at, end_at = @end_at,
-     break_minutes = @break_minutes, status = @status, notes = @notes WHERE id = @id`,
-    { ...values, id: shift.id }
-  );
+  await db.transaction(async (tx) => {
+    await tx.run(
+      `UPDATE shifts SET site_id = @site_id, employee_id = @employee_id, start_at = @start_at, end_at = @end_at,
+       break_minutes = @break_minutes, status = @status, notes = @notes WHERE id = @id`,
+      { ...values, id: shift.id }
+    );
+    await syncHoursWithShift(tx, shift.id); // the hours recorded from it follow
+  });
 
   await logActivity(req, `Updated shift #${shift.id} on ${values.date}`);
-  req.flash('success', 'Shift saved.');
+  if (!recorded) req.flash('success', 'Shift saved.');
+  else if (await hoursFromShift(db, shift.id)) req.flash('success', 'Shift saved, and the hours recorded from it now match.');
+  else req.flash('success', 'Shift saved, and the hours recorded from it were removed.');
+  if (recorded?.pay_run_id) req.flash('warning', 'Its hours were in a draft pay run. Open the pay run and press "Recalculate".');
   if (values.employee_id && values.employee_id !== shift.employee_id) {
     const warning = await complianceWarning(values.employee_id, values.date, res.locals.settings.expiry_warning_days);
     if (warning) req.flash('warning', warning);
@@ -372,43 +390,18 @@ router.post('/:id', async (req, res) => {
 router.post('/:id/delete', async (req, res) => {
   const shift = await findShift(req.params.id);
   if (!shift) return notFound(res, 'shift');
-  await db.run('DELETE FROM shifts WHERE id = ?', shift.id);
-  await logActivity(req, `Deleted shift #${shift.id} (${shift.site_name}, ${shift.start_at.slice(0, 10)})`);
-  req.flash('success', 'Shift deleted.');
-  res.redirect(`/schedule?week=${time.startOfWeek(shift.start_at.slice(0, 10))}`);
-});
-
-// "Worked as planned": marks the shift completed and copies it into the
-// timesheets so it can be approved and paid.
-router.post('/:id/complete', async (req, res) => {
-  const shift = await findShift(req.params.id);
-  if (!shift) return notFound(res, 'shift');
-  const back = `/schedule?week=${time.startOfWeek(shift.start_at.slice(0, 10))}`;
-  if (!shift.employee_id) {
-    req.flash('error', 'Assign someone to this shift before marking it as worked.');
-    return res.redirect(back);
-  }
-  if (await db.get('SELECT 1 FROM time_entries WHERE shift_id = ?', shift.id)) {
-    req.flash('warning', 'This shift is already in the timesheets.');
-    return res.redirect(back);
+  const recorded = await hoursFromShift(db, shift.id);
+  if (recorded?.pay_run_status === 'finalized') {
+    req.flash('error', 'The hours from this shift have already been paid, so it can no longer be deleted.');
+    return res.redirect(`/schedule/${shift.id}/edit`);
   }
   await db.transaction(async (tx) => {
-    await tx.run(
-      `INSERT INTO time_entries (employee_id, site_id, shift_id, start_at, end_at, break_minutes, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      shift.employee_id,
-      shift.site_id,
-      shift.id,
-      shift.start_at,
-      shift.end_at,
-      shift.break_minutes,
-      shift.notes
-    );
-    await tx.run("UPDATE shifts SET status = 'completed' WHERE id = ?", shift.id);
+    if (recorded) await tx.run('DELETE FROM time_entries WHERE id = ?', recorded.id); // its hours go with it
+    await tx.run('DELETE FROM shifts WHERE id = ?', shift.id);
   });
-  await logActivity(req, `Marked shift #${shift.id} as worked by ${employeeName(shift)}`);
-  req.flash('success', `Shift marked as worked. ${employeeName(shift)}'s hours are waiting for approval in Timesheets.`);
-  res.redirect(back);
+  await logActivity(req, `Deleted shift #${shift.id} (${shift.site_name}, ${shift.start_at.slice(0, 10)})`);
+  req.flash('success', recorded ? 'Shift deleted, with the hours recorded from it.' : 'Shift deleted.');
+  res.redirect(`/schedule?week=${time.startOfWeek(shift.start_at.slice(0, 10))}`);
 });
 
 module.exports = router;

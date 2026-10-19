@@ -59,17 +59,15 @@
 
 <% if (shift.id) { %>
   <div class="card form-card">
-    <h2>Worked this shift?</h2>
-    <% if (shift.time_entry_id) { %>
-      <p>This shift is already in <a href="/timesheets?status=all&employee=<%= shift.employee_id %>">timesheets</a>.</p>
-    <% } else if (!shift.employee_id) { %>
-      <p class="muted">Assign someone first, then you can mark it as worked.</p>
+    <h2>Hours</h2>
+    <% const t = shift.time_entry; %>
+    <% if (t && t.source === 'schedule') { %>
+      <p>Recorded from the schedule when the shift ended<%= t.status === 'rejected' ? ', then rejected in timesheets' : '' %>. <a href="/timesheets?status=all&employee=<%= shift.employee_id %>">See them in timesheets</a></p>
+      <p class="muted small"><%= t.pay_run_status === 'finalized' ? 'These hours have been paid, so the shift can no longer change (except its notes).' : "If the officer's real hours were different, change the times above and save: the hours follow." %></p>
+    <% } else if (t) { %>
+      <p>This shift is in <a href="/timesheets?status=all&employee=<%= shift.employee_id %>">timesheets</a>.</p>
     <% } else { %>
-      <p class="muted">Copies this shift's times into timesheets, ready for approval. You can adjust the hours there if they were different.</p>
-      <form method="post" action="/schedule/<%= shift.id %>/complete">
-        <%- include('../partials/csrf') %>
-        <button type="submit" class="btn">Mark as worked</button>
-      </form>
+      <p class="muted">When this shift ends, its hours are recorded and approved by themselves, ready for pay day. If the officer's real hours were different, change the times above (before the pay run is finalized) and the hours follow.</p>
     <% } %>
   </div>
   <details class="danger-zone">

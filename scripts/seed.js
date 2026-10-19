@@ -197,21 +197,16 @@ async function seed(db) {
       s.employee_id = null;
     });
 
-    // Hours worked: older weeks approved (and paid), last week approved, this week pending.
+    // Hours worked: recorded (and approved) from the schedule when each shift
+    // ended. Older weeks are paid already.
     const payStart = time.addDays(thisMonday, -21);
-    const payRun = await insert('pay_runs', { period_start: payStart, period_end: time.addDays(thisMonday, -8), status: 'finalized', created_by: adminId, finalized_at: `${time.addDays(thisMonday, -6)} 10:15:00`, notes: 'Demo pay run' });
-    let leftForMarking = 2;
+    const payRun = await insert('pay_runs', { period_start: payStart, period_end: time.addDays(thisMonday, -8), status: 'finalized', created_by: adminId, finalized_by: adminId, finalized_at: `${time.addDays(thisMonday, -6)} 10:15:00`, paid_on: time.addDays(thisMonday, -5), notes: 'Demo pay run' });
 
     for (const s of shifts) {
-      const finished = s.end_at <= now;
       const { week, ...row } = s;
-      // Leave the last couple of finished shifts un-marked so "Mark as worked" can be tried.
-      const keepScheduled = finished && s.employee_id && week === 0 && leftForMarking > 0 && s.end_at > `${day(-1)}T00:00`;
-      if (keepScheduled) leftForMarking -= 1;
-      const status = finished && s.employee_id && !keepScheduled ? 'completed' : 'scheduled';
+      const status = s.end_at <= now && s.employee_id ? 'completed' : 'scheduled';
       const shiftId = await insert('shifts', { ...row, status });
       if (status !== 'completed') continue;
-      const approved = week <= -1;
       await insert('time_entries', {
         employee_id: s.employee_id,
         site_id: s.site_id,
@@ -219,14 +214,15 @@ async function seed(db) {
         start_at: s.start_at,
         end_at: s.end_at,
         break_minutes: s.break_minutes,
-        status: approved ? 'approved' : 'pending',
-        approved_by: approved ? adminId : null,
-        approved_at: approved ? `${time.addDays(s.start_at.slice(0, 10), 2)} 09:00:00` : null,
+        status: 'approved',
+        approved_at: `${s.end_at.slice(0, 10)} ${s.end_at.slice(11)}:00`,
+        source: 'schedule',
         pay_run_id: week <= -2 ? payRun : null,
       });
     }
 
-    // Priya's control-room hours (not tied to a client site), weekdays only.
+    // Priya's control-room hours (not on the schedule, so the office enters
+    // them), weekdays only. This week's are still waiting for approval.
     const priya = guards.find((g) => g.first_name === 'Priya');
     for (let date = payStart; date < today; date = time.addDays(date, 1)) {
       if (time.daysBetween(time.startOfWeek(date), date) >= 5) continue;

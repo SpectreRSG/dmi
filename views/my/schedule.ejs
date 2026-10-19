@@ -7,6 +7,16 @@
   <div class="page-actions"><button type="button" class="btn" data-print>Print</button></div>
 </div>
 
+<% if (setup.length) { %>
+  <div class="card card-pad setup-steps">
+    <h2>Finish setting up</h2>
+    <p class="muted small">A one-time job. After this, there's nothing to fill in: your hours are recorded from the schedule.</p>
+    <ul>
+      <% for (const step of setup) { %><li><a href="<%= step.href %>"><%= step.label %> →</a></li><% } %>
+    </ul>
+  </div>
+<% } %>
+
 <% if (next) { %>
   <div class="card card-pad next-shift">
     <span class="muted small">Your next shift</span>

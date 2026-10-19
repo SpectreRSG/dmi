@@ -4,6 +4,7 @@ const db = require('../db');
 const time = require('../time');
 const { entryHours, round2 } = require('../services/payroll');
 const { complianceFor, expiryStatus } = require('../services/compliance');
+const { recordFinishedShifts } = require('../services/hoursFromSchedule');
 
 const router = express.Router();
 
@@ -13,6 +14,7 @@ router.get('/', async (req, res) => {
   const now = time.nowStr();
   const in7Days = `${time.addDays(today, 7)}T00:00`;
 
+  await recordFinishedShifts();
   const employees = await db.all("SELECT * FROM employees WHERE status = 'active' ORDER BY last_name, first_name");
   const [{ byEmployee }, upcomingShifts, overdue, pendingEntries, endingContracts, trainingSessions, recentActivity] =
     await Promise.all([
@@ -26,7 +28,8 @@ router.get('/', async (req, res) => {
         now,
         in7Days
       ),
-      // Shifts that should have finished but haven't been marked as worked yet.
+      // Finished shifts with no hours: only ones from before hours were recorded
+      // from the schedule (everything since is recorded by itself).
       db.get(
         "SELECT COUNT(*)::int AS n FROM shifts WHERE status = 'scheduled' AND employee_id IS NOT NULL AND end_at <= ?",
         now

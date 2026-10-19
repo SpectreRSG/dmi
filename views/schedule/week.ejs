@@ -52,12 +52,6 @@
             <span class="shift-where"><%= s.site_name %> · <%= s.client_name %></span>
             <% if (s.status !== 'scheduled') { %><span class="shift-status"><%= capitalize(s.status) %></span><% } %>
           </a>
-          <% if (s.status === 'scheduled' && s.employee_id && s.end_at <= nowStr()) { %>
-            <form method="post" action="/schedule/<%= s.id %>/complete" class="shift-action">
-              <%- include('../partials/csrf') %>
-              <button type="submit" class="btn btn-sm">Mark as worked</button>
-            </form>
-          <% } %>
         </div>
       <% } %>
     </div>

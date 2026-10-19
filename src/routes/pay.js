@@ -11,6 +11,9 @@ const db = require('../db');
 const { toNumber, notFound, numericIdParam, logActivity, employeeName } = require('../helpers');
 const time = require('../time');
 const { calculatePayLine, entryHours, round2 } = require('../services/payroll');
+const { recordFinishedShifts } = require('../services/hoursFromSchedule');
+const { findPayLine, payLineTimesheet, timesheetFileName } = require('../services/payTimesheet');
+const { sendUpload } = require('../uploads');
 
 const router = express.Router();
 numericIdParam(router);
@@ -43,6 +46,7 @@ function totalsOf(items) {
 
 // (Re)builds a draft pay run from the approved hours in its period.
 async function recalculate(run, settings) {
+  await recordFinishedShifts(); // shifts that just ended count too
   await db.transaction(async (tx) => {
     // Keep any adjustments already typed in.
     const previous = new Map(
@@ -117,6 +121,7 @@ function csvCell(value) {
 // ---- Pages ------------------------------------------------------------------------
 
 router.get('/', async (req, res) => {
+  await recordFinishedShifts();
   const [runs, unpaid] = await Promise.all([
     db.all(
       `SELECT p.*, COUNT(i.id)::int AS people, COALESCE(SUM(i.gross_pay), 0) AS gross_total,
@@ -163,6 +168,7 @@ router.post('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const run = await findRun(req.params.id);
   if (!run) return notFound(res, 'pay run');
+  if (run.status === 'draft') await recordFinishedShifts();
 
   const [items, notIncluded, changed] = await Promise.all([
     runItems(run.id),
@@ -232,9 +238,14 @@ router.post('/:id/finalize', async (req, res) => {
   const paidOn = time.isValidDate(req.body.paid_on) ? req.body.paid_on : time.todayStr();
   // Recalculate first, so hours rejected or edited since the draft was made are never paid by mistake.
   await recalculate(run, res.locals.settings);
-  await db.run("UPDATE pay_runs SET status = 'finalized', finalized_at = app_now(), paid_on = ? WHERE id = ?", paidOn, run.id);
+  await db.run(
+    "UPDATE pay_runs SET status = 'finalized', finalized_at = app_now(), finalized_by = ?, paid_on = ? WHERE id = ?",
+    req.user.id,
+    paidOn,
+    run.id
+  );
   await logActivity(req, `Finalized pay run #${run.id} (${run.period_start} to ${run.period_end})`);
-  req.flash('success', 'Pay run finalized using the latest approved hours. Those hours are now locked.');
+  req.flash('success', 'Pay run finalized using the latest approved hours. Those hours are now locked, and each officer can see their payslip and DMI timesheet under My pay.');
   res.redirect(`/pay/${run.id}`);
 });
 
@@ -263,6 +274,18 @@ router.get('/:id/export.csv', async (req, res) => {
   const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
   res.attachment(`pay-run-${run.period_start}-to-${run.period_end}.csv`);
   res.type('text/csv').send(csv);
+});
+
+// One person's DMI timesheet for a finalized pay run, stamped "Approved by"
+// with whoever finalized it. Opens in the browser; ?download=1 saves it.
+router.get('/:id/items/:itemId/timesheet.pdf', async (req, res) => {
+  const line = await findPayLine(req.params.itemId);
+  if (!line || line.pay_run_id !== Number(req.params.id)) return notFound(res, 'pay line');
+  if (line.run_status !== 'finalized') {
+    req.flash('error', 'The DMI timesheets are made once the pay run is finalized.');
+    return res.redirect(`/pay/${line.pay_run_id}`);
+  }
+  await sendUpload(res, await payLineTimesheet(line), timesheetFileName(line), { inline: !req.query.download });
 });
 
 // A printable payslip for one person.

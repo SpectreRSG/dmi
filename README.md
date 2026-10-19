@@ -7,20 +7,20 @@ A private website for running the business side of a security company:
 | **Dashboard** | One screen with everything that needs attention: unfilled shifts, hours to approve, expired licenses, contracts ending. |
 | **Schedule** | A weekly roster. Add shifts (including overnight ones), repeat them on chosen days of the week, see unfilled shifts in red. It stops you double-booking a guard and warns you if they aren't licensed or trained. |
 | **Conflict checker** | Scans the roster ahead of time for double bookings, too little rest between shifts, overtime, clashes with training, expired licenses and unfilled shifts. "Find cover" lists who is free (best choices first) and assigns them in one click. |
-| **Officer & client accounts** | Anyone can sign up at `/register`; an admin approves them and gives them a role. **Officers** see their shifts on a monthly calendar, send in two-week timesheets (the same DMI timesheet PDF as before, now saved in the app), fill in their W-9 details and download their 1099. **Clients** see the monthly schedule for their sites. Neither ever sees pay rates or other people's details. |
+| **Officer & client accounts** | Anyone can sign up at `/register`; an admin approves them and gives them a role. **Officers** see their shifts on a monthly calendar, their pay (payslips and their DMI timesheet for each pay day) and their 1099, and keep their contact details up to date. They fill in their W-9 once at the start; there are no timesheets to fill in. **Clients** see the monthly schedule for their sites. Neither ever sees pay rates or other people's details. |
 | **1099 forms** | Works out what each contractor was paid in a year (from finalized pay runs), makes Form 1099-NEC (Copy B and 2 for the officer, C and 1 for the company), shares it in the officer's account if they agreed, and gives you a filing summary for sending Copy A to the IRS. Admins only. |
-| **Timesheets** | Hours actually worked. Press "Mark as worked" on a shift, or type hours in. Approve or reject them, one by one or in bulk. |
-| **Pay** | Turns approved hours into pay for a period: regular hours, weekly overtime, bonuses or deductions. Printable payslips and a spreadsheet download for your accountant. Admins only. |
+| **Timesheets** | Hours actually worked. When a shift ends, its hours are recorded and approved from the schedule by themselves. You only fix the exceptions (edit the shift or the hours), or type in hours that weren't on the schedule and approve them. |
+| **Pay** | Turns approved hours into pay for a period: regular hours, weekly overtime, bonuses or deductions. Printable payslips, a spreadsheet download for your accountant, and each person's DMI timesheet PDF, filled in and stamped "Approved by" when you finalize. Admins only. |
 | **Staff** | Guard profiles: contact details, pay rate, security license, emergency contact, hours, training and contracts. |
 | **Clients & sites** | Your customers and the places your guards work, with site instructions. |
 | **Contracts** | Client agreements, employment contracts, NDAs, subcontracts. Upload the signed copy and get warned before they end. |
 | **Training** | A table showing who is qualified, who's expiring, and who's missing training. Plan training sessions, book people in, and record attendance. Type the name of a new training right on the form. |
 | **Admin** | User accounts (admin or manager), company settings, and an activity log of who changed what. |
 
-> **Live site:** https://dmi.codehound.org, hosted on Netlify (see section 4). The officers'
-> stand-alone timesheet page (https://dmi.codehound.org/timesheet/) still works, but officers with an
-> account should send timesheets from **Timesheets** in their account instead: that saves the hours
-> in the app for approval, with the same PDF.
+> **Live site:** https://dmi.codehound.org, hosted on Netlify (see section 4). Officers' hours now
+> come from the schedule, so they don't send timesheets. The old stand-alone timesheet page
+> (https://dmi.codehound.org/timesheet/) is still there for anyone with an old link, but the login
+> page no longer points to it.
 
 ---
 
@@ -77,21 +77,26 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
 4. **Officers and clients sign up** at `https://dmi.codehound.org/register`. Their account waits
    (the dashboard tells you) until you open **User accounts**, press **Approve**, and choose a role:
    for an officer, pick their staff record (or "make a new one"); for a client, pick the client.
-5. **Hours come in two ways:** officers send their two-week timesheet from their account (with
-   their signature; you get the hours *and* the filled-in DMI PDF), or you press **Mark as worked**
-   on a shift. Either way the hours land in **Timesheets** to approve. Officers' PDFs are under
-   **Timesheets → Sent by officers (PDF)**.
-   When the last waiting day of an officer's timesheet is approved (or rejected), the app fills in
-   "APPROVED BY" (your name and the date) on their signed PDF. The officer can then **view or
-   download that approved copy** under **Timesheets** in their account.
-6. **Approve hours** in Timesheets. Tick the rows, then press "Approve".
+5. **Hours record themselves:** when a shift ends, its hours go into **Timesheets**, already
+   approved (marked "from the schedule"). Nobody fills in a timesheet. You only fix the exceptions,
+   before the pay run is finalized:
+   - **left early, stayed late, or someone else covered:** change the shift's times or officer and
+     save. The hours follow.
+   - **didn't come:** set the shift to **Cancelled** (its hours go), or reject the hours in Timesheets.
+   - **worked something that wasn't on the schedule:** **Add hours** in Timesheets and approve them.
+   Hours are only recorded for shifts from the pay period this was switched on in onwards, so
+   older shifts don't suddenly turn into hours. (Timesheets officers sent themselves before this
+   are still under **Timesheets → Sent by officers (PDF)**, and in the officer's **My pay**.)
+6. **Approve hours you typed in** (they're the only ones waiting): tick the rows, then press "Approve".
 7. **Pay day:** in **Pay**, create a pay run for the period. Check it, add any bonuses or
    deductions, then choose the **pay date** and press **Finalize**. Download the spreadsheet for
-   your accountant, or print payslips.
+   your accountant, or print payslips. Each officer then sees their payslip and their **DMI
+   timesheet** (filled in from their hours, with your name and the date after "APPROVED BY") under
+   **My pay** in their account. You can open the same timesheets from the pay run.
 8. **Keep an eye on the dashboard** for expiring licenses, training and contracts.
 9. **Every January (1099s):** fill in the company's legal name, EIN and address once under
-   **Settings → 1099 forms**. Make sure officers have filled in their W-9 details (**Tax forms** in
-   their account). Then in **1099 forms**, pick last year, press **Make 1099** for each contractor,
+   **Settings → 1099 forms**. Make sure officers have filled in their W-9 details (their account
+   asks them to when they first sign in; it's under **My pay → Tax forms**). Then in **1099 forms**, pick last year, press **Make 1099** for each contractor,
    check the PDFs, and press **Mark as issued**. By **January 31**:
    - give each officer Copy B: share it in their account (if they agreed to get it online) or
      print it and give or mail it to them;
@@ -106,7 +111,7 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
 
 - **Admin**: everything, including pay, pay rates, user accounts and settings.
 - **Manager**: schedule, timesheets, staff, clients, contracts and training. Managers never see pay, pay rates or tax details.
-- **Officer**: their own monthly schedule, timesheets, W-9 details and 1099s. Nothing else.
+- **Officer**: their own monthly schedule, their pay (payslips and DMI timesheets), their contact details, W-9 and 1099s. Nothing else.
 - **Client**: the monthly schedule for their own sites, with guards shown as "first name + last initial".
 - **Waiting for approval**: someone who signed up but hasn't been given a role yet. They see nothing.
 
@@ -169,7 +174,9 @@ src/
     payroll.js       the pay & overtime maths
     compliance.js    "is this guard licensed and trained?"
     conflicts.js     the schedule conflict checker and "find cover"
+    hoursFromSchedule.js  records the hours of shifts that have ended (and keeps them in step with the shift)
     officerTimesheet.js  pay periods + filling in the DMI timesheet PDF
+    payTimesheet.js  each person's DMI timesheet for a finalized pay run
     tax1099.js       who was paid what in a year, W-9 checks, payer details
     form1099Pdf.js   draws Form 1099-NEC (Copies B, 2, C and 1)
     timesheetApproval.js  the approved copy of an officer's timesheet ("APPROVED BY" filled in)
@@ -258,8 +265,8 @@ spreadsheets as you go, and ask for help setting up regular database snapshots.
 
 ## 5. Ideas for later
 
-- Clock in/out from the officer's phone (live times instead of a two-week sheet)
-- Retire the stand-alone /timesheet/ page once every officer has an account
+- Clock in/out from the officer's phone, to catch late starts automatically
+- Retire the stand-alone /timesheet/ page
 - Client invoicing (bill rates per site)
 - Email reminders for expiring licenses and unfilled shifts
 - Incident reports from sites

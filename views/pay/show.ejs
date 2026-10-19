@@ -80,7 +80,7 @@
                 <% } else { %>—<% } %>
               </td>
               <td class="num"><strong><%= money(i.gross_pay) %></strong></td>
-              <td class="actions"><a href="/pay/<%= run.id %>/payslips/<%= i.id %>">Payslip</a></td>
+              <td class="actions"><a href="/pay/<%= run.id %>/payslips/<%= i.id %>">Payslip</a><% if (run.status === 'finalized') { %><br><a href="/pay/<%= run.id %>/items/<%= i.id %>/timesheet.pdf" target="_blank" rel="noopener">Timesheet</a><% } %></td>
             </tr>
           <% } %>
         </tbody>

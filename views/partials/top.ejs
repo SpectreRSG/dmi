@@ -15,7 +15,7 @@
     <a class="brand" href="<%= homeFor(currentUser) %>"><%- icon('shield') %><span><%= settings.company_name %></span></a>
     <nav class="nav" aria-label="Main">
       <% for (const item of NAV) { if (!item.roles.includes(currentUser.role)) continue; %>
-        <a href="<%= item.href %>" class="<%= isActive(currentPath, item.href) ? 'active' : '' %>"><%- icon(item.icon) %><span><%= item.label %></span></a>
+        <a href="<%= item.href %>" class="<%= [item.href, ...(item.also || [])].some((href) => isActive(currentPath, href)) ? 'active' : '' %>"><%- icon(item.icon) %><span><%= item.label %></span></a>
       <% } %>
       <% if (locals.isAdmin) { %>
         <div class="nav-heading">Admin</div>
