@@ -1,4 +1,4 @@
-# Every evening at 21:00 US Pacific time, copy everything new on the "dev"
+# Every evening at 21:07 US Pacific time, copy everything new on the "dev"
 # branch into "main" – but only if the automated tests pass on dev, so broken
 # code never reaches main. You can also run it by hand: GitHub → Actions tab →
 # "Nightly dev → main" → "Run workflow".
@@ -6,11 +6,13 @@ name: Nightly dev → main
 
 on:
   schedule:
-    # GitHub schedules use UTC time. 21:00 Pacific is 04:00 UTC in summer (PDT)
-    # and 05:00 UTC in winter (PST), so both are listed and the "check-time"
-    # job below skips whichever one isn't 21:00 in Los Angeles that day.
-    - cron: '0 4 * * *'
-    - cron: '0 5 * * *'
+    # GitHub schedules use UTC time. 21:07 Pacific is 04:07 UTC in summer (PDT)
+    # and 05:07 UTC in winter (PST), so both are listed and the "check-time"
+    # job below skips whichever one isn't 21:07 in Los Angeles that day.
+    # (Not exactly on the hour: GitHub is busiest then, and delays or even
+    # drops scheduled runs.)
+    - cron: '7 4 * * *'
+    - cron: '7 5 * * *'
   workflow_dispatch:
 
 permissions:
@@ -32,11 +34,11 @@ jobs:
         run: |
           offset=$(TZ=America/Los_Angeles date +%z)   # -0700 in summer, -0800 in winter
           if [ -z "$SCHEDULE" ] \
-            || { [ "$SCHEDULE" = "0 4 * * *" ] && [ "$offset" = "-0700" ]; } \
-            || { [ "$SCHEDULE" = "0 5 * * *" ] && [ "$offset" = "-0800" ]; }; then
+            || { [ "$SCHEDULE" = "7 4 * * *" ] && [ "$offset" = "-0700" ]; } \
+            || { [ "$SCHEDULE" = "7 5 * * *" ] && [ "$offset" = "-0800" ]; }; then
             echo "go=true" >> "$GITHUB_OUTPUT"
           else
-            echo "This trigger isn't 21:00 Pacific today (UTC offset $offset), so skipping."
+            echo "This trigger isn't 21:07 Pacific today (UTC offset $offset), so skipping."
             echo "go=false" >> "$GITHUB_OUTPUT"
           fi
 

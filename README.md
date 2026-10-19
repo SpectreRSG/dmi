@@ -215,7 +215,7 @@ data/                YOUR LOCAL DATA (database + uploaded files). Created automa
 
 - **`dev`** is where new work goes. Make and test your changes here.
 - **`main`** is the finished, trusted version: the one to run for real.
-- **Every evening at 21:00 US Pacific time**, GitHub automatically runs the tests on `dev`. If they
+- **Every evening at 21:07 US Pacific time** (a few minutes after the hour, when GitHub is less busy), GitHub automatically runs the tests on `dev`. If they
   all pass, it copies `dev` into `main`. If they fail, `main` is left alone. You'll see a red ❌
   in the **Actions** tab on GitHub. This is set up in `.github/workflows/nightly-dev-to-main.yml`.
 - To copy `dev` to `main` right away instead of waiting, open the **Actions** tab, choose
