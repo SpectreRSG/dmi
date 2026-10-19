@@ -781,6 +781,9 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
 
 .shift.is-open { background: var(--red-bg); border-left-color: var(--red); }
 .shift.is-open .shift-who { color: var(--red); font-weight: 700; }
+.shift.is-offered { background: #d5f5ef; border-left-color: #0d9488; }
+.shift.is-offered .shift-who { color: #0b4f49; }
+.shift.is-from-request .shift-where::after { content: " · requested by site"; }
 .shift.is-completed { background: var(--green-bg); border-left-color: var(--green); }
 .shift.is-cancelled { background: var(--gray-bg); border-left-color: #98a2b3; opacity: 0.7; }
 .shift.is-cancelled .shift-time { text-decoration: line-through; }
@@ -949,7 +952,7 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
 
 /* ---- Officer / client monthly calendar (/my/schedule) ------------------- */
 .next-shift { display: flex; flex-direction: column; gap: 2px; border-left: 4px solid var(--primary); }
-.open-shifts { border-left: 4px solid var(--green); }
+.open-shifts { border-left: 4px solid #0d9488; }
 .open-shifts ul { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
 .open-shifts li { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .callout-link { display: inline-block; margin-top: 4px; color: var(--red); }
@@ -1017,6 +1020,21 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
 .cal-item.is-training { border-left-color: var(--green); background: var(--green-bg); }
 .cal-item.is-open { border-left-color: var(--amber); background: var(--amber-bg); }
 .cal-item.is-cancelled { border-left-color: var(--gray); background: var(--gray-bg); text-decoration: line-through; color: var(--muted); }
+/* Open shifts anyone eligible can claim: teal, so they stand out from your own (blue) shifts. */
+.cal-item.is-claimable { border-left-color: #0d9488; background: #d5f5ef; color: #0b4f49; font-weight: 600; }
+a.cal-item.is-claimable:hover { background: #bdeee5; }
+.cal-item.is-away { border-left-color: #98a2b3; color: var(--muted); background: repeating-linear-gradient(135deg, #f2f4f7 0 6px, #e4e7ec 6px 12px); }
+.cal-item.is-free { border: 1px dashed var(--green); border-left: 3px solid var(--green); background: transparent; color: var(--green); }
+.cal-item.is-requested { border: 1px dashed #98a2b3; border-left: 3px solid #98a2b3; background: #f8f9fb; color: var(--muted); }
+.cal-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 0; padding: 0; font-size: 12.5px; color: var(--muted); }
+.cal-legend li { display: flex; align-items: center; gap: 6px; }
+.cal-key { width: 14px; height: 14px; border-radius: 3px; border-left: 3px solid var(--primary); background: var(--blue-bg); }
+.cal-key.is-training { border-left-color: var(--green); background: var(--green-bg); }
+.cal-key.is-claimable { border-left-color: #0d9488; background: #d5f5ef; }
+.cal-key.is-open { border-left-color: var(--amber); background: var(--amber-bg); }
+.cal-key.is-away { border-left-color: #98a2b3; background: repeating-linear-gradient(135deg, #f2f4f7 0 3px, #e4e7ec 3px 6px); }
+.cal-key.is-free { border: 1px dashed var(--green); border-left: 3px solid var(--green); background: transparent; }
+.cal-key.is-requested { border: 1px dashed #98a2b3; border-left: 3px solid #98a2b3; background: #f8f9fb; }
 
 .section-title { font-size: 16px; margin: 24px 0 10px; }
 .center-note { text-align: center; margin-top: 20px; }
@@ -1121,3 +1139,12 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
 .open-offers { border-left: 4px solid var(--primary); }
 .open-offers .plain-list { list-style: none; padding-left: 0; }
 .small-heading { font-size: 13.5px; margin: 16px 0 4px; }
+.availability-list { list-style: none; margin: 0; padding: 0; }
+.availability-list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 18px; border-top: 1px solid var(--border); }
+.availability-list li:first-child { border-top: 0; }
+.request-card { border-left: 4px solid var(--amber); }
+.request-card .btn-row { align-items: center; }
+.decline-form { display: flex; gap: 8px; align-items: center; }
+.decline-form input { width: 240px; max-width: 100%; }
+@media (max-width: 600px) { .decline-form { flex-wrap: wrap; } }
+.form-card .choice-row { margin: 4px 0 14px; }

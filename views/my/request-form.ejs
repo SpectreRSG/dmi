@@ -1,0 +1,41 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/my/requests">← Shift requests</a></p>
+    <h1>Request a shift</h1>
+  </div>
+</div>
+<%- include('../partials/form-error') %>
+<form method="post" action="/my/requests" class="card form-card">
+  <%- include('../partials/csrf') %>
+  <div class="form-grid">
+    <label class="field-full">Site
+      <select name="site_id" required>
+        <% if (sites.length !== 1) { %><option value="">Choose a site…</option><% } %>
+        <% for (const site of sites) { %><option value="<%= site.id %>" <%= values.site_id === site.id ? 'selected' : '' %>><%= site.name %><%= site.address ? ` (${site.address})` : '' %></option><% } %>
+      </select>
+    </label>
+    <label>Date <input type="date" name="date" value="<%= values.date || '' %>" required min="<%= todayStr() %>"></label>
+    <label>Officers needed <input type="number" name="officers_needed" min="1" max="<%= maxOfficers %>" step="1" value="<%= values.officers_needed %>" required></label>
+    <label>Start time <input type="time" name="start_time" value="<%= values.start_time || '' %>" required></label>
+    <label>End time <input type="time" name="end_time" value="<%= values.end_time || '' %>" required><span class="hint">Earlier than the start means it ends the next day.</span></label>
+    <label>Unpaid break (minutes) <input type="number" name="break_minutes" min="0" max="600" step="5" value="<%= values.break_minutes %>"></label>
+  </div>
+  <% if (officers.length) { %>
+    <fieldset class="choice-row">
+      <legend>Officers you'd like (optional): they get first choice</legend>
+      <% for (const o of officers) { %>
+        <label class="check"><input type="checkbox" name="officers" value="<%= o.id %>" <%= (values.officers || []).includes(o.id) ? 'checked' : '' %>> <%= o.name %></label>
+      <% } %>
+    </fieldset>
+    <p class="hint">They get it to themselves for a while (up to 2 hours). If they can't take it, it's offered to the other officers.</p>
+  <% } %>
+  <label>Notes for the office and officers (optional)
+    <textarea name="notes" rows="3" maxlength="500" placeholder="e.g. event at the north entrance, uniform required"><%= values.notes || '' %></textarea>
+  </label>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Send request</button>
+    <a class="btn btn-ghost" href="/my/requests">Cancel</a>
+  </div>
+</form>
+<%- include('../partials/bottom') %>

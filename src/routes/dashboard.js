@@ -62,6 +62,9 @@ router.get('/', async (req, res) => {
      WHERE o.status = 'open' ORDER BY s.start_at`
   );
 
+  // Shifts sites have asked for, waiting for the office to approve.
+  const pendingRequests = (await db.get("SELECT COUNT(*)::int AS n FROM shift_requests WHERE status = 'pending'")).n;
+
   // New sign-ups waiting for an admin to give them a role.
   const waitingAccounts = res.locals.isAdmin
     ? (await db.get("SELECT COUNT(*)::int AS n FROM users WHERE role = 'pending' AND active = 1")).n
@@ -75,6 +78,7 @@ router.get('/', async (req, res) => {
     title: 'Dashboard',
     today,
     openOffers,
+    pendingRequests,
     stats: {
       activeStaff: employees.length,
       shiftsNext7: upcomingShifts.length,

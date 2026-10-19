@@ -41,10 +41,13 @@
   </a>
 </div>
 
+<% if (pendingRequests) { %>
+  <div class="flash flash-warning"><%= pendingRequests %> shift request<%= pendingRequests === 1 ? '' : 's' %> from sites <%= pendingRequests === 1 ? 'is' : 'are' %> waiting for approval. <a href="/schedule/requests">Approve or decline →</a></div>
+<% } %>
 <% if (openOffers.length) { %>
   <section class="card card-pad open-offers">
     <div class="card-title-row"><h2>Open shifts offered to officers</h2></div>
-    <p class="muted small">Someone called out, so these were offered to the officers who could take them. The first to claim one gets it.</p>
+    <p class="muted small">From call-outs and approved site requests: offered to the officers who could take them. The first to claim one gets it.</p>
     <ul class="plain-list">
       <% for (const o of openOffers) { %>
         <li>

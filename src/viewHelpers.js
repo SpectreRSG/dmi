@@ -45,6 +45,8 @@ const NAV = [
   { href: '/training', label: 'Training', icon: 'cap', roles: OFFICE },
   { href: '/my/schedule', label: 'My schedule', icon: 'calendar', roles: ['officer'] },
   { href: '/my/schedule', label: 'Schedule', icon: 'calendar', roles: ['client'] },
+  { href: '/my/availability', label: 'My availability', icon: 'clock', roles: ['officer'] },
+  { href: '/my/requests', label: 'Shift requests', icon: 'plus', roles: ['client'] },
   { href: '/my/pay', label: 'My pay', icon: 'money', roles: ['officer'], also: ['/my/tax'] },
   { href: '/my/details', label: 'My details', icon: 'user', roles: ['officer'] },
   { href: '/waiting', label: 'Getting started', icon: 'clock', roles: ['pending'] },

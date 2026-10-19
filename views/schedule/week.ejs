@@ -8,6 +8,8 @@
   </div>
   <div class="page-actions">
     <a class="btn <%= conflictCount ? 'btn-warning' : '' %>" href="/schedule/conflicts?from=<%= week %>&to=<%= addDays(week, 6) %>"><%- icon('alert') %> <%= conflictCount ? `${conflictCount} conflict${conflictCount === 1 ? '' : 's'}` : 'Check conflicts' %></a>
+    <a class="btn <%= pendingRequests ? 'btn-warning' : '' %>" href="/schedule/requests"><%= pendingRequests ? `${pendingRequests} shift request${pendingRequests === 1 ? '' : 's'}` : 'Shift requests' %></a>
+    <a class="btn" href="/schedule/availability">Availability</a>
     <a class="btn btn-primary" href="/schedule/new?date=<%= week < today && today < addDays(week, 7) ? today : week %>"><%- icon('plus') %> Add shift</a>
   </div>
 </div>
@@ -45,13 +47,12 @@
       </div>
       <% if (!day.shifts.length) { %><p class="day-empty">—</p><% } %>
       <% for (const s of day.shifts) { %>
-        <div class="shift <%= !s.employee_id ? 'is-open' : '' %> is-<%= s.status %>">
+        <div class="shift <%= !s.employee_id ? (s.offered ? 'is-offered' : 'is-open') : '' %> is-<%= s.status %> <%= s.request_id ? 'is-from-request' : '' %>">
           <a href="/schedule/<%= s.id %>/edit" class="shift-link">
             <span class="shift-time"><%= fmtRange(s.start_at, s.end_at) %></span>
-            <span class="shift-who"><%= s.employee_id ? `${s.first_name} ${s.last_name}` : 'Unfilled' %></span>
+            <span class="shift-who"><%= s.employee_id ? `${s.first_name} ${s.last_name}` : s.offered ? 'Open: offered to officers' : 'Unfilled' %></span>
             <span class="shift-where"><%= s.site_name %> · <%= s.client_name %></span>
             <% if (s.status !== 'scheduled') { %><span class="shift-status"><%= capitalize(s.status) %></span><% } %>
-            <% if (s.offered) { %><span class="shift-status">Offered to officers</span><% } %>
           </a>
         </div>
       <% } %>

@@ -1,0 +1,70 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/schedule">← Schedule</a></p>
+    <h1>Shift requests</h1>
+    <p class="page-sub">Shifts your clients' site representatives have asked for. Approving one adds open shifts to the schedule and offers them to officers straight away. Officers the site asked for get first choice, then everyone else who's free.</p>
+  </div>
+</div>
+
+<h2 class="section-title">Waiting for approval</h2>
+<% if (!pending.length) { %>
+  <div class="card"><p class="empty">Nothing waiting. Requests appear here (and as a notification) when a site sends one.</p></div>
+<% } %>
+<% for (const r of pending) { %>
+  <section class="card card-pad request-card">
+    <div class="card-title-row">
+      <h2><%= r.client_name %>: <%= r.site_name %></h2>
+      <span class="muted small">Sent by <%= r.requested_by_name || 'the site' %>, <%= fmtDateTime(r.created_at.replace(' ', 'T').slice(0, 16)) %></span>
+    </div>
+    <p><strong><%= fmtDay(r.start_at) %> <%= r.start_at.slice(0, 4) %> · <%= fmtRange(r.start_at, r.end_at) %></strong>
+      · <%= r.officers_needed %> officer<%= r.officers_needed === 1 ? '' : 's' %><%= r.break_minutes ? ` · ${r.break_minutes} min break` : '' %></p>
+    <% if (r.notes) { %><p class="pre-line"><%= r.notes %></p><% } %>
+    <% if (r.asked.length) { %>
+      <p class="small">Asked for:
+        <% r.asked.forEach((a, i) => { %><%= i ? ', ' : '' %><strong><%= a.name %></strong><% if (a.problem) { %> <span class="muted">(<%= a.problem %>)</span><% } %><% }) %>
+      </p>
+    <% } %>
+    <% if (r.start_at <= now) { %><p class="flash flash-warning">This time has already passed.</p><% } %>
+    <div class="btn-row">
+      <form method="post" action="/schedule/requests/<%= r.id %>/approve" class="inline-form">
+        <%- include('../partials/csrf') %>
+        <button type="submit" class="btn btn-primary" <%= r.start_at <= now ? 'disabled' : '' %>>Approve and offer to officers</button>
+      </form>
+      <form method="post" action="/schedule/requests/<%= r.id %>/decline" class="inline-form decline-form" data-confirm="Decline this request? The site will be told.">
+        <%- include('../partials/csrf') %>
+        <input name="reason" maxlength="300" placeholder="Reason (the site sees it)" aria-label="Reason for declining">
+        <button type="submit" class="btn">Decline</button>
+      </form>
+    </div>
+  </section>
+<% } %>
+
+<h2 class="section-title">Recently decided</h2>
+<div class="card">
+  <% if (!recent.length) { %>
+    <p class="empty">None yet.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table stack-on-phone">
+        <thead><tr><th>When</th><th>Client and site</th><th>Status</th><th>Shifts</th></tr></thead>
+        <tbody>
+          <% for (const r of recent) { %>
+            <tr>
+              <td class="nowrap" data-label="When"><%= fmtDay(r.start_at) %> <span class="muted"><%= r.start_at.slice(0, 4) %></span><br><%= fmtRange(r.start_at, r.end_at) %></td>
+              <td data-label="Client and site"><%= r.client_name %>: <%= r.site_name %></td>
+              <td data-label="Status"><%- r.status === 'approved' ? badge('Approved', 'green') : r.status === 'declined' ? badge('Declined', 'red') : badge(STATUS_LABELS[r.status], 'gray') %>
+                <div class="muted small"><%= r.decided_by_name ? `by ${r.decided_by_name}` : '' %><%= r.decline_reason ? ` · ${r.decline_reason}` : '' %></div></td>
+              <td data-label="Shifts">
+                <% for (const sh of r.shifts) { %>
+                  <div><a href="/schedule/<%= sh.id %>/edit"><%= sh.name || (sh.offered ? 'Open: offered to officers' : 'Unfilled') %></a></div>
+                <% } %>
+              </td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+<%- include('../partials/bottom') %>

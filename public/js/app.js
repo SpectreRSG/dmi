@@ -70,6 +70,23 @@ document.addEventListener('DOMContentLoaded', () => {
     showNew();
   });
 
+  // Parts of a form that only apply to one choice: data-shown-for="repeat=weekly"
+  // shows it when that radio button is picked; data-hidden-when-checked="all_day"
+  // hides it while that box is ticked.
+  document.querySelectorAll('[data-shown-for], [data-hidden-when-checked]').forEach((part) => {
+    const form = part.closest('form');
+    const update = () => {
+      if (part.dataset.shownFor) {
+        const [name, value] = part.dataset.shownFor.split('=');
+        part.hidden = form.querySelector(`[name="${name}"]:checked`)?.value !== value;
+      } else {
+        part.hidden = Boolean(form.querySelector(`[name="${part.dataset.hiddenWhenChecked}"]`)?.checked);
+      }
+    };
+    form.addEventListener('change', update);
+    update();
+  });
+
   // App notifications: the "Turn on notifications" box (views/partials/notifications.ejs).
   const pushBox = document.querySelector('[data-push]');
   if (pushBox) setUpNotifications(pushBox);

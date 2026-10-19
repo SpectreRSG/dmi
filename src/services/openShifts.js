@@ -3,16 +3,20 @@
 // office is only told when nobody has, so it can step in.
 //
 // Who gets offered a shift: officers with an account who are free, rested
-// enough, and licensed and trained on the day (the same checks as "Find
-// cover"). They're told in two waves: first the regulars at that site who
-// wouldn't go into overtime, then ten minutes later everyone else. When the
-// shift starts within a few hours, everyone is told at once.
+// enough, licensed and trained on the day, and haven't said they can't work
+// then (the same checks as "Find cover"). They're told in two waves: first
+// the regulars at that site and anyone who said they'd like shifts then (as
+// long as it wouldn't put them into overtime), then ten minutes later
+// everyone else. When the shift starts within a few hours, everyone is told
+// at once. A site's request can name officers: they get first choice, for
+// longer, before anyone else is told.
 const db = require('../db');
 const time = require('../time');
 const { coverOptions, SHIFT_SELECT } = require('./conflicts');
-const { notifyEmployees, notifyOffice } = require('./notify');
+const { notifyEmployees, notifyOffice, notifyClient } = require('./notify');
 
 const WAVE_GAP_MINUTES = 10; // between the regulars and everyone else
+const FIRST_CHOICE_MINUTES = 120; // how long officers a site asked for have it to themselves (at most)
 const ESCALATE_MINUTES = 30; // tell the office if nobody has claimed it by then
 const SHORT_NOTICE_HOURS = 3; // starting this soon: everyone at once, office after 15 minutes
 const SHORT_NOTICE_ESCALATE_MINUTES = 15;
@@ -55,9 +59,10 @@ async function eligibleOfficers(shift, settings) {
   return options.filter((o) => canSignIn.has(o.employee.id) && !saidNo.has(o.employee.id) && !claimProblem(o));
 }
 
-// Offers an unfilled, upcoming shift to officers. Returns { offer, toldNow,
-// toldLater } (offer is null when nobody could take it) or { error }.
-async function offerShift(shiftId, { userId = null, settings }) {
+// Offers an unfilled, upcoming shift to officers. `firstChoice` = officers a
+// site asked for by name. Returns { offer, toldNow, toldLater, firstChoice }
+// (offer is null when nobody could take it) or { error }.
+async function offerShift(shiftId, { userId = null, settings, firstChoice = [] }) {
   const shift = await findShift(shiftId);
   const now = time.nowStr();
   if (!shift || shift.status !== 'scheduled') return { error: 'Only scheduled shifts can be offered.' };
@@ -69,10 +74,17 @@ async function offerShift(shiftId, { userId = null, settings }) {
   const eligible = await eligibleOfficers(shift, settings);
   if (!eligible.length) return { offer: null, toldNow: 0, toldLater: 0 }; // the office has to find cover
   const shortNotice = hoursUntil(shift.start_at) <= SHORT_NOTICE_HOURS;
-  const regulars = shortNotice ? [] : eligible.filter((o) => o.siteShifts > 0 && !o.overtime);
-  const first = regulars.length ? regulars : eligible;
+  const asked = eligible.filter((o) => firstChoice.includes(o.employee.id));
+  const regulars = shortNotice ? [] : eligible.filter((o) => (o.siteShifts > 0 || o.markedAvailable) && !o.overtime);
+  const first = asked.length ? asked : regulars.length ? regulars : eligible;
   const later = eligible.filter((o) => !first.includes(o));
-  let escalateAt = addMinutes(now, shortNotice ? SHORT_NOTICE_ESCALATE_MINUTES : ESCALATE_MINUTES);
+  // Officers the site asked for get it to themselves for up to 2 hours (less
+  // if the shift is soon: at most a quarter of the time left, at least 10 minutes).
+  const gap = asked.length
+    ? Math.max(WAVE_GAP_MINUTES, Math.min(FIRST_CHOICE_MINUTES, Math.floor((hoursUntil(shift.start_at) * 60) / 4)))
+    : WAVE_GAP_MINUTES;
+  const nextWaveAt = later.length ? addMinutes(now, gap) : null;
+  let escalateAt = addMinutes(nextWaveAt || now, shortNotice ? SHORT_NOTICE_ESCALATE_MINUTES : ESCALATE_MINUTES);
   if (escalateAt > shift.start_at) escalateAt = shift.start_at;
 
   let offerId;
@@ -82,7 +94,7 @@ async function offerShift(shiftId, { userId = null, settings }) {
         'INSERT INTO shift_offers (shift_id, created_by, next_wave_at, escalate_at) VALUES (?, ?, ?, ?)',
         shift.id,
         userId,
-        later.length ? addMinutes(now, WAVE_GAP_MINUTES) : null,
+        nextWaveAt,
         escalateAt
       );
       for (const [wave, group] of [[1, first], [2, later]]) {
@@ -102,14 +114,16 @@ async function offerShift(shiftId, { userId = null, settings }) {
     throw err;
   }
   const offer = await db.get('SELECT * FROM shift_offers WHERE id = ?', offerId);
-  await tellOfficers(offer, shift, first.map((o) => o.employee.id));
-  return { offer, toldNow: first.length, toldLater: later.length };
+  await tellOfficers(offer, shift, first.map((o) => o.employee.id), { requested: asked.length > 0 });
+  return { offer, toldNow: first.length, toldLater: later.length, firstChoice: asked.map((o) => o.employee.id) };
 }
 
-function tellOfficers(offer, shift, employeeIds) {
+function tellOfficers(offer, shift, employeeIds, { requested = false } = {}) {
   return notifyEmployees(employeeIds, {
-    title: `Open shift: ${when(shift)}`,
-    body: `${shift.site_name} (${shift.client_name}). First to claim it gets it.`,
+    title: requested ? `${shift.client_name} asked for you: ${when(shift)}` : `Open shift: ${when(shift)}`,
+    body: requested
+      ? `${shift.site_name}. You have first choice before it's offered to others. Tap to claim it.`
+      : `${shift.site_name} (${shift.client_name}). First to claim it gets it.`,
     url: `/my/open-shifts/${offer.id}`,
     tag: `offer-${offer.id}`,
   });
@@ -200,6 +214,15 @@ async function claimShift(offerId, employeeId, settings) {
     url: `/schedule/${shift.id}/edit`,
     tag: `shift-${shift.id}`,
   });
+  // A shift the site asked for: they hear who's coming.
+  if (shift.request_id) {
+    await notifyClient(shift.client_id, {
+      title: `Covered: ${when(shift)}`,
+      body: `${shortName(employee)} will work at ${shift.site_name}.`,
+      url: '/my/requests',
+      tag: `request-${shift.request_id}`,
+    });
+  }
   return { shift: await findShift(shift.id), employee };
 }
 

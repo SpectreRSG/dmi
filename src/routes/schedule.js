@@ -9,6 +9,8 @@ const { TYPES, findConflicts, coverOptions } = require('../services/conflicts');
 const { recordFinishedShifts, hoursFromShift, syncHoursWithShift } = require('../services/hoursFromSchedule');
 const openShifts = require('../services/openShifts');
 const { tellAboutShiftChange, tellAboutNewShifts } = require('../services/shiftNews');
+const availability = require('../services/availability');
+const shiftRequests = require('../services/shiftRequests');
 
 const router = express.Router();
 numericIdParam(router);
@@ -72,6 +74,14 @@ async function complianceWarning(employeeId, shiftDate, warningDays) {
   if (!problems.length) return null;
   const list = problems.map((p) => `${p.label} (${p.status === 'missing' ? 'missing' : 'expired'})`).join(', ');
   return `Check ${employeeName(employee)}'s compliance: ${list}.`;
+}
+
+// Warn (but don't block) if the person said they can't work then.
+async function availabilityWarning(employeeId, startAt, endAt) {
+  const { unavailable } = (await availability.statusDuring([employeeId], startAt, endAt)).get(employeeId);
+  if (!unavailable) return null;
+  const employee = await db.get('SELECT first_name, last_name FROM employees WHERE id = ?', employeeId);
+  return `${employeeName(employee)} said they can't work then (${availability.describe(unavailable)}${unavailable.note ? `: ${unavailable.note}` : ''}). Check with them first.`;
 }
 
 async function readForm(body) {
@@ -158,6 +168,7 @@ router.get('/', async (req, res) => {
     params.push(employeeId);
   }
   await recordFinishedShifts(); // so shifts that have ended show as completed
+  const pendingRequests = (await db.get("SELECT COUNT(*)::int AS n FROM shift_requests WHERE status = 'pending'")).n;
   const [shifts, sites, staff, conflicts] = await Promise.all([
     db.all(
       `SELECT x.*, EXISTS (SELECT 1 FROM shift_offers o WHERE o.shift_id = x.id AND o.status = 'open') AS offered
@@ -187,6 +198,7 @@ router.get('/', async (req, res) => {
   res.render('schedule/week', {
     title: 'Schedule',
     week,
+    pendingRequests,
     prevWeek: time.addDays(week, -7),
     nextWeek: time.addDays(week, 7),
     thisWeek: time.startOfWeek(today),
@@ -236,6 +248,78 @@ router.get('/conflicts', async (req, res) => {
   });
 });
 
+// ---- Shift requests from sites --------------------------------------------------------
+// Site representatives ask for shifts; approving one puts the shifts on the
+// schedule as open shifts and offers them to officers (the ones asked for first).
+
+router.get('/requests', async (req, res) => {
+  const [pending, recent] = await Promise.all([
+    db.all(
+      `SELECT r.*, si.name AS site_name, c.name AS client_name, u.name AS requested_by_name FROM shift_requests r
+       JOIN sites si ON si.id = r.site_id JOIN clients c ON c.id = r.client_id LEFT JOIN users u ON u.id = r.requested_by
+       WHERE r.status = 'pending' ORDER BY r.start_at`
+    ),
+    db.all(
+      `SELECT r.*, si.name AS site_name, c.name AS client_name, d.name AS decided_by_name FROM shift_requests r
+       JOIN sites si ON si.id = r.site_id JOIN clients c ON c.id = r.client_id LEFT JOIN users d ON d.id = r.decided_by
+       WHERE r.status != 'pending' ORDER BY r.decided_at DESC NULLS LAST LIMIT 30`
+    ),
+  ]);
+  await shiftRequests.withDetails(pending);
+  await shiftRequests.withDetails(recent);
+  // For each officer a site asked for: can they actually take it?
+  for (const r of pending) {
+    const said = await availability.statusDuring(r.asked.map((a) => a.id), r.start_at, r.end_at);
+    for (const a of r.asked) {
+      const clash = await findClash(db, a.id, r.start_at, r.end_at);
+      a.problem = clash ? 'already booked' : said.get(a.id).unavailable ? "said they can't work" : null;
+    }
+  }
+  res.render('schedule/requests', { title: 'Shift requests', pending, recent, now: time.nowStr(), STATUS_LABELS: shiftRequests.STATUS_LABELS });
+});
+
+router.post('/requests/:id/approve', async (req, res) => {
+  const result = await shiftRequests.approve(Number(req.params.id), { user: req.user, settings: res.locals.settings });
+  if (result.error) {
+    req.flash('error', result.error);
+    return res.redirect('/schedule/requests');
+  }
+  const r = result.request;
+  await logActivity(req, `Approved shift request #${r.id} from ${r.client_name} (${r.officers_needed} shift(s) on ${r.start_at.slice(0, 10)})`);
+  const offered = result.offered === result.shifts.length
+    ? 'They\'re being offered to officers now'
+    : `${result.offered} of ${result.shifts.length} are being offered to officers; nobody else is free for the rest, so use "Find cover"`;
+  req.flash('success', `Approved: ${result.shifts.length} open shift${result.shifts.length === 1 ? '' : 's'} added to the schedule. ${offered}${result.firstChoice.length ? ', the officers the site asked for first' : ''}. The site has been told.`);
+  res.redirect('/schedule/requests');
+});
+
+router.post('/requests/:id/decline', async (req, res) => {
+  const reason = String(req.body.reason || '').trim().slice(0, 300) || null;
+  const result = await shiftRequests.decline(Number(req.params.id), { user: req.user, reason });
+  if (result.error) req.flash('error', result.error);
+  else {
+    await logActivity(req, `Declined shift request #${req.params.id} from ${result.request.client_name}`);
+    req.flash('success', 'Request declined. The site has been told.');
+  }
+  res.redirect('/schedule/requests');
+});
+
+// Everyone's availability for the next four weeks: when they can't work, and
+// when they'd like extra shifts.
+router.get('/availability', async (req, res) => {
+  const from = time.todayStr();
+  const to = time.addDays(from, 27);
+  const staff = await db.all("SELECT id, first_name, last_name FROM employees WHERE status = 'active' ORDER BY last_name, first_name");
+  const entries = await availability.entriesFor(staff.map((e) => e.id), from, to);
+  const people = staff
+    .map((e) => ({
+      ...e,
+      entries: entries.filter((x) => x.employee_id === e.id).map((x) => ({ ...x, label: availability.describe(x) })),
+    }))
+    .filter((e) => e.entries.length);
+  res.render('schedule/availability', { title: 'Availability', people, from, to, KINDS: availability.KINDS });
+});
+
 router.get('/:id/cover', async (req, res) => {
   const shift = await findShift(req.params.id);
   if (!shift) return notFound(res, 'shift');
@@ -273,8 +357,10 @@ router.post('/:id/assign', async (req, res) => {
   const was = shift.employee_id ? ` (was ${employeeName(shift)})` : '';
   await logActivity(req, `Assigned ${employeeName(employee)} to shift #${shift.id} on ${shift.start_at.slice(0, 10)}${was}`);
   req.flash('success', `${employeeName(employee)} is now covering ${time.fmtDay(shift.start_at)} ${time.fmtRange(shift.start_at, shift.end_at)} at ${shift.site_name}.`);
-  const warning = await complianceWarning(employee.id, shift.start_at.slice(0, 10), res.locals.settings.expiry_warning_days);
-  if (warning) req.flash('warning', warning);
+  for (const warning of [
+    await complianceWarning(employee.id, shift.start_at.slice(0, 10), res.locals.settings.expiry_warning_days),
+    await availabilityWarning(employee.id, shift.start_at, shift.end_at),
+  ]) if (warning) req.flash('warning', warning);
   res.redirect(back);
 });
 
@@ -340,8 +426,10 @@ router.post('/', async (req, res) => {
   req.flash('success', created === 1 ? 'Shift added.' : `${created} shifts added.`);
   if (skipped) req.flash('warning', `${skipped} repeat shift(s) were skipped because the person was already booked.`);
   if (values.employee_id) {
-    const warning = await complianceWarning(values.employee_id, values.date, res.locals.settings.expiry_warning_days);
-    if (warning) req.flash('warning', warning);
+    for (const warning of [
+      await complianceWarning(values.employee_id, values.date, res.locals.settings.expiry_warning_days),
+      await availabilityWarning(values.employee_id, values.start_at, values.end_at),
+    ]) if (warning) req.flash('warning', warning);
   }
   res.redirect(`/schedule?week=${time.startOfWeek(values.date)}`);
 });
@@ -416,6 +504,10 @@ router.post('/:id', async (req, res) => {
   if (recorded?.pay_run_id) req.flash('warning', 'Its hours were in a draft pay run. Open the pay run and press "Recalculate".');
   if (values.employee_id && values.employee_id !== shift.employee_id) {
     const warning = await complianceWarning(values.employee_id, values.date, res.locals.settings.expiry_warning_days);
+    if (warning) req.flash('warning', warning);
+  }
+  if (values.employee_id && values.status === 'scheduled') {
+    const warning = await availabilityWarning(values.employee_id, values.start_at, values.end_at);
     if (warning) req.flash('warning', warning);
   }
   res.redirect(`/schedule?week=${time.startOfWeek(values.date)}`);

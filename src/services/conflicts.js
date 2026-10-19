@@ -4,10 +4,11 @@ const db = require('../db');
 const time = require('../time');
 const { entryHours, round2 } = require('./payroll');
 const { complianceFor } = require('./compliance');
+const availability = require('./availability');
 const { employeeName } = require('../helpers');
 
 const SHIFT_SELECT = `
-  SELECT s.*, si.name AS site_name, si.active AS site_active, c.name AS client_name,
+  SELECT s.*, si.name AS site_name, si.active AS site_active, si.client_id, c.name AS client_name,
          e.first_name, e.last_name, e.status AS employee_status
   FROM shifts s
   JOIN sites si ON si.id = s.site_id
@@ -20,6 +21,7 @@ const TYPES = {
   double_booked: { label: 'Double-booked', severity: 'high' },
   training_clash: { label: 'Clashes with training', severity: 'high' },
   compliance: { label: 'License or training problem', severity: 'high' },
+  unavailable: { label: 'Booked while unavailable', severity: 'high' },
   inactive_staff: { label: 'Staff member not active', severity: 'high' },
   unfilled: { label: 'Unfilled shift', severity: 'high' },
   short_rest: { label: 'Not enough rest', severity: 'medium' },
@@ -167,8 +169,23 @@ async function findConflicts(from, to, settings) {
     }
   }
 
-  // License or required training missing, or expired by the day of the shift.
+  // Booked while they said they can't work.
   const employeeIds = [...byEmployee.keys()];
+  const away = (await availability.entriesFor(employeeIds, time.addDays(from, -1), time.addDays(to, 1))).filter((e) => e.kind === 'unavailable');
+  for (const entry of away) {
+    const windows = availability.windowsOf(entry, time.addDays(from, -1), time.addDays(to, 1));
+    for (const s of byEmployee.get(entry.employee_id)) {
+      if (!inRange(s, from, to) || s.status !== 'scheduled' || !windows.some((w) => w.start_at < s.end_at && w.end_at > s.start_at)) continue;
+      add('unavailable', {
+        date: s.start_at,
+        shift: s,
+        employeeId: entry.employee_id,
+        text: `${employeeName(s)} is booked for ${shiftLabel(s)} but said they can't work then (${availability.describe(entry)}${entry.note ? `: ${entry.note}` : ''}).`,
+      });
+    }
+  }
+
+  // License or required training missing, or expired by the day of the shift.
   if (employeeIds.length) {
     const employees = await db.all('SELECT * FROM employees WHERE id = ANY(?::int[])', employeeIds);
     const { byEmployee: compliance } = await complianceFor(employees, settings.expiry_warning_days);
@@ -212,7 +229,7 @@ async function coverOptions(shift, settings) {
   const week = time.startOfWeek(date);
   const loadFrom = `${time.addDays(week < date ? week : date, -1)}T00:00`;
   const loadTo = `${time.addDays(week, 8)}T00:00`;
-  const [shifts, training, siteHistory, { byEmployee: compliance }] = await Promise.all([
+  const [shifts, training, siteHistory, { byEmployee: compliance }, said] = await Promise.all([
     db.all(`${SHIFT_SELECT} WHERE s.status != 'cancelled' AND s.employee_id IS NOT NULL AND s.id != ? AND s.start_at < ? AND s.end_at > ?`, shift.id, loadTo, loadFrom),
     trainingBookings(loadFrom, loadTo),
     db.all(
@@ -224,6 +241,7 @@ async function coverOptions(shift, settings) {
       shift.start_at
     ),
     complianceFor(staff, settings.expiry_warning_days),
+    availability.statusDuring(staff.map((e) => e.id), shift.start_at, shift.end_at),
   ]);
   const knowsSite = new Map(siteHistory.map((r) => [r.employee_id, r.count]));
   const thisShiftHours = entryHours(shift);
@@ -233,7 +251,12 @@ async function coverOptions(shift, settings) {
     const blockers = [];
     const warnings = [];
     // The same problems as yes/no flags, for deciding who may claim an open shift.
-    const flags = { restProblem: false, overtime: false, complianceProblem: false };
+    const flags = { restProblem: false, overtime: false, complianceProblem: false, markedAvailable: false };
+
+    // What they told us about their availability.
+    const { unavailable, available } = said.get(employee.id);
+    if (unavailable) blockers.push(`Said they can't work then${unavailable.note ? ` (${unavailable.note})` : ''}`);
+    else if (available) flags.markedAvailable = true;
 
     const clash = theirs.find((s) => overlaps(s, shift));
     if (clash) blockers.push(`Already booked ${time.fmtRange(clash.start_at, clash.end_at)} at ${clash.site_name}`);
@@ -269,9 +292,10 @@ async function coverOptions(shift, settings) {
   });
 
   // Free with no warnings first, then free with warnings, then busy. Within
-  // each group: people who know the site, then whoever has the fewest hours.
+  // each group: people who said they'd like shifts then, people who know the
+  // site, then whoever has the fewest hours.
   const rank = (o) => (o.blockers.length ? 2 : o.warnings.length ? 1 : 0);
-  options.sort((a, b) => rank(a) - rank(b) || b.siteShifts - a.siteShifts || a.weekHours - b.weekHours);
+  options.sort((a, b) => rank(a) - rank(b) || b.markedAvailable - a.markedAvailable || b.siteShifts - a.siteShifts || a.weekHours - b.weekHours);
   return options;
 }
 

@@ -20,7 +20,7 @@
 <% if (openShifts.length) { %>
   <section class="card card-pad open-shifts" id="open-shifts">
     <h2>Open shifts you can take</h2>
-    <p class="muted small">Someone can't make these. The first person to claim one gets it.</p>
+    <p class="muted small">Shifts that need an officer: a call-out, or extra cover a site asked for. The first person to claim one gets it.</p>
     <ul>
       <% for (const o of openShifts) { %>
         <li>
@@ -73,21 +73,51 @@
       <% for (const day of week) { %>
         <div role="cell" class="month-day <%= day.inMonth ? '' : 'is-other' %> <%= day.date === today ? 'is-today' : '' %>">
           <span class="month-date"><%= Number(day.date.slice(8)) %></span>
-          <% const count = day.items.filter((i) => i.status !== 'cancelled').length; %>
+          <% const count = day.items.filter((i) => i.status !== 'cancelled' && !['unavailable', 'available'].includes(i.kind)).length; %>
           <% if (count) { %><span class="month-count"><%= count %></span><% } %>
           <% for (const item of day.items) { %>
-            <div class="cal-item <%= item.kind === 'training' ? 'is-training' : '' %> <%= item.status === 'cancelled' ? 'is-cancelled' : '' %> <%= item.kind === 'shift' && !item.guard ? 'is-open' : '' %>">
-              <span class="cal-time"><%= fmtRange(item.start_at, item.end_at) %></span>
+            <%
+              const look = item.kind === 'training' ? 'is-training'
+                : item.kind === 'open' ? 'is-claimable'
+                : item.kind === 'unavailable' ? 'is-away'
+                : item.kind === 'available' ? 'is-free'
+                : item.kind === 'request' ? 'is-requested'
+                : item.status === 'cancelled' ? 'is-cancelled'
+                : !item.guard ? (item.offered ? 'is-claimable' : 'is-open') : '';
+            %>
+            <<%= item.kind === 'open' ? `a href="/my/open-shifts/${item.offerId}"` : 'div' %> class="cal-item <%= look %>">
+              <span class="cal-time"><%= item.allDay ? 'All day' : fmtRange(item.start_at, item.end_at) %></span>
               <span class="cal-what">
-                <% if (item.kind === 'training') { %><%= item.course %> training<% } else if (isOfficer) { %><%= item.site %><% } else { %><%= item.guard || 'Not yet assigned' %><% } %>
+                <% if (item.kind === 'training') { %><%= item.course %> training
+                <% } else if (item.kind === 'open') { %>Open: <%= item.site %>
+                <% } else if (item.kind === 'unavailable') { %>Can't work
+                <% } else if (item.kind === 'available') { %>Available
+                <% } else if (item.kind === 'request') { %>Requested<%= item.count > 1 ? ` ×${item.count}` : '' %>: <%= item.site %>
+                <% } else if (isOfficer) { %><%= item.site %>
+                <% } else { %><%= item.guard || (item.offered ? 'Open shift' : 'Not yet assigned') %><% } %>
               </span>
-            </div>
+            </<%= item.kind === 'open' ? 'a' : 'div' %>>
           <% } %>
         </div>
       <% } %>
     </div>
   <% } %>
 </div>
+
+<ul class="cal-legend" aria-label="Colour key">
+  <% if (isOfficer) { %>
+    <li><span class="cal-key"></span>Your shift</li>
+    <li><span class="cal-key is-claimable"></span>Open shift you can claim</li>
+    <li><span class="cal-key is-training"></span>Training</li>
+    <li><span class="cal-key is-away"></span>You can't work</li>
+    <li><span class="cal-key is-free"></span>You're available</li>
+  <% } else { %>
+    <li><span class="cal-key"></span>Officer assigned</li>
+    <li><span class="cal-key is-claimable"></span>Open: offered to officers</li>
+    <li><span class="cal-key is-open"></span>Not yet assigned</li>
+    <li><span class="cal-key is-requested"></span>Your request, waiting for approval</li>
+  <% } %>
+</ul>
 
 <h2 class="section-title">Details</h2>
 <% if (!monthItems.length) { %>
@@ -104,6 +134,15 @@
           <% if (item.kind === 'training') { %>
             <strong><%= item.course %> training</strong> <%- badge('Training', 'blue') %>
             <% if (item.location) { %><div class="muted small"><%= item.location %></div><% } %>
+          <% } else if (item.kind === 'open') { %>
+            <strong>Open shift: <%= item.site %></strong> <span class="muted">· <%= item.client %></span>
+            <div><a class="btn btn-sm btn-primary" href="/my/open-shifts/<%= item.offerId %>">See and claim</a></div>
+          <% } else if (item.kind === 'unavailable' || item.kind === 'available') { %>
+            <strong><%= item.kind === 'unavailable' ? "You can't work" : "You're available for extra shifts" %></strong><%= item.note ? ` · ${item.note}` : '' %>
+            <div class="small"><a href="/my/availability">Change your availability</a></div>
+          <% } else if (item.kind === 'request') { %>
+            <strong>Requested: <%= item.count %> officer<%= item.count === 1 ? '' : 's' %></strong> <span class="muted">· <%= item.site %></span>
+            <%- badge('Waiting for the office to approve', 'gray') %>
           <% } else if (isOfficer) { %>
             <strong><%= item.site %></strong> <span class="muted">· <%= item.client %></span>
             <% if (item.status === 'cancelled') { %><%- badge('Cancelled', 'gray') %><% } %>
@@ -114,7 +153,7 @@
             <% } %>
             <% if (item.canCallOut) { %><a class="small callout-link" href="/my/shifts/<%= item.id %>/call-out">I can't make it</a><% } %>
           <% } else { %>
-            <% if (item.guard) { %><strong><%= item.guard %></strong><% } else { %><%- badge('Not yet assigned', 'amber') %><% } %>
+            <% if (item.guard) { %><strong><%= item.guard %></strong><% } else if (item.offered) { %><%- badge('Open: offered to officers', 'green') %><% } else { %><%- badge('Not yet assigned', 'amber') %><% } %>
             <span class="muted">· <%= item.site %></span>
             <% if (item.status === 'cancelled') { %><%- badge('Cancelled', 'gray') %><% } %>
           <% } %>

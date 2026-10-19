@@ -874,7 +874,144 @@ test('call-outs: the shift is offered to officers who could take it, and the fir
   const unfilled = await db.get('SELECT id FROM shifts WHERE employee_id IS NULL AND start_at = ?', `${later}T18:00`);
   res = await admin.post(`/schedule/${unfilled.id}/offer`);
   assert.ok(await db.get("SELECT 1 FROM shift_offers WHERE shift_id = ? AND status = 'open'", unfilled.id));
-  assert.match((await admin.get('/schedule?week=' + time.startOfWeek(later))).text, /Offered to officers/);
+  assert.match((await admin.get('/schedule?week=' + time.startOfWeek(later))).text, /Open: offered to officers/);
+  notify.setSender(null);
+});
+
+test('availability: officers say when they can\'t work; the schedule warns, and open shifts skip them', async () => {
+  const notify = require('../src/services/notify');
+  const { coverOptions } = require('../src/services/conflicts');
+  const { getSettings } = require('../src/settings');
+  const sent = [];
+  notify.setSender(async (subscription, payload) => sent.push({ to: subscription.endpoint.split('/').pop(), ...JSON.parse(payload) }));
+
+  // Olivia can't work on one evening a week, from today.
+  const day = time.addDays(time.todayStr(), 4);
+  let res = await officer.post('/my/availability', { kind: 'unavailable', repeat: 'weekly', start_date: time.todayStr(), weekdays: String(time.dayOfWeek(day)), start_time: '18:00', end_time: '23:00', note: 'Night class' });
+  assert.equal(res.status, 302);
+  assert.match((await officer.get('/my/availability')).text, /Every \w{3}, 18:00–23:00/);
+  res = await officer.post('/my/availability', { kind: 'unavailable', repeat: 'weekly', start_date: time.todayStr(), all_day: '1' });
+  assert.equal(res.status, 400, 'a weekly repeat needs its days');
+  assert.match((await officer.get(`/my/schedule?month=${day.slice(0, 7)}`)).text, /Can&#39;t work|Can't work/);
+
+  // The office booking her then is warned, and the conflict checker lists it.
+  res = await admin.post('/schedule', { site_id: ids.site, employee_id: ids.officer, date: day, start_time: '19:00', end_time: '22:00', break_minutes: '0' });
+  assert.match((await admin.get(res.location)).text, /said they can&#39;t work then|said they can't work then/);
+  assert.match((await admin.get(`/schedule/conflicts?from=${day}&to=${day}`)).text, /Booked while unavailable/);
+  const booked = await db.get('SELECT * FROM shifts WHERE employee_id = ? AND start_at = ?', ids.officer, `${day}T19:00`);
+
+  // "Find cover" and open shifts skip her then; at other times she's fine.
+  const settings = await getSettings();
+  const options = await coverOptions({ id: 0, site_id: ids.site, employee_id: null, start_at: `${day}T20:00`, end_at: `${day}T23:00`, break_minutes: 0 }, settings);
+  assert.match(options.find((o) => o.employee.id === ids.officer).blockers.join(), /can't work/);
+  const morning = await coverOptions({ id: 0, site_id: ids.site, employee_id: null, start_at: `${day}T08:00`, end_at: `${day}T12:00`, break_minutes: 0 }, settings);
+  assert.ok(!morning.find((o) => o.employee.id === ids.officer).blockers.some((b) => /can't work/.test(b)));
+
+  // Saying she can't work when she's already booked: she's told what to do, and so is the office.
+  const nextWeek = time.addDays(day, 7);
+  await admin.post('/schedule', { site_id: ids.site, employee_id: ids.officer, date: nextWeek, start_time: '08:00', end_time: '12:00', break_minutes: '0' });
+  res = await officer.post('/my/availability', { kind: 'unavailable', repeat: 'once', start_date: nextWeek, all_day: '1', note: 'Wedding' });
+  assert.match((await officer.get(res.location)).text, /already booked then/);
+  assert.match(sent.filter((m) => m.to === 'alex').at(-1).title, /says they can't work, but is booked/);
+
+  // Available for extra shifts: she's asked first. The office can see all of it.
+  res = await officer.post('/my/availability', { kind: 'available', repeat: 'once', start_date: time.addDays(day, 1), all_day: '1' });
+  const extra = await coverOptions({ id: 0, site_id: ids.site, employee_id: null, start_at: `${time.addDays(day, 1)}T08:00`, end_at: `${time.addDays(day, 1)}T12:00`, break_minutes: 0 }, settings);
+  assert.equal(extra.find((o) => o.employee.id === ids.officer).markedAvailable, true);
+  assert.match((await admin.get('/schedule/availability')).text, /Olivia Officer[\s\S]*Night class/);
+  assert.match((await admin.get(`/staff/${ids.officer}`)).text, /Wedding/);
+
+  // Removing one.
+  const entry = await db.get("SELECT id FROM availability WHERE note = 'Wedding'");
+  await officer.post(`/my/availability/${entry.id}/delete`);
+  assert.ok(!(await db.get('SELECT 1 FROM availability WHERE id = ?', entry.id)));
+  await admin.post(`/schedule/${booked.id}/delete`);
+  notify.setSender(null);
+});
+
+test('shift requests: a site asks, the office approves, and the officers they asked for get first choice', async () => {
+  const notify = require('../src/services/notify');
+  const { claimShift } = require('../src/services/openShifts');
+  const { getSettings } = require('../src/settings');
+  const sent = [];
+  notify.setSender(async (subscription, payload) => sent.push({ to: subscription.endpoint.split('/').pop(), ...JSON.parse(payload) }));
+  const to = (who) => sent.filter((m) => m.to === who);
+
+  const site = makeClient();
+  await signIn(site, 'carla@example.com', 'client password 1');
+  const carla = await db.get("SELECT id FROM users WHERE email = 'carla@example.com'");
+  await notify.saveSubscription(carla.id, { endpoint: 'https://push.example.com/carla', p256dh: 'BKeycarla', auth: 'authcarla' });
+  const owenId = (await db.get("SELECT employee_id FROM users WHERE email = 'owen@example.com'")).employee_id;
+  const testOfficer = await db.get("SELECT employee_id FROM users WHERE email = 'test.officer@example.com'");
+
+  // The form lists officers who've worked at their sites, by short name.
+  const form = await site.get('/my/requests/new');
+  assert.match(form.text, /Owen O\./);
+  assert.doesNotMatch(form.text, /Owen Other/);
+  assert.equal((await officer.get('/my/requests')).status, 403, 'requests are for sites');
+
+  const day = time.addDays(time.todayStr(), 6);
+  const ask = (extra = []) => site.postList('/my/requests', [
+    ['site_id', String(ids.site)], ['date', day], ['start_time', '10:00'], ['end_time', '14:00'], ['officers_needed', '2'],
+    ['notes', 'Farmers market'], ...extra,
+  ], '/my/requests/new');
+  let res = await site.postList('/my/requests', [['site_id', String(ids.site)], ['date', time.addDays(time.todayStr(), -1)], ['start_time', '10:00'], ['end_time', '14:00'], ['officers_needed', '1']], '/my/requests/new');
+  assert.equal(res.status, 400, 'not in the past');
+  res = await ask([['officers', String(owenId)]]);
+  assert.equal(res.status, 302);
+  const request = await db.get('SELECT * FROM shift_requests ORDER BY id DESC');
+  assert.equal(request.status, 'pending');
+  assert.equal(request.officers_needed, 2);
+  assert.match(to('alex').at(-1).title, /^Shift request from Harbour Mall/);
+  assert.match((await site.get('/my/requests')).text, /Waiting for approval/);
+  assert.match((await site.get(`/my/schedule?month=${day.slice(0, 7)}`)).text, /Requested ×2/);
+  assert.match((await admin.get('/')).text, /waiting for approval/);
+  assert.match((await admin.get('/schedule/requests')).text, /Farmers market[\s\S]*Owen O\./);
+
+  // Approved: two open shifts on the schedule, offered to Owen first (he was asked for).
+  res = await admin.post(`/schedule/requests/${request.id}/approve`);
+  assert.equal(res.status, 302);
+  const shifts = await db.all('SELECT * FROM shifts WHERE request_id = ? ORDER BY id', request.id);
+  assert.equal(shifts.length, 2);
+  assert.ok(shifts.every((s) => !s.employee_id && s.status === 'scheduled'));
+  const offers = await db.all("SELECT * FROM shift_offers WHERE shift_id = ANY(?::int[]) AND status = 'open'", shifts.map((s) => s.id));
+  assert.equal(offers.length, 2);
+  assert.match(to('owen').at(-1).title, /^Harbour Mall asked for you/);
+  assert.equal(to('test').filter((m) => m.url.includes(`/my/open-shifts/${offers[0].id}`)).length, 0, 'everyone else waits');
+  const minutesFirst = (Date.parse(`${offers[0].next_wave_at}:00Z`) - Date.parse(`${time.nowStr()}:00Z`)) / 60000;
+  assert.ok(minutesFirst >= 115 && minutesFirst <= 121, 'first choice for up to 2 hours');
+  assert.match(to('carla').at(-1).title, /^Approved:/);
+  assert.match((await admin.post(`/schedule/requests/${request.id}/approve`)).location, /requests/);
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM shifts WHERE request_id = ?', request.id)).n, 2, 'approving twice makes nothing extra');
+  assert.match((await site.get(`/my/schedule?month=${day.slice(0, 7)}`)).text, /Open: offered to officers/);
+  assert.match((await admin.get(`/schedule?week=${time.startOfWeek(day)}`)).text, /is-offered/);
+
+  // Owen takes one; the site hears who's coming. Both can't go to him (same time).
+  const settings = await getSettings();
+  assert.ok((await claimShift(offers[0].id, owenId, settings)).shift);
+  assert.match(to('carla').at(-1).title, /^Covered:/);
+  assert.match(to('carla').at(-1).body, /Owen O\./);
+  assert.match((await claimShift(offers[1].id, owenId, settings)).error, /already booked/i);
+  assert.match((await site.get('/my/requests')).text, /1 of 2 covered[\s\S]*Owen O\./);
+  // After the first-choice time, everyone else is told about the other one.
+  await db.run("UPDATE shift_offers SET next_wave_at = '2000-01-01T00:00' WHERE id = ?", offers[1].id);
+  await require('../src/services/openShifts').advanceOffers();
+  assert.ok(to('test').some((m) => m.url === `/my/open-shifts/${offers[1].id}`));
+  assert.ok((await claimShift(offers[1].id, testOfficer.employee_id, settings)).shift);
+  assert.match((await site.get('/my/requests')).text, /Covered/);
+
+  // A request can also be declined (with a reason) or cancelled by the site while it waits.
+  await ask();
+  const second = await db.get('SELECT * FROM shift_requests ORDER BY id DESC');
+  await admin.post(`/schedule/requests/${second.id}/decline`, { reason: 'No officers free that day' });
+  assert.equal((await db.get('SELECT status FROM shift_requests WHERE id = ?', second.id)).status, 'declined');
+  assert.match(to('carla').at(-1).body, /No officers free that day/);
+  await ask();
+  const third = await db.get('SELECT * FROM shift_requests ORDER BY id DESC');
+  await site.post(`/my/requests/${third.id}/cancel`, {}, '/my/requests');
+  assert.equal((await db.get('SELECT status FROM shift_requests WHERE id = ?', third.id)).status, 'cancelled');
+  assert.equal((await site.post(`/my/requests/${second.id}/cancel`, {}, '/my/requests')).status, 302);
+  assert.equal((await db.get('SELECT status FROM shift_requests WHERE id = ?', second.id)).status, 'declined', 'only waiting requests can be cancelled');
   notify.setSender(null);
 });
 

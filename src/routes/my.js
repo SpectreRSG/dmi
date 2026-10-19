@@ -11,6 +11,8 @@ const { recordFinishedShifts } = require('../services/hoursFromSchedule');
 const { findPayLine, payLineTimesheet, timesheetFileName } = require('../services/payTimesheet');
 const openShifts = require('../services/openShifts');
 const notify = require('../services/notify');
+const availability = require('../services/availability');
+const shiftRequests = require('../services/shiftRequests');
 const { sendUpload } = require('../uploads');
 
 const router = express.Router();
@@ -85,7 +87,8 @@ router.get('/schedule', async (req, res) => {
   const shifts = await db.all(
     `SELECT s.id, s.employee_id, s.start_at, s.end_at, s.break_minutes, s.status, s.notes,
             si.name AS site_name, si.address AS site_address, si.instructions AS site_instructions, c.name AS client_name,
-            e.first_name, e.last_name
+            e.first_name, e.last_name,
+            EXISTS (SELECT 1 FROM shift_offers o WHERE o.shift_id = s.id AND o.status = 'open') AS offered
      FROM shifts s
      JOIN sites si ON si.id = s.site_id
      JOIN clients c ON c.id = si.client_id
@@ -107,6 +110,21 @@ router.get('/schedule', async (req, res) => {
         ...range
       )
     : [];
+  // Officers: open shifts offered to them, and what they said about their availability.
+  // Clients: shifts they've asked for that the office hasn't approved yet.
+  const offered = isOfficer ? (await openShifts.openShiftsFor(scopeId)).filter((o) => o.start_at >= range[0] && o.start_at < range[1]) : [];
+  const said = isOfficer
+    ? (await availability.entriesFor([scopeId], gridStart, gridEnd)).flatMap((entry) =>
+        availability.windowsOf(entry, gridStart, gridEnd).map((w) => ({ ...w, entry })))
+    : [];
+  const requested = isOfficer
+    ? []
+    : await db.all(
+        `SELECT r.*, si.name AS site_name FROM shift_requests r JOIN sites si ON si.id = r.site_id
+         WHERE r.client_id = ? AND r.status = 'pending' AND r.start_at >= ? AND r.start_at < ? ORDER BY r.start_at`,
+        scopeId,
+        ...range
+      );
 
   const items = [
     ...shifts.map((s) => ({
@@ -122,6 +140,7 @@ router.get('/schedule', async (req, res) => {
       instructions: s.site_instructions,
       notes: s.notes,
       guard: shortName(s),
+      offered: s.offered,
       hours: entryHours(s),
     })),
     ...training.map((t) => ({
@@ -131,6 +150,9 @@ router.get('/schedule', async (req, res) => {
       course: t.course_name,
       location: t.location,
     })),
+    ...offered.map((o) => ({ kind: 'open', offerId: o.offer_id, start_at: o.start_at, end_at: o.end_at, site: o.site_name, client: o.client_name })),
+    ...said.map((w) => ({ kind: w.entry.kind, start_at: w.start_at, end_at: w.end_at, note: w.entry.note, allDay: !w.entry.start_time })),
+    ...requested.map((r) => ({ kind: 'request', start_at: r.start_at, end_at: r.end_at, site: r.site_name, count: r.officers_needed })),
   ].sort((a, b) => a.start_at.localeCompare(b.start_at));
 
   // The calendar: whole weeks, Sunday to Saturday, covering the month.
@@ -336,6 +358,128 @@ router.post('/open-shifts/:id/claim', officerOnly, async (req, res) => {
   await logActivity(req, `${employeeName(req.me)} claimed open shift #${result.shift.id} (${result.shift.start_at.slice(0, 10)})`);
   req.flash('success', `It's yours: ${time.fmtDay(result.shift.start_at)}, ${time.fmtRange(result.shift.start_at, result.shift.end_at)} at ${result.shift.site_name}. It's on your schedule now.`);
   res.redirect(`/my/schedule?month=${result.shift.start_at.slice(0, 7)}`);
+});
+
+// ---- Shift requests (site representatives, i.e. client accounts) -------------------
+// They ask for shifts at their sites; the office approves them, and officers
+// (the ones they asked for first) are offered them.
+
+function clientOnly(req, res, next) {
+  if (req.user.role === 'client' && req.user.client_id) return next();
+  res.status(403).render('error', { title: 'Not allowed', message: 'Shift requests are for site representatives.' });
+}
+
+router.get('/requests', clientOnly, async (req, res) => {
+  const requests = await shiftRequests.withDetails(await db.all(
+    `SELECT r.*, si.name AS site_name FROM shift_requests r JOIN sites si ON si.id = r.site_id
+     WHERE r.client_id = ? AND (r.end_at > ? OR r.created_at > ?) ORDER BY (r.status = 'pending') DESC, r.start_at LIMIT 100`,
+    req.user.client_id,
+    `${time.addDays(time.todayStr(), -7)}T00:00`,
+    `${time.addDays(time.todayStr(), -7)} 00:00:00`
+  ));
+  res.render('my/requests', { title: 'Shift requests', requests, STATUS_LABELS: shiftRequests.STATUS_LABELS });
+});
+
+async function renderRequestForm(req, res, values, error, status = 200) {
+  const [sites, officers] = await Promise.all([shiftRequests.clientSites(req.user.client_id), shiftRequests.knownOfficers(req.user.client_id)]);
+  res.status(status).render('my/request-form', {
+    title: 'Request a shift',
+    values,
+    error,
+    sites,
+    officers: officers.map((e) => ({ id: e.id, name: `${e.first_name} ${e.last_name.charAt(0)}.` })),
+    maxOfficers: shiftRequests.MAX_OFFICERS,
+  });
+}
+
+router.get('/requests/new', clientOnly, (req, res) =>
+  renderRequestForm(req, res, { date: time.addDays(time.todayStr(), 1), start_time: '08:00', end_time: '16:00', break_minutes: 0, officers_needed: 1, officers: [] }, null));
+
+router.post('/requests', clientOnly, async (req, res) => {
+  const { values, error } = await shiftRequests.readForm(req.body, req.user.client_id);
+  if (error) return renderRequestForm(req, res, values, error, 400);
+  const request = await shiftRequests.create(req.user.client_id, req.user.id, values);
+  await logActivity(req, `Requested ${values.officers_needed} officer(s) at ${request.site_name} on ${values.date}`);
+  req.flash('success', "Request sent. The office will approve it, then it's offered to officers" +
+    (values.officers.length ? ' (the ones you asked for first)' : '') + ". You'll get a notification at each step.");
+  res.redirect('/my/requests');
+});
+
+router.post('/requests/:id/cancel', clientOnly, async (req, res) => {
+  const result = await shiftRequests.cancel(Number(req.params.id), req.user.client_id);
+  if (result.error) req.flash('error', result.error);
+  else {
+    await logActivity(req, `Cancelled shift request #${req.params.id}`);
+    req.flash('success', 'Request cancelled.');
+  }
+  res.redirect('/my/requests');
+});
+
+// ---- My availability (officers) ---------------------------------------------------
+// Times they can't work, or would like extra shifts. The office sees it, the
+// conflict checker warns about it, and open shifts are offered accordingly.
+
+async function renderAvailability(req, res, values, error, status = 200) {
+  const entries = await db.all(
+    `SELECT * FROM availability WHERE employee_id = ? AND COALESCE(end_date, '9999-12-31') >= ? ORDER BY start_date, id`,
+    req.me.id,
+    time.todayStr()
+  );
+  for (const entry of entries) entry.label = availability.describe(entry);
+  res.status(status).render('my/availability', {
+    title: 'My availability',
+    entries,
+    values,
+    error,
+    KINDS: availability.KINDS,
+    WEEKDAYS: availability.WEEKDAYS,
+  });
+}
+
+router.get('/availability', officerOnly, (req, res) =>
+  renderAvailability(req, res, { kind: 'unavailable', repeat: 'once', start_date: time.todayStr(), all_day: true }, null));
+
+router.post('/availability', officerOnly, async (req, res) => {
+  const { values, error } = availability.readForm(req.body);
+  if (error) return renderAvailability(req, res, { ...values, all_day: Boolean(req.body.all_day) }, error, 400);
+  const id = await db.insert(
+    `INSERT INTO availability (employee_id, kind, start_date, end_date, weekdays, start_time, end_time, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    req.me.id, values.kind, values.start_date, values.end_date, values.weekdays, values.start_time, values.end_time, values.note
+  );
+  const entry = await db.get('SELECT * FROM availability WHERE id = ?', id);
+  await logActivity(req, `${employeeName(req.me)} added availability: ${availability.KINDS[entry.kind]}, ${availability.describe(entry)}`);
+
+  // Already booked during time they can't work? Tell them what to do, and tell the office.
+  if (entry.kind === 'unavailable') {
+    const until = entry.end_date || time.addDays(time.todayStr(), 180);
+    const windows = availability.windowsOf(entry, entry.start_date, until);
+    const booked = (await db.all(
+      `SELECT s.*, si.name AS site_name FROM shifts s JOIN sites si ON si.id = s.site_id
+       WHERE s.employee_id = ? AND s.status = 'scheduled' AND s.start_at > ? AND s.start_at < ? ORDER BY s.start_at`,
+      req.me.id, time.nowStr(), `${time.addDays(until, 1)}T23:59`
+    )).filter((shift) => windows.some((w) => w.start_at < shift.end_at && w.end_at > shift.start_at));
+    if (booked.length) {
+      const first = `${time.fmtDay(booked[0].start_at)} ${time.fmtRange(booked[0].start_at, booked[0].end_at)} at ${booked[0].site_name}`;
+      req.flash('warning', `You're already booked then (${first}${booked.length > 1 ? ` and ${booked.length - 1} more` : ''}). Saving this doesn't take you off: press "I can't make it" on the shift, or call the office.`);
+      await notify.notifyOffice({
+        title: `${req.me.first_name} ${req.me.last_name.charAt(0)}. says they can't work, but is booked`,
+        body: `${first}${booked.length > 1 ? ` (and ${booked.length - 1} more)` : ''}. Check the conflict checker.`,
+        url: `/schedule/${booked[0].id}/edit`,
+      });
+    }
+  }
+  req.flash('success', 'Saved. The office can see it, and open shifts are offered to you accordingly.');
+  res.redirect('/my/availability');
+});
+
+router.post('/availability/:id/delete', officerOnly, async (req, res) => {
+  const entry = await db.get('SELECT * FROM availability WHERE id = ? AND employee_id = ?', req.params.id, req.me.id);
+  if (!entry) return notFound(res, 'availability');
+  await db.run('DELETE FROM availability WHERE id = ?', entry.id);
+  await logActivity(req, `${employeeName(req.me)} removed availability: ${availability.KINDS[entry.kind]}, ${availability.describe(entry)}`);
+  req.flash('success', 'Removed.');
+  res.redirect('/my/availability');
 });
 
 // ---- My details (officers) ---------------------------------------------------------

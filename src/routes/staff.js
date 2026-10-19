@@ -5,6 +5,7 @@ const { clean, toNumber, notFound, numericIdParam, logActivity, isInUseError, em
 const { isValidDate, todayStr, addDays, startOfWeek } = require('../time');
 const { entryHours, round2 } = require('../services/payroll');
 const { complianceFor, complianceForEmployee } = require('../services/compliance');
+const availability = require('../services/availability');
 
 const router = express.Router();
 numericIdParam(router);
@@ -142,6 +143,11 @@ router.get('/:id', async (req, res) => {
     complianceForEmployee(employee, res.locals.settings.expiry_warning_days),
   ]);
   const account = await db.get('SELECT id, email, role, last_login_at FROM users WHERE employee_id = ?', employee.id);
+  const said = (await db.all(
+    `SELECT * FROM availability WHERE employee_id = ? AND COALESCE(end_date, '9999-12-31') >= ? ORDER BY start_date, id`,
+    employee.id,
+    today
+  )).map((entry) => ({ ...entry, label: availability.describe(entry) }));
   const taxProfile = res.locals.isAdmin
     ? await db.get('SELECT tin_type, tin_last4, signed_at, electronic_consent, backup_withholding FROM tax_profiles WHERE employee_id = ?', employee.id)
     : null;
@@ -153,6 +159,7 @@ router.get('/:id', async (req, res) => {
     taxProfile,
     compliance,
     upcomingShifts,
+    said,
     recentEntries,
     hoursThisWeek: round2(weekEntries.reduce((sum, e) => sum + entryHours(e), 0)),
     scheduledThisWeek: round2(weekShifts.reduce((sum, s) => sum + entryHours(s), 0)),

@@ -7,6 +7,8 @@ A private website for running the business side of a security company:
 | **Dashboard** | One screen with everything that needs attention: unfilled shifts, hours to approve, expired licenses, contracts ending. |
 | **Schedule** | A weekly roster. Add shifts (including overnight ones), repeat them on chosen days of the week, see unfilled shifts in red. It stops you double-booking a guard and warns you if they aren't licensed or trained. |
 | **Conflict checker** | Scans the roster ahead of time for double bookings, too little rest between shifts, overtime, clashes with training, expired licenses and unfilled shifts. "Find cover" lists who is free (best choices first) and assigns them in one click. |
+| **Availability** | Officers say when they can't work (one day, a few days, or every week, all day or between times) and when they'd like extra shifts. The conflict checker warns about shifts booked while someone can't work, the office is warned when booking them, "Find cover" and open-shift offers skip them, and officers who said they're available are asked first. See everyone's at **Schedule → Availability**. |
+| **Shift requests from sites** | A site representative (client account) asks for a shift: site, date, times, how many officers, and the officers they'd like. The office approves or declines it under **Schedule → Shift requests**. Approved: the shifts go on the schedule as open shifts (teal) and are offered to officers, the ones the site asked for first (up to 2 hours to themselves), then everyone else who's free. The site gets a notification when it's approved and when each shift is covered, with the officer's name. |
 | **Call-outs & open shifts** | An officer who can't make a shift presses **I can't make it** (or the office notes it). The shift is offered to the officers who are free, rested, licensed and trained: regulars at that site first, everyone else 10 minutes later. The first to claim it gets it. The office is only told if nobody has claimed it after 30 minutes (15 when the shift is close). |
 | **App notifications** | Free alerts on phones and computers, like a text message, with no texting company or phone numbers. Officers hear about open shifts, changes to their shifts and pay day. The office hears about call-outs and shifts nobody has claimed. Each person turns them on once per device. |
 | **Officer & client accounts** | Anyone can sign up at `/register`; an admin approves them and gives them a role. **Officers** see their shifts on a monthly calendar, their pay (payslips and their DMI timesheet for each pay day) and their 1099, and keep their contact details up to date. They fill in their W-9 once at the start; there are no timesheets to fill in. **Clients** see the monthly schedule for their sites. Neither ever sees pay rates or other people's details. |
@@ -84,6 +86,9 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
    who could take it, and the first to claim it gets it. You get a notification when it's covered, or
    if nobody has claimed it in time (then press **Find cover**). Open shifts are listed on the
    dashboard. You can also **Offer to officers** any unfilled shift.
+   **Site requests:** when a site asks for a shift, you get a notification and a note on the
+   dashboard. Open **Schedule → Shift requests** and press **Approve and offer to officers** (or
+   **Decline**, with a reason the site sees). Everything after that happens by itself.
 6. **Hours record themselves:** when a shift ends, its hours go into **Timesheets**, already
    approved (marked "from the schedule"). Nobody fills in a timesheet. You only fix the exceptions,
    before the pay run is finalized:
@@ -118,8 +123,8 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
 
 - **Admin**: everything, including pay, pay rates, user accounts and settings.
 - **Manager**: schedule, timesheets, staff, clients, contracts and training. Managers never see pay, pay rates or tax details.
-- **Officer**: their own monthly schedule (including "I can't make it" and claiming open shifts), their pay (payslips and DMI timesheets), their contact details, W-9 and 1099s. Nothing else.
-- **Client**: the monthly schedule for their own sites, with guards shown as "first name + last initial".
+- **Officer**: their own monthly schedule (including "I can't make it" and claiming open shifts), their availability, their pay (payslips and DMI timesheets), their contact details, W-9 and 1099s. Nothing else.
+- **Client** (site representative): the monthly schedule for their own sites, with guards shown as "first name + last initial", and **Shift requests** to ask for officers.
 - **Waiting for approval**: someone who signed up but hasn't been given a role yet. They see nothing.
 
 A **test officer account** (`test.officer@example.com`, staff record "Test Officer") is created
@@ -187,6 +192,8 @@ src/
     openShifts.js    call-outs, offering open shifts in waves, first-to-claim, telling the office
     notify.js        app notifications (web push)
     shiftNews.js     tells officers when the office changes their upcoming shifts
+    availability.js  officers' "can't work" / "available" times, and who's free when
+    shiftRequests.js shift requests from sites: approving, declining, first choice
     jobs.js          the timed jobs (finished shifts, open-shift waves)
     totp.js          the 6-digit authenticator-app codes (the TOTP standard) and the setup QR code
     twoStep.js       two-step sign-in: who needs it, checking codes, backup codes, remembered devices

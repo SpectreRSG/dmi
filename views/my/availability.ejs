@@ -1,0 +1,71 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>My availability</h1>
+    <p class="page-sub">Tell the office when you can't work, or when you'd like extra shifts. You won't be offered open shifts when you can't work, and you'll hear first about ones when you're available.</p>
+  </div>
+</div>
+
+<section class="card">
+  <div class="card-head"><h2>What you've told us</h2></div>
+  <% if (!entries.length) { %>
+    <p class="empty">Nothing yet. Add a time below.</p>
+  <% } else { %>
+    <ul class="availability-list">
+      <% for (const e of entries) { %>
+        <li>
+          <span>
+            <%- e.kind === 'unavailable' ? badge("Can't work", 'gray') : badge('Available', 'green') %>
+            <strong><%= e.label %></strong><% if (e.note) { %> <span class="muted">· <%= e.note %></span><% } %>
+          </span>
+          <form method="post" action="/my/availability/<%= e.id %>/delete" class="inline-form" data-confirm="Remove this?">
+            <%- include('../partials/csrf') %>
+            <button type="submit" class="btn btn-sm btn-ghost">Remove</button>
+          </form>
+        </li>
+      <% } %>
+    </ul>
+  <% } %>
+</section>
+
+<%- include('../partials/form-error') %>
+<form method="post" action="/my/availability" class="card form-card">
+  <%- include('../partials/csrf') %>
+  <h2>Add a time</h2>
+  <fieldset class="choice-row">
+    <legend>This is when I…</legend>
+    <% for (const [key, label] of Object.entries(KINDS)) { %>
+      <label class="check"><input type="radio" name="kind" value="<%= key %>" <%= values.kind === key ? 'checked' : '' %>> <%= key === 'unavailable' ? "can't work" : 'am available for extra shifts' %></label>
+    <% } %>
+  </fieldset>
+  <fieldset class="choice-row">
+    <legend>How often</legend>
+    <label class="check"><input type="radio" name="repeat" value="once" <%= values.repeat !== 'weekly' ? 'checked' : '' %>> One day, or a few days in a row</label>
+    <label class="check"><input type="radio" name="repeat" value="weekly" <%= values.repeat === 'weekly' ? 'checked' : '' %>> Every week</label>
+  </fieldset>
+  <div class="form-grid">
+    <label>From <input type="date" name="start_date" value="<%= values.start_date || '' %>" required min="<%= todayStr() %>"></label>
+    <label><span data-shown-for="repeat=once">To</span><span data-shown-for="repeat=weekly">Until (optional)</span>
+      <input type="date" name="end_date" value="<%= values.end_date && values.end_date !== values.start_date ? values.end_date : '' %>" min="<%= todayStr() %>">
+      <span class="hint" data-shown-for="repeat=once">Leave empty for just one day.</span>
+      <span class="hint" data-shown-for="repeat=weekly">Leave empty to keep repeating.</span>
+    </label>
+  </div>
+  <fieldset class="choice-row" data-shown-for="repeat=weekly">
+    <legend>On these days</legend>
+    <% const days = String(values.weekdays || '').split(','); %>
+    <% WEEKDAYS.forEach((name, i) => { %>
+      <label class="check"><input type="checkbox" name="weekdays" value="<%= i %>" <%= days.includes(String(i)) ? 'checked' : '' %>> <%= name %></label>
+    <% }) %>
+  </fieldset>
+  <label class="check"><input type="checkbox" name="all_day" value="1" <%= values.all_day ? 'checked' : '' %>> All day</label>
+  <div class="form-grid" data-hidden-when-checked="all_day">
+    <label>From <input type="time" name="start_time" value="<%= values.start_time || '' %>"></label>
+    <label>To <input type="time" name="end_time" value="<%= values.end_time || '' %>"><span class="hint">Earlier than "From" means it ends the next day (for nights).</span></label>
+  </div>
+  <label>Note for the office (optional)
+    <input name="note" maxlength="200" value="<%= values.note || '' %>" placeholder="e.g. school pickup, vacation">
+  </label>
+  <div class="form-actions"><button type="submit" class="btn btn-primary">Save</button></div>
+</form>
+<%- include('../partials/bottom') %>

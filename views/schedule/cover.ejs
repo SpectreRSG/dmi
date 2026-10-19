@@ -28,6 +28,7 @@
             <tr class="<%= o.blockers.length ? 'is-muted' : '' %>">
               <td>
                 <a href="/staff/<%= o.employee.id %>"><%= o.employee.first_name %> <%= o.employee.last_name %></a>
+                <% if (o.markedAvailable) { %><div class="small"><%- badge('Said they want extra shifts then', 'green') %></div><% } %>
                 <% if (o.siteShifts) { %><div class="muted small">Worked here <%= o.siteShifts %>× in the last 90 days</div><% } %>
               </td>
               <td>

@@ -86,6 +86,19 @@
 </section>
 
 <section class="card">
+  <div class="card-head"><h2>Availability</h2><a href="/schedule/availability">Everyone's →</a></div>
+  <% if (!said.length) { %>
+    <p class="empty">Nothing coming up. Officers add this themselves under My availability.</p>
+  <% } else { %>
+    <ul class="availability-list">
+      <% for (const e of said) { %>
+        <li><span><%- e.kind === 'unavailable' ? badge("Can't work", 'gray') : badge('Available', 'green') %> <%= e.label %><% if (e.note) { %> <span class="muted">· <%= e.note %></span><% } %></span></li>
+      <% } %>
+    </ul>
+  <% } %>
+</section>
+
+<section class="card">
   <div class="card-head"><h2>Recent hours</h2><a href="/timesheets?status=all&employee=<%= employee.id %>">All hours →</a></div>
   <% if (!recentEntries.length) { %>
     <p class="empty">No hours recorded yet.</p>
