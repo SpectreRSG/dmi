@@ -10,16 +10,9 @@ const availability = require('../services/availability');
 const router = express.Router();
 numericIdParam(router);
 
-const POSITIONS = [
-  'Security Officer',
-  'Senior Security Officer',
-  'Supervisor',
-  'Mobile Patrol Officer',
-  'Control Room Operator',
-  'Event Security',
-  'Operations Manager',
-  'Office Staff',
-];
+// The positions to choose from. Someone saved with an older position keeps
+// it until it's changed (the Staff list points them out).
+const POSITIONS = ['Armed Security Officer', 'Unarmed Security Officer', 'Supervisor', 'Manager', 'Administrator'];
 const EMPLOYMENT_TYPES = ['Full-time', 'Part-time', 'Casual', 'Contractor'];
 
 const FIELDS = [
@@ -39,6 +32,7 @@ function readForm(req, existing) {
 
   let error = null;
   if (!v.first_name || !v.last_name) error = 'First name and last name are required.';
+  else if (v.position && !POSITIONS.includes(v.position) && v.position !== existing?.position) error = 'Choose a position from the list.';
   else if (Number.isNaN(v.hourly_rate) || v.hourly_rate < 0) error = 'Hourly rate must be a number (0 or more).';
   else if (['start_date', 'end_date', 'license_expiry'].some((f) => v[f] && !isValidDate(v[f]))) {
     error = 'Please use the date pickers for dates.';
@@ -63,8 +57,13 @@ function findEmployee(id) {
 router.get('/', async (req, res) => {
   const q = String(req.query.q || '').trim();
   const status = ['active', 'inactive', 'all'].includes(req.query.status) ? req.query.status : 'active';
+  const oldOnly = req.query.position === 'old';
   const where = [];
   const params = [];
+  if (oldOnly) {
+    where.push('position IS NOT NULL AND position <> ALL(?::text[])');
+    params.push(POSITIONS);
+  }
   if (status !== 'all') {
     where.push('status = ?');
     params.push(status);
@@ -81,7 +80,11 @@ router.get('/', async (req, res) => {
     ...params
   );
   const { byEmployee } = await complianceFor(employees, res.locals.settings.expiry_warning_days);
-  res.render('staff/index', { title: 'Staff', employees, compliance: byEmployee, q, status });
+  // Active staff whose position isn't one of today's choices.
+  const { n: oldPositions } = await db.get(
+    "SELECT COUNT(*)::int AS n FROM employees WHERE status = 'active' AND position IS NOT NULL AND position <> ALL(?::text[])", POSITIONS
+  );
+  res.render('staff/index', { title: 'Staff', employees, compliance: byEmployee, q, status, oldOnly, oldPositions, POSITIONS });
 });
 
 router.get('/new', (req, res) => {

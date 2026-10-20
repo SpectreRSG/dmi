@@ -77,14 +77,14 @@ async function seed(db) {
     // ---- Staff --------------------------------------------------------------------
     const people = [
       ['James', 'Carter', 'Supervisor', 'Full-time', 38, day(640)],
-      ['Aisha', 'Rahman', 'Senior Security Officer', 'Full-time', 34, day(20)],
-      ['Michael', "O'Brien", 'Security Officer', 'Full-time', 30, day(410)],
-      ['Sofia', 'Martinez', 'Security Officer', 'Part-time', 30, day(530)],
-      ['Daniel', 'Kim', 'Mobile Patrol Officer', 'Full-time', 32, day(-5)],
-      ['Grace', 'Thompson', 'Security Officer', 'Casual', 33, day(300)],
-      ['Liam', 'Walker', 'Event Security', 'Casual', 31, day(220)],
-      ['Priya', 'Patel', 'Control Room Operator', 'Full-time', 31, day(700)],
-      ['Tom', 'Nguyen', 'Security Officer', 'Part-time', 29, day(150)],
+      ['Aisha', 'Rahman', 'Armed Security Officer', 'Full-time', 34, day(20)],
+      ['Michael', "O'Brien", 'Unarmed Security Officer', 'Full-time', 30, day(410)],
+      ['Sofia', 'Martinez', 'Unarmed Security Officer', 'Part-time', 30, day(530)],
+      ['Daniel', 'Kim', 'Armed Security Officer', 'Full-time', 32, day(-5)],
+      ['Grace', 'Thompson', 'Unarmed Security Officer', 'Casual', 33, day(300)],
+      ['Liam', 'Walker', 'Unarmed Security Officer', 'Casual', 31, day(220)],
+      ['Priya', 'Patel', 'Manager', 'Full-time', 31, day(700)],
+      ['Tom', 'Nguyen', 'Unarmed Security Officer', 'Part-time', 29, day(150)],
     ];
     const guards = [];
     for (const [i, [first_name, last_name, position, employment_type, hourly_rate, license_expiry]] of people.entries()) {
@@ -104,10 +104,10 @@ async function seed(db) {
       });
       guards.push({ id, first_name, last_name });
     }
-    const hannah = await insert('employees', { first_name: 'Hannah', last_name: 'Lee', position: 'Office Staff', employment_type: 'Part-time', hourly_rate: 28, license_required: 0, start_date: day(-400), email: 'hannah.lee@example.com' });
+    const hannah = await insert('employees', { first_name: 'Hannah', last_name: 'Lee', position: 'Administrator', employment_type: 'Part-time', hourly_rate: 28, license_required: 0, start_date: day(-400), email: 'hannah.lee@example.com' });
     await insert('training_records', { employee_id: hannah, course_id: course.induction, completed_on: day(-395), provider: 'In-house' });
     await insert('training_records', { employee_id: hannah, course_id: course.fire, completed_on: day(-180), expires_on: time.addMonths(day(-180), 24), provider: 'In-house' });
-    await insert('employees', { first_name: 'Mark', last_name: 'Davies', position: 'Security Officer', employment_type: 'Casual', hourly_rate: 29, status: 'inactive', start_date: day(-800), end_date: day(-120), license_number: 'SL-39001', license_expiry: day(-30) });
+    await insert('employees', { first_name: 'Mark', last_name: 'Davies', position: 'Unarmed Security Officer', employment_type: 'Casual', hourly_rate: 29, status: 'inactive', start_date: day(-800), end_date: day(-120), license_number: 'SL-39001', license_expiry: day(-30) });
 
     // ---- Training records (with a few gaps on purpose) -----------------------------
     for (const [i, g] of guards.entries()) {

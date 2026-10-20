@@ -10,6 +10,7 @@
 </div>
 
 <form class="filters" method="get" action="/staff">
+  <% if (oldOnly) { %><input type="hidden" name="position" value="old"><% } %>
   <input type="search" name="q" value="<%= q %>" placeholder="Search name, phone, license…" aria-label="Search">
   <select name="status" data-autosubmit aria-label="Status">
     <option value="active" <%= status === 'active' ? 'selected' : '' %>>Active</option>
@@ -19,6 +20,11 @@
   <button class="btn" type="submit">Search</button>
 </form>
 
+<% if (oldPositions && !oldOnly) { %>
+  <div class="flash flash-warning"><%= oldPositions %> active staff member<%= oldPositions === 1 ? ' has a position that isn\'t' : 's have positions that aren\'t' %> on the list any more (<%= POSITIONS.join(', ') %>). <a href="/staff?position=old&status=active">Show them</a>, then open each one and choose a new position.</div>
+<% } else if (oldOnly) { %>
+  <p class="muted small">Showing staff with an old position. <a href="/staff">Show everyone</a></p>
+<% } %>
 <div class="card">
   <% if (!employees.length) { %>
     <p class="empty">No staff found. <a href="/staff/new">Add your first staff member</a>.</p>
@@ -32,7 +38,7 @@
           <% for (const e of employees) { const c = compliance.get(e.id); %>
             <tr>
               <td><a href="/staff/<%= e.id %>"><strong><%= e.first_name %> <%= e.last_name %></strong></a><br><span class="muted"><%= e.employment_type || '' %></span></td>
-              <td><%= e.position || '—' %></td>
+              <td><%= e.position || '—' %><% if (e.position && !POSITIONS.includes(e.position)) { %> <%- badge('Old', 'amber') %><% } %></td>
               <td class="nowrap"><%= e.phone || '—' %></td>
               <td class="nowrap"><%= e.license_expiry ? fmtDate(e.license_expiry) : '—' %></td>
               <td>

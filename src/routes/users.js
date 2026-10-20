@@ -74,7 +74,7 @@ async function createStaffRecord(tx, values) {
   const parts = values.name.trim().split(/\s+/);
   const lastName = parts.length > 1 ? parts.pop() : '';
   return tx.insert(
-    "INSERT INTO employees (first_name, last_name, email, phone, position, status) VALUES (?, ?, ?, ?, 'Security officer', 'active')",
+    "INSERT INTO employees (first_name, last_name, email, phone, position, status) VALUES (?, ?, ?, ?, 'Unarmed Security Officer', 'active')",
     parts.join(' '),
     lastName,
     values.email,

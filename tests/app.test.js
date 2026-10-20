@@ -1543,6 +1543,39 @@ test('the demo accounts sign in with just their password (no code, no passkey), 
   assert.match((await demo.get('/my/schedule')).location, /^\/login/);
 });
 
+test("staff positions: a dropdown of the office's five; older positions stay until changed, and are pointed out", async () => {
+  const positions = ['Armed Security Officer', 'Unarmed Security Officer', 'Supervisor', 'Manager', 'Administrator'];
+  let page = await admin.get('/staff/new');
+  assert.deepEqual([...page.text.matchAll(/<option\s*(?:selected)?\s*>([^<]+)<\/option>/g)].map((m) => m[1]).filter((p) => positions.includes(p)), positions);
+  assert.doesNotMatch(page.text, /list="positions"/, 'no free typing');
+  // Only the five can be chosen.
+  let res = await admin.post('/staff', { first_name: 'Pat', last_name: 'Position', position: 'Event Security', status: 'active' }, '/staff/new');
+  assert.equal(res.status, 400);
+  assert.match(res.text, /Choose a position from the list/);
+  res = await admin.post('/staff', { first_name: 'Pat', last_name: 'Position', position: 'Armed Security Officer', status: 'active' }, '/staff/new');
+  assert.equal(res.status, 302);
+  assert.equal((await db.get("SELECT position FROM employees WHERE last_name = 'Position'")).position, 'Armed Security Officer');
+
+  // Someone with an older position keeps it when their record is saved, and the Staff list points them out.
+  const oldie = await db.get("SELECT * FROM employees WHERE email = 'test.officer@example.com'");
+  assert.equal(oldie.position, 'Security officer', 'from before the new list');
+  page = await admin.get(`/staff/${oldie.id}/edit`);
+  assert.match(page.text, /<option value="Security officer" selected>Security officer \(old, please choose a new one\)/);
+  res = await admin.post(`/staff/${oldie.id}`, { first_name: 'Test', last_name: 'Officer', position: 'Security officer', status: 'active' }, `/staff/${oldie.id}/edit`);
+  assert.equal(res.status, 302);
+  assert.equal((await db.get('SELECT position FROM employees WHERE id = ?', oldie.id)).position, 'Security officer', 'kept');
+  page = await admin.get('/staff');
+  assert.match(page.text, /1 active staff member has a position that isn(&#39;|')t on the list any more[\s\S]*Show them/);
+  page = await admin.get('/staff?position=old&status=active');
+  assert.match(page.text, /Test<\/strong>|Test Officer/);
+  assert.match(page.text, /Security officer <span class="badge badge-amber">Old<\/span>/);
+  assert.doesNotMatch(page.text, /Pat Position/, 'only the ones with an old position');
+  // Choosing a new one clears it.
+  await admin.post(`/staff/${oldie.id}`, { first_name: 'Test', last_name: 'Officer', position: 'Unarmed Security Officer', status: 'active' }, `/staff/${oldie.id}/edit`);
+  assert.equal((await db.get('SELECT position FROM employees WHERE id = ?', oldie.id)).position, 'Unarmed Security Officer');
+  assert.doesNotMatch((await admin.get('/staff/new')).text, /Security officer \(old/);
+});
+
 test('every main page loads', async () => {
   for (const url of ['/', '/schedule', '/timesheets?status=all', '/pay', `/pay/${ids.payRun}`, '/staff', `/staff/${ids.employee}`,
     '/clients', `/clients/${ids.client}`, '/contracts', '/training', '/training/records', '/training/sessions',

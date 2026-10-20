@@ -23,8 +23,13 @@
   <h2>Job</h2>
   <div class="form-grid">
     <label>Position
-      <input name="position" list="positions" value="<%= employee.position || '' %>" placeholder="Pick or type">
-      <datalist id="positions"><% for (const p of POSITIONS) { %><option value="<%= p %>"><% } %></datalist>
+      <select name="position">
+        <option value="">— Choose —</option>
+        <% for (const p of POSITIONS) { %><option <%= employee.position === p ? 'selected' : '' %>><%= p %></option><% } %>
+        <% if (employee.position && !POSITIONS.includes(employee.position)) { %>
+          <option value="<%= employee.position %>" selected><%= employee.position %> (old, please choose a new one)</option>
+        <% } %>
+      </select>
     </label>
     <label>Employment type
       <select name="employment_type">
