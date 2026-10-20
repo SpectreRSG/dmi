@@ -237,7 +237,8 @@ data/                YOUR LOCAL DATA (database + uploaded files). Created automa
   all pass, it copies `dev` into `main`. If they fail, `main` is left alone. You'll see a red ❌
   in the **Actions** tab on GitHub. This is set up in `.github/workflows/nightly-dev-to-main.yml`.
 - To copy `dev` to `main` right away instead of waiting, open the **Actions** tab, choose
-  **Nightly dev → main**, then **Run workflow**.
+  **Nightly dev → main**, then **Run workflow**. Do the same if a night's copy hasn't happened:
+  when GitHub is busy it can start the job hours late, or skip a night.
 
 ### Making changes
 
