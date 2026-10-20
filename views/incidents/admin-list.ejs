@@ -1,0 +1,41 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Incident reports</h1>
+    <p class="page-sub">Use of force and incident reports officers have sent. Review each one, record what was reported where, and approve it or ask the officer for more information. Reports are kept for 5 years after the incident.</p>
+  </div>
+</div>
+<nav class="tabs" aria-label="Which reports">
+  <% for (const [key, v] of Object.entries(VIEWS)) { %>
+    <a href="/incidents?view=<%= key %>" class="<%= view === key ? 'active' : '' %>"><%= v.label %><% const n = { review: count.submitted, info: count.info_requested }[key]; if (n) { %> <span class="count"><%= n %></span><% } %></a>
+  <% } %>
+</nav>
+<form class="filters" method="get" action="/incidents">
+  <input type="hidden" name="view" value="<%= view %>">
+  <input type="search" name="q" value="<%= q %>" placeholder="Report number, officer or site" aria-label="Search">
+  <button class="btn" type="submit">Search</button>
+</form>
+<div class="card">
+  <% if (!reports.length) { %>
+    <p class="empty"><%= view === 'review' ? 'Nothing waiting for review.' : view === 'expired' ? 'No reports are past their 5 years.' : 'No reports here.' %></p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table stack-on-phone">
+        <thead><tr><th>Report</th><th>Incident</th><th>Officer</th><th>What</th><th>Status</th><th>Reporting</th></tr></thead>
+        <tbody>
+          <% for (const r of reports) { %>
+            <tr>
+              <td data-label="Report"><a href="/incidents/<%= r.id %>"><strong><%= r.number %></strong></a></td>
+              <td class="nowrap" data-label="Incident"><%= r.incident_date ? `${fmtDay(r.incident_date)} ${r.incident_date.slice(0, 4)}` : '—' %><% if (r.data.site_client) { %><div class="muted small"><%= r.data.site_client %></div><% } %></td>
+              <td data-label="Officer"><%= r.first_name %> <%= r.last_name %></td>
+              <td data-label="What"><%= typesText(r) %></td>
+              <td data-label="Status"><%- badge(STATUS_LABELS[r.status], { submitted: 'blue', info_requested: 'amber', approved: 'green' }[r.status]) %><% if (r.legal_hold) { %> <%- badge('Legal hold', 'red') %><% } %></td>
+              <td data-label="Reporting" class="small"><% if (r.deadlines.length && r.status !== 'approved') { %>Check by <%= r.deadlines.map((d) => d.dueText).sort()[0] %><% } else { %><span class="muted">—</span><% } %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+<%- include('../partials/bottom') %>

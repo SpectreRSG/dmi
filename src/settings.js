@@ -19,6 +19,7 @@ const DEFAULTS = {
   payer_zip: '',
   payer_phone: '',
   payer_state_id: '', // state payer number (box 6), if your state has one
+  ppo_license: '', // California private patrol operator (PPO) license number, for incident reports
 };
 
 // The time zones you can pick on the Settings page.
@@ -53,6 +54,7 @@ async function getSettings() {
     payer_zip: s.payer_zip,
     payer_phone: s.payer_phone,
     payer_state_id: s.payer_state_id,
+    ppo_license: s.ppo_license,
   };
 }
 

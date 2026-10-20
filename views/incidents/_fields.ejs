@@ -1,0 +1,51 @@
+<%# The questions of one section (or group), as form fields. Names match the boxes on the PDF form. %>
+<% for (const f of fields) { %>
+  <% if (f.type === 'heading') { %>
+    <h3 class="ir-heading"><%= f.label %></h3>
+  <% } else if (f.type === 'check') { %>
+    <label class="check ir-check"><input type="checkbox" name="<%= f.name %>" value="1" <%= values[f.name] ? 'checked' : '' %>> <%= f.label %></label>
+  <% } else if (f.type === 'group') { %>
+    <fieldset class="ir-group" <% if (f.showIfAny) { %>data-shown-if-any="<%= f.showIfAny.join(',') %>"<% } %>>
+      <legend><%= f.label %></legend>
+      <% if (f.help) { %><p class="hint"><%= f.help %></p><% } %>
+      <div class="ir-fields"><%- include('_fields', { fields: f.fields, values }) %></div>
+    </fieldset>
+  <% } else if (f.type === 'rows') { %>
+    <div class="ir-rows">
+      <% for (let r = 1; r <= f.count; r += 1) { %>
+        <% const names = f.columns.map((_, c) => `${f.prefix}_${r}_${c + 1}`); const filled = names.some((n) => values[n]); %>
+        <details class="ir-row" <%= r === 1 || filled ? 'open' : '' %>>
+          <summary><%= f.label %> <%= r %><%= r > 1 && !filled ? ' (tap to add)' : '' %></summary>
+          <div class="ir-fields">
+            <% f.columns.forEach((col, c) => { %>
+              <label class="ir-field"><%= col %> <input name="<%= names[c] %>" value="<%= values[names[c]] || '' %>" maxlength="1000"></label>
+            <% }) %>
+          </div>
+        </details>
+      <% } %>
+    </div>
+  <% } else if (f.type === 'duties') { %>
+    <div class="ir-duties">
+      <% DUTIES.forEach((d, i) => { const due = deadlines.find((x) => x.duty === i); %>
+        <div class="ir-duty">
+          <strong><%= d.title %></strong>
+          <p class="small"><%= d.when %></p>
+          <p class="small"><%- due ? badge(`May apply: due ${due.dueText}`, 'amber') : badge('Not indicated by what was ticked', 'gray') %><%= due && due.met ? ` ${due.met}` : '' %></p>
+          <div class="ir-fields">
+            <label class="ir-field">Owner / due <input name="report_row_<%= i + 1 %>_1" value="<%= values[`report_row_${i + 1}_1`] || '' %>" maxlength="300"></label>
+            <label class="ir-field">Filed / recipient / receipt <input name="report_row_<%= i + 1 %>_2" value="<%= values[`report_row_${i + 1}_2`] || '' %>" maxlength="500"></label>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  <% } else if (f.type === 'textarea') { %>
+    <label class="ir-field ir-wide"><span><%= f.label %><% if (f.required) { %> <span class="muted">(required)</span><% } %></span>
+      <textarea name="<%= f.name %>" rows="<%= f.big ? 14 : 3 %>" maxlength="<%= f.max || 5000 %>"><%= values[f.name] || '' %></textarea></label>
+  <% } else if (f.choices) { %>
+    <label class="ir-field"><%= f.label %>
+      <select name="<%= f.name %>"><option value="">—</option><% for (const c of f.choices) { %><option <%= values[f.name] === c ? 'selected' : '' %>><%= c %></option><% } %></select></label>
+  <% } else { %>
+    <label class="ir-field"><span><%= f.label %><% if (f.required) { %> <span class="muted">(required)</span><% } %></span>
+      <input type="<%= f.input || 'text' %>" name="<%= f.name %>" value="<%= values[f.name] || '' %>" maxlength="<%= f.max || 300 %>"></label>
+  <% } %>
+<% } %>

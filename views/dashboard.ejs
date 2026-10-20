@@ -10,6 +10,9 @@
   </div>
 </div>
 
+<% if (incidents.n) { %>
+  <div class="flash <%= incidents.discharges ? 'flash-error' : 'flash-warning' %>"><%= incidents.n %> incident report<%= incidents.n === 1 ? ' is' : 's are' %> waiting for review<%= incidents.discharges ? `, including ${incidents.discharges} firearm discharge${incidents.discharges === 1 ? '' : 's'}` : '' %>. <a href="/incidents">Review them →</a></div>
+<% } %>
 <% if (waitingAccounts) { %>
   <div class="flash flash-warning"><%= waitingAccounts %> new account<%= waitingAccounts === 1 ? ' is' : 's are' %> waiting for a role. <a href="/users">Approve them on User accounts →</a></div>
 <% } %>

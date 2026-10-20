@@ -102,9 +102,14 @@ async function notifyOffice(message) {
   return notifyUsers(db.all("SELECT id FROM users WHERE role IN ('admin', 'manager') AND active = 1"), message);
 }
 
+// Just the admins (e.g. incident reports, which managers don't see).
+async function notifyAdmins(message) {
+  return notifyUsers(db.all("SELECT id FROM users WHERE role = 'admin' AND active = 1"), message);
+}
+
 // Everyone with an account for this client (their site representatives).
 async function notifyClient(clientId, message) {
   return notifyUsers(db.all("SELECT id FROM users WHERE role = 'client' AND client_id = ? AND active = 1", clientId), message);
 }
 
-module.exports = { publicKey, setSender, saveSubscription, removeSubscription, notifyUsers, notifyEmployees, notifyOffice, notifyClient };
+module.exports = { publicKey, setSender, saveSubscription, removeSubscription, notifyUsers, notifyEmployees, notifyOffice, notifyAdmins, notifyClient };

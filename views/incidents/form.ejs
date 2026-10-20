@@ -1,0 +1,55 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/my/incidents">← Incident reports</a></p>
+    <h1>Incident report <%= report.number %></h1>
+    <p class="page-sub"><%- badge('Draft', 'gray') %> Only you can see this until you sign and send it. Fill in what you can; save it and come back any time.</p>
+  </div>
+  <div class="page-actions">
+    <form method="post" action="/my/incidents/<%= report.id %>/delete" class="inline-form" data-confirm="Delete this draft? This can't be undone.">
+      <%- include('../partials/csrf') %>
+      <button type="submit" class="btn btn-ghost">Delete draft</button>
+    </form>
+  </div>
+</div>
+<%- include('../partials/form-error') %>
+<div class="flash flash-warning" data-backup-banner hidden>
+  This phone has answers that weren't saved yet (from <span data-backup-time></span>).
+  <button type="button" class="btn btn-sm" data-backup-restore>Put them back</button>
+  <button type="button" class="btn btn-sm btn-ghost" data-backup-discard>Throw them away</button>
+</div>
+<nav class="card card-pad ir-index" aria-label="Sections">
+  <strong>Sections</strong>
+  <ol>
+    <% SECTIONS.forEach((s) => { %><li><a href="#s-<%= s.id %>"><%= s.title %></a></li><% }) %>
+    <li><a href="#sign">Sign and send</a></li>
+  </ol>
+</nav>
+<form method="post" action="/my/incidents/<%= report.id %>" id="incident-form" data-backup="incident-<%= report.id %>" data-saved-ms="<%= report.updated_ms %>">
+  <%- include('../partials/csrf') %>
+  <% SECTIONS.forEach((s, i) => { %>
+    <section class="card card-pad ir-section" id="s-<%= s.id %>">
+      <h2><%= i + 1 %>. <%= s.title %></h2>
+      <% if (s.help) { %><p class="hint"><%= s.help %></p><% } %>
+      <div class="ir-fields"><%- include('_fields', { fields: s.fields, values: data }) %></div>
+    </section>
+  <% }) %>
+  <section class="card card-pad ir-section" id="sign">
+    <h2><%= SECTIONS.length + 1 %>. Sign and send</h2>
+    <p><%= ATTEST %></p>
+    <div class="stack">
+      <label class="check"><input type="checkbox" name="attest" value="1"> I confirm this</label>
+      <label>Type your full legal name to sign
+        <input name="signature" value="<%= locals.signature || '' %>" autocomplete="name" maxlength="120" placeholder="<%= data.guard_name || 'Your full legal name' %>">
+      </label>
+      <p class="hint">Once it's sent, your report can't be changed. If you remember something later, or the office asks for more, you add a dated supplement. Reports are kept for 5 years.</p>
+      <div><button type="submit" name="action" value="submit" class="btn btn-primary">Sign and send to the office</button></div>
+    </div>
+  </section>
+  <div class="ir-actionbar">
+    <button type="submit" name="action" value="save" class="btn">Save draft</button>
+    <a class="btn btn-primary" href="#sign">Sign and send ↓</a>
+  </div>
+</form>
+<%- include('_files', { files, base: `/my/incidents/${report.id}`, canDelete: true, saveFirst: '#incident-form', keptNote: 'Saving your draft first, then adding the file.' }) %>
+<%- include('../partials/bottom') %>

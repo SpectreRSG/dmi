@@ -1,0 +1,7 @@
+<%# A report's answers, read-only: only what was filled in. %>
+<% for (const s of sections) { %>
+  <section class="card card-pad ir-answers" id="a-<%= s.id %>">
+    <h2><%= s.title %></h2>
+    <div class="ir-answers-grid"><%- include('_answer-items', { items: s.items }) %></div>
+  </section>
+<% } %>

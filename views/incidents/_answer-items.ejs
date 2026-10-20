@@ -1,0 +1,16 @@
+<% for (const item of items) { %>
+  <% if (item.kind === 'checks') { %>
+    <div class="ir-answer"><span class="ir-q"><%= item.label %></span><ul class="ir-ticks"><% for (const l of item.labels) { %><li><%= l %></li><% } %></ul></div>
+  <% } else if (item.kind === 'fact') { %>
+    <div class="ir-answer <%= item.long ? 'ir-answer-long' : '' %>"><span class="ir-q"><%= item.label %></span><div class="<%= item.long ? 'pre-line' : '' %>"><%= item.value %></div></div>
+  <% } else if (item.kind === 'rows') { %>
+    <div class="ir-answer ir-answer-long"><span class="ir-q"><%= item.label %>s</span>
+      <div class="table-wrap"><table class="table stack-on-phone">
+        <thead><tr><% for (const c of item.columns) { %><th><%= c %></th><% } %></tr></thead>
+        <tbody><% for (const row of item.rows) { %><tr><% row.forEach((v, i) => { %><td data-label="<%= item.columns[i] %>"><%= v || '—' %></td><% }) %></tr><% } %></tbody>
+      </table></div>
+    </div>
+  <% } else if (item.kind === 'group') { %>
+    <div class="ir-answer ir-answer-long"><h3 class="ir-heading"><%= item.label %></h3><div class="ir-answers-grid"><%- include('_answer-items', { items: item.items }) %></div></div>
+  <% } %>
+<% } %>

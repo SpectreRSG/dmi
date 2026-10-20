@@ -1,0 +1,34 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/my/incidents">← Incident reports</a></p>
+    <h1>Incident report <%= report.number %></h1>
+    <p class="page-sub"><%- badge(STATUS_LABELS[report.status], { submitted: 'blue', info_requested: 'amber', approved: 'green' }[report.status]) %>
+      Sent <%= fmtDateTime(report.submitted_at) %><%= report.approved_at ? ` · approved ${fmtDateTime(report.approved_at)}` : '' %></p>
+  </div>
+  <div class="page-actions"><a class="btn" href="/my/incidents/<%= report.id %>/pdf" target="_blank" rel="noopener"><%- icon('file') %> PDF</a></div>
+</div>
+<% if (asked) { %>
+  <section class="card card-pad ir-asked">
+    <h2>The office needs more information</h2>
+    <p class="pre-line"><%= asked.note %></p>
+    <p class="muted small">Asked by <%= asked.user_name || 'the office' %>, <%= fmtDateTime(asked.created_at.replace(' ', 'T').slice(0, 16)) %>. Answer below as a supplement.</p>
+  </section>
+<% } %>
+<section class="card card-pad" id="supplement">
+  <h2>Add a supplement</h2>
+  <p class="muted small">Something you remembered, a correction, or what the office asked for. It's added with today's date; your original report stays exactly as you sent it.</p>
+  <form method="post" action="/my/incidents/<%= report.id %>/supplement" class="stack">
+    <%- include('../partials/csrf') %>
+    <textarea name="note" rows="5" maxlength="10000" required aria-label="Supplement"></textarea>
+    <div><button type="submit" class="btn btn-primary">Add supplement</button></div>
+  </form>
+</section>
+<%- include('_answers', { sections }) %>
+<section class="card card-pad">
+  <h2>Signed</h2>
+  <p><%= report.signed_name %>, <%= report.data.guard_signed %></p>
+</section>
+<%- include('_files', { files, base: `/my/incidents/${report.id}`, canDelete: false, keptNote: 'Files added now are kept with the report.' }) %>
+<%- include('_timeline', { events }) %>
+<%- include('../partials/bottom') %>

@@ -65,6 +65,14 @@ router.get('/', async (req, res) => {
   // Shifts sites have asked for, waiting for the office to approve.
   const pendingRequests = (await db.get("SELECT COUNT(*)::int AS n FROM shift_requests WHERE status = 'pending'")).n;
 
+  // Incident reports waiting for an admin (only admins see them).
+  const incidents = res.locals.isAdmin
+    ? await db.get(
+      `SELECT COUNT(*)::int AS n, COUNT(*) FILTER (WHERE data->>'type_discharge' = 'true' OR data->>'force_discharge' = 'true')::int AS discharges
+       FROM incident_reports WHERE status = 'submitted'`
+    )
+    : { n: 0, discharges: 0 };
+
   // New sign-ups waiting for an admin to give them a role.
   const waitingAccounts = res.locals.isAdmin
     ? (await db.get("SELECT COUNT(*)::int AS n FROM users WHERE role = 'pending' AND active = 1")).n
@@ -79,6 +87,7 @@ router.get('/', async (req, res) => {
     today,
     openOffers,
     pendingRequests,
+    incidents,
     stats: {
       activeStaff: employees.length,
       shiftsNext7: upcomingShifts.length,

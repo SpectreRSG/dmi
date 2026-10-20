@@ -1,0 +1,28 @@
+<%# Photos and documents on a report. %>
+<section class="card card-pad" id="files">
+  <h2>Photos and files</h2>
+  <% if (files.length) { %>
+    <ul class="device-list">
+      <% for (const f of files) { %>
+        <li>
+          <span><a href="<%= base %>/files/<%= f.id %>" target="_blank" rel="noopener"><%= f.file_original %></a><% if (f.note) { %> <span class="muted small">· <%= f.note %></span><% } %><br><span class="muted small">Added <%= fmtDateTime(f.created_at.replace(' ', 'T').slice(0, 16)) %><%= f.uploaded_by_name ? ` by ${f.uploaded_by_name}` : '' %></span></span>
+          <% if (canDelete) { %>
+            <form method="post" action="<%= base %>/files/<%= f.id %>/delete" class="inline-form" data-confirm="Remove this file?">
+              <%- include('../partials/csrf') %>
+              <button type="submit" class="btn btn-sm btn-ghost">Remove</button>
+            </form>
+          <% } %>
+        </li>
+      <% } %>
+    </ul>
+  <% } else { %>
+    <p class="muted small">None yet. Photos of the scene, injuries or damage help (up to <%= maxFileMb %> MB each).</p>
+  <% } %>
+  <form method="post" action="<%= base %>/files" enctype="multipart/form-data" class="ir-upload" <% if (locals.saveFirst) { %>data-save-first="<%= saveFirst %>"<% } %>>
+    <%- include('../partials/csrf') %>
+    <input type="file" name="file" accept="image/*,.pdf,.doc,.docx,.txt" required aria-label="Photo or file">
+    <input name="note" maxlength="200" placeholder="What it shows (optional)" aria-label="What it shows">
+    <button type="submit" class="btn btn-sm">Add file</button>
+  </form>
+  <% if (locals.keptNote) { %><p class="hint"><%= keptNote %></p><% } %>
+</section>

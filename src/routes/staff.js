@@ -200,7 +200,7 @@ router.post('/:id/delete', async (req, res) => {
     if (!isInUseError(err)) throw err;
     req.flash(
       'error',
-      `${employeeName(employee)} has shifts, hours, pay, training or contracts on record, so they can't be deleted. Set their status to "Inactive" instead.`
+      `${employeeName(employee)} has shifts, hours, pay, training, contracts or incident reports on record, so they can't be deleted. Set their status to "Inactive" instead.`
     );
     return res.redirect(`/staff/${employee.id}`);
   }

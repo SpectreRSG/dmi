@@ -108,7 +108,22 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
    timesheet** (filled in from their hours, with your name and the date after "APPROVED BY") under
    **My pay** in their account. You can open the same timesheets from the pay run.
 9. **Keep an eye on the dashboard** for expiring licenses, training and contracts.
-10. **Every January (1099s):** fill in the company's legal name, EIN and address once under
+10. **Incident reports (use of force and other incidents):** an officer opens **Incident reports**
+    on their phone, starts a report from their shift (the site, address and their details fill
+    themselves in), answers what applies, adds photos, then signs it by typing their full legal name
+    and sends it. Every admin gets a notification (titled "Firearm discharge" if a gun was fired),
+    and the dashboard shows it. Open **Incident reports**, read it, and:
+    - see **Reporting that may be required**: the California deadlines worked out from what was
+      ticked (the guard's 24-hour notice, BSIS within 7 business days, local police within 7 days).
+      It's a reminder of what to check, not legal advice.
+    - fill in the **Review** (page 7 of the form: who files what, by when, and what was filed), and
+      press **Save review**. You can come back to it.
+    - press **Approve**, or **Send to the officer** with a question. They answer with a dated
+      **supplement**; it comes back to you to review.
+    - press **PDF** for the report on the official-looking form (the same form you gave us), with
+      extra pages for long answers, supplements, files and history.
+    Put your **PPO license number** under **Settings → Incident reports** so it's on every report.
+11. **Every January (1099s):** fill in the company's legal name, EIN and address once under
    **Settings → 1099 forms**. Make sure officers have filled in their W-9 details (their account
    asks them to when they first sign in; it's under **My pay → Tax forms**). Then in **1099 forms**, pick last year, press **Make 1099** for each contractor,
    check the PDFs, and press **Mark as issued**. By **January 31**:
@@ -123,9 +138,9 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
 
 ### Who can do what?
 
-- **Admin**: everything, including pay, pay rates, user accounts and settings.
-- **Manager**: schedule, timesheets, staff, clients, contracts and training. Managers never see pay, pay rates or tax details.
-- **Officer**: their own monthly schedule (including "I can't make it" and claiming open shifts), their availability, their pay (payslips and DMI timesheets), their contact details, W-9 and 1099s. Nothing else.
+- **Admin**: everything, including pay, pay rates, user accounts, settings and incident reports.
+- **Manager**: schedule, timesheets, staff, clients, contracts and training. Managers never see pay, pay rates, tax details or incident reports.
+- **Officer**: their own monthly schedule (including "I can't make it" and claiming open shifts), their availability, their pay (payslips and DMI timesheets), their contact details, W-9 and 1099s, and **Incident reports** (writing their own, and seeing the ones they sent). Nothing else.
 - **Client** (site representative): the monthly schedule for their own sites, with guards shown as "first name + last initial", and **Shift requests** to ask for officers (once, or repeating), with a **History** of every request and who covered each date.
 - **Waiting for approval**: someone who signed up but hasn't been given a role yet. They see nothing.
 
@@ -160,6 +175,13 @@ sites' details. So keep its password private, and deactivate it when you're not 
 - Once a pay run is **finalized**, its hours are locked so nobody can be paid twice.
 - Times are entered as 24-hour clock. If a shift's end time is earlier than its start time
   (22:00 → 06:00), it finishes the next day.
+- **Incident reports are kept for 5 years** after the incident. Until then nobody can delete one,
+  not even an admin (the database itself refuses). After 5 years they're listed under
+  **Incident reports → Past 5 years**, and an admin can delete them; nothing is deleted
+  automatically. **Legal hold** keeps one longer (for a claim or lawsuit).
+- **A sent incident report is never changed.** Not by the officer, and not by the office: anything
+  new is a dated supplement, and the original stays as it was signed. A draft is only seen by the
+  officer writing it, and their phone keeps a copy as they type, in case the signal drops.
 
 ---
 
@@ -220,13 +242,16 @@ src/
     tax1099.js       who was paid what in a year, W-9 checks, payer details
     form1099Pdf.js   draws Form 1099-NEC (Copies B, 2, C and 1)
     timesheetApproval.js  the approved copy of an officer's timesheet ("APPROVED BY" filled in)
+    incidentReports.js    incident reports: the questions (named like the boxes on the model form),
+                     sending, deadlines, the 5-year keep date, and the filled-in PDF
   routes/            one file per area: staff, schedule, timesheets, pay, contracts, training, tax…
-                     (my.js and myTax.js are the officers' and clients' own pages)
+                     (my.js and myTax.js are the officers' and clients' own pages; incidents.js
+                     has both the officers' /my/incidents and the admins' /incidents)
 views/               the HTML templates, one folder per area
 public/              CSS, browser JavaScript, the logo (img/) and app icons (icons/), and the old
                      stand-alone timesheet page (timesheet/)
 brand/               the original logo images (rectangle and square) the logo and icons were made from
-assets/              the blank DMI timesheet PDF the app fills in
+assets/              the blank DMI timesheet and incident report PDFs the app fills in
 netlify/
   database/migrations/   the database tables (like spreadsheet tabs), applied by Netlify
   functions/app.mjs      runs the whole app on Netlify
@@ -359,4 +384,4 @@ spreadsheets as you go, and ask for help setting up regular database snapshots.
 - Retire the stand-alone /timesheet/ page
 - Client invoicing (bill rates per site)
 - Email reminders for expiring licenses and unfilled shifts
-- Incident reports from sites
+- Clients reporting incidents at their sites (officers' incident reports are done)

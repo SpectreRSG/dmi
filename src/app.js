@@ -65,8 +65,8 @@ app.use(async (req, res, next) => {
   sessions(req, res, next);
 });
 
-// Read submitted form data into req.body.
-app.use(express.urlencoded({ extended: false, limit: '200kb' }));
+// Read submitted form data into req.body. (1 MB: a fully filled-in incident report is up to ~300 KB.)
+app.use(express.urlencoded({ extended: false, limit: '1mb' }));
 app.use(loadUser);
 
 // Signed-in pages are never kept by the browser, so after signing out the
@@ -114,6 +114,7 @@ app.use(async (req, res, next) => {
 });
 
 app.use('/account', require('./routes/account')); // every kind of account
+app.use('/my/incidents', require('./routes/incidents').officerRouter); // officers' incident reports
 app.use('/my', require('./routes/my')); // officers' and clients' own pages
 app.use(requireBackOffice); // everything below is for admins and managers
 
@@ -126,6 +127,7 @@ app.use('/clients', require('./routes/clients').clientsRouter);
 app.use('/sites', require('./routes/clients').sitesRouter);
 app.use('/contracts', require('./routes/contracts'));
 app.use('/training', require('./routes/training'));
+app.use('/incidents', requireAdmin, require('./routes/incidents').adminRouter);
 app.use('/users', requireAdmin, require('./routes/users'));
 app.use('/tax', requireAdmin, require('./routes/tax'));
 app.use('/settings', requireAdmin, require('./routes/settings'));

@@ -87,6 +87,40 @@ document.addEventListener('DOMContentLoaded', () => {
     update();
   });
 
+  // Parts of a form shown only while one of some boxes is ticked: data-shown-if-any="a,b"
+  // (e.g. the firearm questions on an incident report). Hidden answers are still kept.
+  document.querySelectorAll('[data-shown-if-any]').forEach((part) => {
+    const form = part.closest('form');
+    const names = part.dataset.shownIfAny.split(',');
+    const update = () => {
+      part.hidden = !names.some((name) => form.querySelector(`[name="${name}"]`)?.checked);
+    };
+    form.addEventListener('change', update);
+    update();
+  });
+
+  // Long forms (incident reports) keep a copy of what's typed on this phone.
+  const backupForm = document.querySelector('form[data-backup]');
+  if (backupForm) setUpBackup(backupForm);
+
+  // "Add file" on a draft: save the draft first, so nothing typed is lost when the page reloads.
+  document.querySelectorAll('form[data-save-first]').forEach((upload) => {
+    upload.addEventListener('submit', async (event) => {
+      const draft = document.querySelector(upload.dataset.saveFirst);
+      if (!draft || upload.dataset.saved) return;
+      event.preventDefault();
+      try {
+        const body = new URLSearchParams([...new FormData(draft)].filter(([, value]) => typeof value === 'string'));
+        body.set('action', 'save');
+        await fetch(draft.getAttribute('action'), { method: 'POST', body, credentials: 'same-origin' }); // (draft.action would be its "action" buttons)
+      } catch {
+        // The phone's backup copy still has it.
+      }
+      upload.dataset.saved = '1';
+      upload.submit();
+    });
+  });
+
   // App notifications: the "Turn on notifications" box (views/partials/notifications.ejs).
   const pushBox = document.querySelector('[data-push]');
   if (pushBox) setUpNotifications(pushBox);
@@ -366,4 +400,72 @@ function setUpPasskey(box) {
   window.addEventListener('pageshow', (event) => {
     if (event.persisted && !busy) load(); // back to this page from the next one
   });
+}
+
+// A copy of a long form's answers, kept on this phone as they're typed, so
+// nothing is lost if the connection drops or the sign-in runs out before
+// it's saved. If the copy is newer than the last save (data-saved-ms), the
+// page offers to put it back.
+function setUpBackup(form) {
+  const key = `dmi-backup-${form.dataset.backup}`;
+  const savedMs = Number(form.dataset.savedMs) || 0;
+  const banner = document.querySelector('[data-backup-banner]');
+  const read = () => {
+    try {
+      return JSON.parse(localStorage.getItem(key));
+    } catch {
+      return null;
+    }
+  };
+  const write = (value) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      // Storage full or turned off: nothing more we can do.
+    }
+  };
+  const remove = () => {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // Storage turned off.
+    }
+  };
+  const values = () => [...new FormData(form)].filter(([name, value]) => name !== '_csrf' && name !== 'action' && typeof value === 'string');
+  const apply = (list) => {
+    form.querySelectorAll('input[type="checkbox"]').forEach((box) => {
+      box.checked = false;
+    });
+    for (const [name, value] of list) {
+      const field = form.querySelector(`[name="${CSS.escape(name)}"]`);
+      if (!field) continue;
+      if (field.type === 'checkbox') field.checked = true;
+      else field.value = value;
+    }
+    form.dispatchEvent(new Event('change'));
+  };
+
+  const backup = read();
+  if (backup && backup.ms > savedMs && JSON.stringify(backup.values) !== JSON.stringify(values()) && banner) {
+    banner.querySelector('[data-backup-time]').textContent = new Date(backup.ms).toLocaleString();
+    banner.hidden = false;
+    banner.querySelector('[data-backup-restore]').addEventListener('click', () => {
+      apply(backup.values);
+      banner.hidden = true;
+    });
+    banner.querySelector('[data-backup-discard]').addEventListener('click', () => {
+      remove();
+      banner.hidden = true;
+    });
+  } else if (backup) {
+    remove(); // saved since
+  }
+
+  let timer = null;
+  const save = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => write({ ms: Date.now(), values: values() }), 800);
+  };
+  form.addEventListener('input', save);
+  form.addEventListener('change', save);
 }

@@ -1,0 +1,28 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/my/incidents">← Incident reports</a></p>
+    <h1>New incident report</h1>
+    <p class="page-sub">Which shift did it happen on? We'll fill in the site, address, shift times and your details.</p>
+  </div>
+</div>
+<form method="post" action="/my/incidents" class="card form-card narrow">
+  <%- include('../partials/csrf') %>
+  <% if (shifts.length) { %>
+    <fieldset class="choice-list">
+      <legend>Your shifts in the last 3 days</legend>
+      <% shifts.forEach((s, i) => { %>
+        <label class="check"><input type="radio" name="shift_id" value="<%= s.id %>" <%= i === 0 ? 'checked' : '' %>> <%= fmtDay(s.start_at) %> · <%= fmtRange(s.start_at, s.end_at) %> · <%= s.site_name %> (<%= s.client_name %>)</label>
+      <% }) %>
+      <label class="check"><input type="radio" name="shift_id" value=""> None of these</label>
+    </fieldset>
+  <% } %>
+  <label><%= shifts.length ? 'If none of these: which site?' : 'Which site?' %>
+    <select name="site_id">
+      <option value="">— Not at one of our sites —</option>
+      <% for (const s of sites) { %><option value="<%= s.id %>"><%= s.name %> (<%= s.client_name %>)</option><% } %>
+    </select>
+  </label>
+  <div class="form-actions"><button type="submit" class="btn btn-primary">Start the report</button></div>
+</form>
+<%- include('../partials/bottom') %>

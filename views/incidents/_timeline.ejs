@@ -1,0 +1,14 @@
+<%# Supplements and everything else that happened to the report, oldest first. %>
+<section class="card card-pad" id="history">
+  <h2>Supplements and history</h2>
+  <% if (!events.length) { %><p class="muted">Nothing yet.</p><% } %>
+  <ol class="ir-timeline">
+    <% for (const e of events) { %>
+      <li class="<%= e.kind === 'supplement' ? 'is-supplement' : e.kind === 'info_requested' ? 'is-request' : '' %>">
+        <div class="small muted"><%= fmtDateTime(e.created_at.replace(' ', 'T').slice(0, 16)) %><%= e.user_name ? ` · ${e.user_name}` : '' %></div>
+        <strong><%= EVENT_LABELS[e.kind] || e.kind %></strong>
+        <% if (e.note) { %><div class="pre-line"><%= e.note %></div><% } %>
+      </li>
+    <% } %>
+  </ol>
+</section>

@@ -1,0 +1,31 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Incident reports</h1>
+    <p class="page-sub">After any use of force, a firearm drawn or fired, a restraint or detention, an injury, a complaint, property damage or a police report, write it up here as soon as you safely can. It goes to the office for review.</p>
+  </div>
+  <div class="page-actions"><a class="btn btn-primary" href="/my/incidents/new"><%- icon('plus') %> Start a report</a></div>
+</div>
+<p class="muted small">Emergency first: call 911 and get medical help before writing anything. A firearm discharge must be reported to the office within 24 hours.</p>
+<div class="card">
+  <% if (!reports.length) { %>
+    <p class="empty">No reports yet.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table stack-on-phone">
+        <thead><tr><th>Report</th><th>When</th><th>What</th><th>Status</th></tr></thead>
+        <tbody>
+          <% for (const r of reports) { %>
+            <tr>
+              <td data-label="Report"><a href="/my/incidents/<%= r.id %>"><strong><%= r.number %></strong></a></td>
+              <td class="nowrap" data-label="When"><%= r.data.incident_date ? fmtDay(r.data.incident_date) + ' ' + r.data.incident_date.slice(0, 4) : '—' %></td>
+              <td data-label="What"><%= typesText(r) %><% if (r.data.site_client) { %><div class="muted small"><%= r.data.site_client %></div><% } %></td>
+              <td data-label="Status"><%- badge(STATUS_LABELS[r.status], { draft: 'gray', submitted: 'blue', info_requested: 'amber', approved: 'green' }[r.status]) %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+<%- include('../partials/bottom') %>

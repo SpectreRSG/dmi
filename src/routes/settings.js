@@ -19,7 +19,7 @@ router.get('/', async (req, res) => {
 router.post('/', requireRecentCode, async (req, res) => {
   const v = clean(req.body, [
     'company_name', 'timezone', 'currency_symbol', 'overtime_weekly_hours', 'overtime_multiplier', 'expiry_warning_days', 'min_rest_hours', 'two_step_required_for',
-    'payer_name', 'payer_ein', 'payer_address', 'payer_city', 'payer_state', 'payer_zip', 'payer_phone', 'payer_state_id',
+    'payer_name', 'payer_ein', 'payer_address', 'payer_city', 'payer_state', 'payer_zip', 'payer_phone', 'payer_state_id', 'ppo_license',
   ]);
   const ein = digitsOnly(v.payer_ein);
   const values = {
@@ -39,6 +39,7 @@ router.post('/', requireRecentCode, async (req, res) => {
     payer_zip: v.payer_zip || '',
     payer_phone: (v.payer_phone || '').slice(0, 30),
     payer_state_id: (v.payer_state_id || '').slice(0, 30),
+    ppo_license: (v.ppo_license || '').slice(0, 30),
   };
 
   let error = null;

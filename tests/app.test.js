@@ -1576,11 +1576,235 @@ test("staff positions: a dropdown of the office's five; older positions stay unt
   assert.doesNotMatch((await admin.get('/staff/new')).text, /Security officer \(old/);
 });
 
+test('incident reports: an officer fills one in and signs it; only admins review and approve it; it is kept for 5 years', async () => {
+  const notify = require('../src/services/notify');
+  const ir = require('../src/services/incidentReports');
+  const { PDFDocument } = require('pdf-lib');
+  const sent = [];
+  notify.setSender(async (subscription, payload) => sent.push({ to: subscription.endpoint.split('/').pop(), ...JSON.parse(payload) }));
+  const to = (who) => sent.filter((m) => m.to === who);
+  const yesterday = time.addDays(time.todayStr(), -1);
+  const shiftId = await db.insert(
+    "INSERT INTO shifts (site_id, employee_id, start_at, end_at, status) VALUES (?, ?, ?, ?, 'completed')",
+    ids.site, ids.officer, `${yesterday}T18:00`, `${yesterday}T23:30`
+  );
+
+  // Starting one: her shifts from the last 3 days, then the form, filled in from her record and the shift.
+  let page = await officer.get('/my/incidents/new');
+  assert.equal(page.status, 200);
+  assert.match(page.text, new RegExp(`name="shift_id" value="${shiftId}"`));
+  let res = await officer.post('/my/incidents', { shift_id: String(shiftId) }, '/my/incidents/new');
+  assert.equal(res.status, 302);
+  const id = Number(res.location.split('/').pop());
+  let report = await ir.find(id);
+  assert.equal(report.status, 'draft');
+  assert.match(report.number, new RegExp(`^IR-${time.todayStr().slice(0, 4)}-\\d{4}$`));
+  assert.equal(report.data.incident_date, yesterday);
+  assert.equal(report.data.guard_name, 'Olivia Officer');
+  assert.match(report.data.site_client, /Main entrance/);
+  assert.match(report.data.guard_shift, /18:00/);
+  page = await officer.get(`/my/incidents/${id}`);
+  assert.equal(page.status, 200);
+  assert.match(page.text, /id="incident-form"/);
+  assert.match(page.text, /name="guard_name" [^>]*value="Olivia Officer"/);
+
+  // Drafts are hers alone: not the admins', and not other officers'.
+  assert.equal((await admin.get(`/incidents/${id}`)).status, 404);
+  const owen = makeClient();
+  await signIn(owen, 'owen@example.com', 'other officer 1');
+  assert.equal((await owen.get(`/my/incidents/${id}`)).status, 404);
+
+  // Saving a draft keeps only the form's own boxes.
+  const answers = {
+    type_force: '1', type_discharge: '1', immediate_supervisor: '1', incident_date: yesterday, incident_start: '22:15',
+    guard_name: 'Olivia Officer', site_setting: 'Outdoor', made_up_box: 'ignored',
+    participant_1_1: 'Man in a red jacket', participant_1_2: 'Person stopped',
+    guard_narrative: 'I saw a man climbing the fence at the north gate. I told him to stop. '.repeat(40),
+  };
+  res = await officer.post(`/my/incidents/${id}`, { ...answers, action: 'save' }, `/my/incidents/${id}`);
+  assert.equal(res.status, 302);
+  report = await ir.find(id);
+  assert.equal(report.data.type_force, true);
+  assert.equal(report.data.made_up_box, undefined);
+  assert.equal(report.data.participant_1_1, 'Man in a red jacket');
+  assert.equal(report.types, 'type_force,type_discharge');
+  assert.equal(report.incident_start, '22:15');
+
+  // Sending needs the basics, the box ticked, and her name typed as her signature.
+  const send = (extra) => officer.post(`/my/incidents/${id}`, { ...answers, action: 'submit', ...extra }, `/my/incidents/${id}`);
+  res = await send({ type_force: '', type_discharge: '', attest: '1', signature: 'Olivia Officer' });
+  assert.equal(res.status, 400);
+  assert.match(res.text, /Tick at least one type of incident/);
+  res = await send({ guard_narrative: 'Short.', attest: '1', signature: 'Olivia Officer' });
+  assert.match(res.text, /Write what happened in your own words/);
+  res = await send({ incident_date: time.addDays(time.todayStr(), 1), attest: '1', signature: 'Olivia Officer' });
+  assert.match(res.text, /can(&#39;|')t be in the future/);
+  res = await send({ signature: 'Olivia Officer' });
+  assert.match(res.text, /Tick the box to confirm/);
+  res = await send({ attest: '1', signature: 'Somebody Else' });
+  assert.equal(res.status, 400);
+  assert.match(res.text, /type your full legal name exactly/);
+  assert.match(res.text, /value="Somebody Else"/, 'what she typed stays on the page');
+  assert.equal((await ir.find(id)).status, 'draft');
+
+  // A photo on the draft.
+  res = await officer.postFile(`/my/incidents/${id}/files`, { note: 'North gate' }, { name: 'gate.jpg', content: 'fake jpeg' }, `/my/incidents/${id}`);
+  assert.equal(res.status, 302);
+  const file = await db.get('SELECT * FROM incident_report_files WHERE report_id = ?', id);
+  assert.equal(file.file_original, 'gate.jpg');
+
+  sent.length = 0;
+  res = await send({ attest: '1', signature: '  olivia officer ' });
+  assert.equal(res.status, 302);
+  report = await ir.find(id);
+  assert.equal(report.status, 'submitted');
+  assert.equal(report.signed_name, 'olivia officer');
+  assert.equal(report.data.guard_signature, 'olivia officer');
+  assert.equal(report.data.guard_printed_name, 'Olivia Officer');
+  assert.equal(report.retain_until, `${Number(yesterday.slice(0, 4)) + 5}${yesterday.slice(4)}`, 'kept for 5 years after the incident');
+  assert.equal(ir.retainUntilFor('2028-02-29'), '2033-03-01');
+  assert.match(to('alex').at(-1).title, new RegExp(`^Firearm discharge: Incident report ${report.number} from Olivia O\\.`), 'the admins hear about it');
+  assert.equal(to('olivia').length, 0);
+  assert.equal(sent.filter((m) => m.to !== 'alex').length, 0, 'only admins, not managers or officers');
+  page = await officer.get(`/my/incidents/${id}`);
+  assert.match(page.text, /Waiting for review/);
+  assert.match(page.text, /Man in a red jacket/);
+  assert.doesNotMatch(page.text, /id="incident-form"/);
+
+  // Once sent, it can't be changed or deleted, by the page or straight in the database.
+  res = await officer.post(`/my/incidents/${id}`, { ...answers, guard_narrative: 'A different story altogether, rewritten later.', action: 'save' }, `/my/incidents/${id}`);
+  assert.equal(res.status, 302);
+  assert.match((await ir.find(id)).data.guard_narrative, /climbing the fence/);
+  await assert.rejects(db.run("UPDATE incident_reports SET data = '{}' WHERE id = ?", id), /add a supplement/);
+  await assert.rejects(db.run("UPDATE incident_reports SET status = 'draft' WHERE id = ?", id), /add a supplement/);
+  await officer.post(`/my/incidents/${id}/delete`, {}, `/my/incidents/${id}`);
+  await officer.post(`/my/incidents/${id}/files/${file.id}/delete`, {}, `/my/incidents/${id}`);
+  assert.ok(await ir.find(id));
+  assert.ok(await db.get('SELECT 1 FROM incident_report_files WHERE id = ?', file.id), 'files on a sent report stay too');
+  await assert.rejects(db.run('DELETE FROM incident_reports WHERE id = ?', id), /must be kept until/);
+
+  // Only admins: not managers, clients or other officers.
+  const manager = makeClient();
+  await signIn(manager, 'morgan@example.com', 'another long password');
+  assert.equal((await manager.get('/incidents')).status, 403);
+  assert.equal((await manager.get(`/incidents/${id}`)).status, 403);
+  assert.doesNotMatch((await manager.get('/')).text, /href="\/incidents"/);
+  assert.equal((await owen.get(`/my/incidents/${id}`)).status, 404);
+  assert.equal((await owen.get(`/my/incidents/${id}/pdf`)).status, 404);
+  assert.equal((await owen.get(`/incidents/${id}`)).location, '/my');
+  const client = makeClient();
+  await signIn(client, 'carla@example.com', 'client password 1');
+  assert.equal((await client.get('/my/incidents')).status, 403);
+  assert.equal((await client.get(`/incidents/${id}`)).location, '/my');
+
+  // The admins' list, the dashboard, and the report with its deadlines.
+  assert.match((await admin.get('/')).text, /1 incident report is waiting for review, including 1 firearm discharge/);
+  page = await admin.get('/incidents');
+  assert.equal(page.status, 200);
+  assert.match(page.text, new RegExp(report.number));
+  assert.match((await admin.get(`/incidents?q=${report.number}`)).text, new RegExp(report.number));
+  assert.doesNotMatch((await admin.get('/incidents?q=nobody-like-this')).text, new RegExp(report.number));
+  page = await admin.get(`/incidents/${id}`);
+  assert.equal(page.status, 200);
+  assert.match(page.text, /Firearm discharged/);
+  assert.match(page.text, /BPC 7583\.4/);
+  assert.match(page.text, /gate\.jpg/);
+  assert.match(page.text, /About the officer/);
+  const deadlines = ir.deadlines(report);
+  assert.deepEqual(deadlines.map((d) => d.duty), [0, 1, 2]);
+  assert.equal(deadlines[2].due, time.addDays(yesterday, 7));
+  assert.equal(ir.addBusinessDays('2026-10-23', 1), '2026-10-26', 'Friday + 1 business day is Monday');
+
+  // The review: what was reported where.
+  res = await admin.post(`/incidents/${id}/review`, { review_accounts: '1', report_row_3_1: 'Alex / Friday', open_items: 'Get the CCTV.', status: 'approved' }, `/incidents/${id}`);
+  assert.equal(res.status, 302);
+  report = await ir.find(id);
+  assert.equal(report.review.review_accounts, true);
+  assert.equal(report.review.report_row_3_1, 'Alex / Friday');
+  assert.match(report.review.reviewer_name, /Administrator/);
+  assert.equal(report.status, 'submitted', 'saving the review does not approve it');
+
+  // Asking for more: the officer is told, and answers with a supplement. Her account stays as it was.
+  res = await admin.post(`/incidents/${id}/request-info`, { note: '' }, `/incidents/${id}`);
+  assert.equal((await ir.find(id)).status, 'submitted', 'needs to say what');
+  res = await admin.post(`/incidents/${id}/request-info`, { note: 'Which way did he run?' }, `/incidents/${id}`);
+  assert.equal((await ir.find(id)).status, 'info_requested');
+  assert.match(to('olivia').at(-1).title, /More information needed/);
+  assert.match((await officer.get(`/my/incidents/${id}`)).text, /Which way did he run\?/);
+  res = await officer.post(`/my/incidents/${id}/supplement`, { note: 'He ran east along the fence line.' }, `/my/incidents/${id}`);
+  assert.equal(res.status, 302);
+  report = await ir.find(id);
+  assert.equal(report.status, 'submitted');
+  assert.match(report.data.guard_narrative, /climbing the fence/);
+  assert.match(to('alex').at(-1).title, /^Supplement/);
+  assert.match((await admin.get(`/incidents/${id}`)).text, /He ran east along the fence line/);
+
+  // Approved.
+  res = await admin.post(`/incidents/${id}/approve`, { note: 'Reviewed with the client.' }, `/incidents/${id}`);
+  report = await ir.find(id);
+  assert.equal(report.status, 'approved');
+  assert.ok(report.approved_at);
+  assert.match(to('olivia').at(-1).title, /approved/);
+  assert.match((await officer.get(`/my/incidents/${id}`)).text, /Approved/);
+  // Something new after approval comes back for review.
+  await officer.post(`/my/incidents/${id}/supplement`, { note: 'I found my notebook with the times.' }, `/my/incidents/${id}`);
+  assert.equal((await ir.find(id)).status, 'submitted');
+  assert.ok((await ir.eventsFor(id)).some((e) => e.kind === 'reopened'));
+  await admin.post(`/incidents/${id}/approve`, {}, `/incidents/${id}`);
+
+  // The PDF: the model form, filled in, with continuation pages.
+  for (const who of [admin, officer]) {
+    const pdf = await who.raw('GET', `${who === admin ? '' : '/my'}/incidents/${id}/pdf`);
+    assert.equal(pdf.status, 200);
+    assert.equal(pdf.headers.get('content-type'), 'application/pdf');
+    assert.match(pdf.headers.get('content-disposition'), new RegExp(`Incident_Report_${report.number}\\.pdf`));
+  }
+  const bytes = await ir.pdfFor(await ir.find(id), { events: await ir.eventsFor(id), files: await ir.filesFor(id), settings: await require('../src/settings').getSettings() });
+  assert.equal(bytes.subarray(0, 4).toString(), '%PDF');
+  const doc = await PDFDocument.load(bytes);
+  assert.ok(doc.getPageCount() > 8, 'the 8 pages of the form, then continuation pages');
+  assert.equal(doc.getForm().getFields().length, 0, 'flattened: it can\'t be edited');
+  const template = await PDFDocument.load(fs.readFileSync(path.join(__dirname, '..', 'assets', 'incident-report-template.pdf')));
+  const names = template.getForm().getFields().map((f) => f.getName());
+  const ours = new Set([...ir.OFFICER_BOXES, ...ir.REVIEW_BOXES].map((b) => b.name));
+  const automatic = ['incident_id', 'guard_incident_copy', 'report_version', 'report_status', 'incident_zone', 'report_datetime', 'reviewer_name', 'review_datetime', 'closure_date', 'guard_signature', 'guard_printed_name', 'guard_signed'];
+  assert.deepEqual(names.filter((n) => !ours.has(n) && !automatic.includes(n)), [], 'every box on the model form is asked for or filled in');
+  assert.deepEqual([...ours].filter((n) => !names.includes(n)), [], 'and every question has a box on the form');
+
+  // Kept for 5 years: no deleting before then, or while on legal hold.
+  res = await admin.post(`/incidents/${id}/delete`, {}, `/incidents/${id}`);
+  assert.ok(await ir.find(id));
+  assert.match((await admin.get(`/incidents/${id}`)).text, /can(&#39;|')t be deleted yet/);
+  await db.run('UPDATE incident_reports SET retain_until = ? WHERE id = ?', time.addDays(time.todayStr(), -1), id);
+  await admin.post(`/incidents/${id}/hold`, { hold: '1' }, `/incidents/${id}`);
+  assert.equal((await ir.find(id)).legal_hold, 1);
+  await admin.post(`/incidents/${id}/delete`, {}, `/incidents/${id}`);
+  assert.ok(await ir.find(id), 'on hold');
+  await assert.rejects(db.run('DELETE FROM incident_reports WHERE id = ?', id), /must be kept/);
+  await admin.post(`/incidents/${id}/hold`, { hold: '0' }, `/incidents/${id}`);
+  assert.match((await admin.get('/incidents?view=expired')).text, new RegExp(report.number));
+  // A staff record with reports can't be deleted.
+  res = await admin.post(`/staff/${ids.officer}/delete`, {}, `/staff/${ids.officer}`);
+  assert.ok(await db.get('SELECT 1 FROM employees WHERE id = ?', ids.officer));
+  res = await admin.post(`/incidents/${id}/delete`, {}, `/incidents/${id}`);
+  assert.equal(res.location, '/incidents?view=expired');
+  assert.equal(await ir.find(id), undefined);
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM incident_report_files WHERE report_id = ?', id)).n, 0);
+
+  // A draft she no longer needs can be deleted.
+  res = await officer.post('/my/incidents', { site_id: String(ids.site) }, '/my/incidents/new');
+  const draftId = Number(res.location.split('/').pop());
+  assert.equal((await ir.find(draftId)).data.incident_date, time.todayStr());
+  await officer.post(`/my/incidents/${draftId}/delete`, {}, `/my/incidents/${draftId}`);
+  assert.equal(await ir.find(draftId), undefined);
+  assert.match((await officer.get('/my/incidents')).text, /Incident reports/);
+});
+
 test('every main page loads', async () => {
   for (const url of ['/', '/schedule', '/timesheets?status=all', '/pay', `/pay/${ids.payRun}`, '/staff', `/staff/${ids.employee}`,
     '/clients', `/clients/${ids.client}`, '/contracts', '/training', '/training/records', '/training/sessions',
     '/training/courses', '/training/sessions/new', '/training/records/new', '/schedule/conflicts', `/schedule/${ids.shift}/cover`,
-    '/timesheets/submissions', '/tax', '/tax/filing', '/users', '/settings', '/activity', '/account']) {
+    '/timesheets/submissions', '/tax', '/tax/filing', '/users', '/settings', '/activity', '/account', '/incidents', '/incidents?view=all']) {
     const res = await admin.get(url);
     assert.equal(res.status, 200, url);
   }

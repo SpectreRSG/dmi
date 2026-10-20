@@ -1,0 +1,87 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/incidents">← Incident reports</a></p>
+    <h1>Incident report <%= report.number %></h1>
+    <p class="page-sub">
+      <%- badge(STATUS_LABELS[report.status], { submitted: 'blue', info_requested: 'amber', approved: 'green' }[report.status]) %>
+      <% if (report.legal_hold) { %><%- badge('Legal hold', 'red') %><% } %>
+      <%= typesText(report) %> · by <a href="/staff/<%= report.employee_id %>"><%= report.first_name %> <%= report.last_name %></a> · sent <%= fmtDateTime(report.submitted_at) %>
+    </p>
+  </div>
+  <div class="page-actions"><a class="btn" href="/incidents/<%= report.id %>/pdf" target="_blank" rel="noopener"><%- icon('file') %> PDF (the filled-in form)</a></div>
+</div>
+<p class="muted small">Kept until <strong><%= fmtDate(report.retain_until) %></strong> (<%= 5 %> years after the incident)<%= report.legal_hold ? ', and longer while on legal hold' : '' %>. The officer's account can't be changed; they add dated supplements.</p>
+
+<% if (deadlines.length) { %>
+  <section class="card card-pad ir-deadlines">
+    <h2>Reporting that may be required</h2>
+    <ul class="plain-list">
+      <% for (const d of deadlines) { %>
+        <li><strong><%= DUTIES[d.duty].title %></strong>: by <%= d.dueText %><%= d.met ? `. ${d.met}` : '' %></li>
+      <% } %>
+    </ul>
+    <p class="muted small">Worked out from what was ticked. A reminder of what to check, not a legal finding: use the current official BSIS form and check with counsel when unsure. Record what you file under <a href="#review">Review</a>.</p>
+  </section>
+<% } %>
+
+<%- include('_answers', { sections }) %>
+<section class="card card-pad">
+  <h2>Signed</h2>
+  <p><%= report.signed_name %>, <%= report.data.guard_signed %></p>
+</section>
+<%- include('_files', { files, base: `/incidents/${report.id}`, canDelete: false }) %>
+<%- include('_timeline', { events }) %>
+
+<section class="card card-pad" id="review">
+  <h2>Review</h2>
+  <p class="muted small">Page 7 of the form: what was reported where, and what's still open.<% if (report.review.review_datetime) { %> Last saved by <%= report.review.reviewer_name %>, <%= report.review.review_datetime %>.<% } %></p>
+  <form method="post" action="/incidents/<%= report.id %>/review">
+    <%- include('../partials/csrf') %>
+    <% for (const s of REVIEW_SECTIONS) { %>
+      <h3 class="ir-heading"><%= s.title %></h3>
+      <div class="ir-fields"><%- include('_fields', { fields: s.fields, values: report.review, DUTIES, deadlines }) %></div>
+    <% } %>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Save review</button></div>
+  </form>
+  <details class="ir-notes">
+    <summary>California reporting notes (from the form)</summary>
+    <ul class="small">
+      <li>Business and Professions Code section 7583.3(d): a guard must report the circumstances of an on-duty firearm discharge to the employer within 24 hours.</li>
+      <li>Business and Professions Code section 7583.2(f): a PPO reports a firearm discharge or qualifying physical altercation to BSIS within 7 business days. Physical-altercation triggers include arrest, a police report filed by a member of the public, first aid or other medical attention to a member of the public, employer discipline, or physical use of force or violence on any person while on duty. A narrow hospital-requested patient-restraint exception is in the statute.</li>
+      <li>Business and Professions Code section 7583.4: firearm-discharge reporting uses the prescribed form to BSIS and a copy goes to the local police or sheriff with jurisdiction within 7 days.</li>
+      <li>This internal form captures additional review facts. It does not replace the current BSIS form or another required report. Check current official forms and submission instructions.</li>
+    </ul>
+  </details>
+</section>
+
+<section class="card card-pad" id="actions">
+  <h2>Decision</h2>
+  <div class="ir-decisions">
+    <form method="post" action="/incidents/<%= report.id %>/approve" class="stack">
+      <%- include('../partials/csrf') %>
+      <label>Note (optional) <input name="note" maxlength="2000"></label>
+      <div><button type="submit" class="btn btn-primary" <%= report.status === 'approved' ? 'disabled' : '' %>><%= report.status === 'approved' ? 'Approved' : 'Approve' %></button></div>
+    </form>
+    <form method="post" action="/incidents/<%= report.id %>/request-info" class="stack">
+      <%- include('../partials/csrf') %>
+      <label>Ask the officer for more information
+        <textarea name="note" rows="3" maxlength="2000" required placeholder="e.g. What did the person say just before you took hold of their arm?"></textarea></label>
+      <div><button type="submit" class="btn">Send to the officer</button></div>
+    </form>
+  </div>
+  <h3 class="ir-heading">Keeping the record</h3>
+  <form method="post" action="/incidents/<%= report.id %>/hold" class="inline-form">
+    <%- include('../partials/csrf') %>
+    <input type="hidden" name="hold" value="<%= report.legal_hold ? '0' : '1' %>">
+    <button type="submit" class="btn btn-sm"><%= report.legal_hold ? 'Take off legal hold' : 'Put on legal hold' %></button>
+    <span class="muted small"><%= report.legal_hold ? 'Kept until you take it off, even after 5 years.' : 'For a claim, complaint or lawsuit: keeps it beyond 5 years.' %></span>
+  </form>
+  <% if (!deleteProblem) { %>
+    <form method="post" action="/incidents/<%= report.id %>/delete" class="inline-form" data-confirm="Delete report <%= report.number %> and its files for good? Its 5 years are up.">
+      <%- include('../partials/csrf') %>
+      <button type="submit" class="btn btn-sm btn-ghost">Delete (5 years are up)</button>
+    </form>
+  <% } %>
+</section>
+<%- include('../partials/bottom') %>

@@ -176,7 +176,7 @@ sitesRouter.post('/:id/delete', async (req, res) => {
     await db.run('DELETE FROM sites WHERE id = ?', site.id);
   } catch (err) {
     if (!isInUseError(err)) throw err;
-    req.flash('error', `"${site.name}" has shifts or hours recorded, so it can't be deleted. Untick "Active" instead.`);
+    req.flash('error', `"${site.name}" has shifts, hours or incident reports recorded, so it can't be deleted. Untick "Active" instead.`);
     return res.redirect(`/clients/${site.client_id}`);
   }
   await logActivity(req, `Deleted site ${site.name} (${site.client_name})`);
