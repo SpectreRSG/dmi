@@ -223,7 +223,9 @@ src/
   routes/            one file per area: staff, schedule, timesheets, pay, contracts, training, tax…
                      (my.js and myTax.js are the officers' and clients' own pages)
 views/               the HTML templates, one folder per area
-public/              CSS, browser JavaScript, icon, and the old stand-alone timesheet page (timesheet/)
+public/              CSS, browser JavaScript, the logo (img/) and app icons (icons/), and the old
+                     stand-alone timesheet page (timesheet/)
+brand/               the original logo images (wide and square) the logo and icons were made from
 assets/              the blank DMI timesheet PDF the app fills in
 netlify/
   database/migrations/   the database tables (like spreadsheet tabs), applied by Netlify
