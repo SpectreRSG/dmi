@@ -105,6 +105,14 @@ function minutesSinceEpoch(dateTime) {
   return parseDate(dateTime).getTime() / 60000 + h * 60 + m;
 }
 
+// '2026-10-20T22:30' plus some minutes (may be negative): '2026-10-21T00:30' for 120.
+function addMinutes(dateTime, minutes) {
+  const total = minutesSinceEpoch(dateTime) + minutes;
+  const date = addDays('1970-01-01', Math.floor(total / 1440));
+  const inDay = total - Math.floor(total / 1440) * 1440;
+  return `${date}T${pad(Math.floor(inDay / 60))}:${pad(inDay % 60)}`;
+}
+
 // Hours between two date-times, minus any unpaid break.
 function hoursBetween(startAt, endAt, breakMinutes = 0) {
   const minutes = minutesSinceEpoch(endAt) - minutesSinceEpoch(startAt) - (Number(breakMinutes) || 0);
@@ -168,6 +176,7 @@ module.exports = {
   isValidDate,
   isValidTime,
   hoursBetween,
+  addMinutes,
   buildRange,
   fmtDate,
   fmtMonth,

@@ -145,7 +145,11 @@ router.get('/:id', async (req, res) => {
     db.all('SELECT * FROM contracts WHERE employee_id = ? ORDER BY start_date DESC', employee.id),
     complianceForEmployee(employee, res.locals.settings.expiry_warning_days),
   ]);
-  const account = await db.get('SELECT id, email, role, last_login_at FROM users WHERE employee_id = ?', employee.id);
+  const account = await db.get(
+    `SELECT id, email, role, last_login_at, (SELECT COUNT(*)::int FROM push_subscriptions p WHERE p.user_id = users.id) AS devices
+     FROM users WHERE employee_id = ?`,
+    employee.id
+  );
   const said = (await db.all(
     `SELECT * FROM availability WHERE employee_id = ? AND COALESCE(end_date, '9999-12-31') >= ? ORDER BY start_date, id`,
     employee.id,

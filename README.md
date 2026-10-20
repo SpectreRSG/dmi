@@ -10,7 +10,7 @@ A private website for running the business side of a security company:
 | **Availability** | Officers say when they can't work (one day, a few days, or every week, all day or between times) and when they'd like extra shifts. The conflict checker warns about shifts booked while someone can't work, the office is warned when booking them, "Find cover" and open-shift offers skip them, and officers who said they're available are asked first. See everyone's at **Schedule → Availability**. |
 | **Shift requests from sites** | A site representative (client account) asks for a shift: site, date, times, how many officers, and the officers they'd like. It can **repeat** on chosen weekdays for up to 3 months (e.g. every Mon, Wed and Fri, 6 PM–6 AM). The office approves or declines it under **Schedule → Shift requests**, a whole repeating request in one click. Approved: the shifts go on the schedule as open shifts (teal) and are offered to officers, the ones the site asked for first (up to 2 hours to themselves), then everyone else who's free. A repeating request's shifts are offered about two weeks before each date, and an officer offered several at once gets one notification for all of them. The site gets a notification when it's approved and when each shift is covered, with the officer's name, and sees every request it has sent under **History**, with who covered each date. |
 | **Call-outs & open shifts** | An officer who can't make a shift presses **I can't make it** (or the office notes it). The shift is offered to the officers who are free, rested, licensed and trained: regulars at that site first, everyone else 10 minutes later. The first to claim it gets it. The office is only told if nobody has claimed it after 30 minutes (15 when the shift is close). |
-| **App notifications** | Free alerts on phones and computers, like a text message, with no texting company or phone numbers. Officers hear about open shifts, changes to their shifts and pay day. The office hears about call-outs and shifts nobody has claimed. Each person turns them on once per device. |
+| **App notifications** | Free alerts on phones and computers, like a text message, with no texting company or phone numbers. Officers hear about open shifts, changes to their shifts and pay day, get a **reminder 24 hours and again 2 hours before each shift**, and a **"time cards are due"** reminder 2 days before each pay period ends. The office hears about call-outs, shifts nobody has claimed, and when time cards are due. Each person turns them on once per device. |
 | **Officer & client accounts** | Anyone can sign up at `/register`; an admin approves them and gives them a role. **Officers** see their shifts on a monthly calendar, their pay (payslips and their DMI timesheet for each pay day) and their 1099, and keep their contact details up to date. They fill in their W-9 once at the start; there are no timesheets to fill in. **Clients** see the monthly schedule for their sites. Neither ever sees pay rates or other people's details. |
 | **1099 forms** | Works out what each contractor was paid in a year (from finalized pay runs), makes Form 1099-NEC (Copy B and 2 for the officer, C and 1 for the company), shares it in the officer's account if they agreed, and gives you a filing summary for sending Copy A to the IRS. Admins only. |
 | **Timesheets** | Hours actually worked. When a shift ends, its hours are recorded and approved from the schedule by themselves. You only fix the exceptions (edit the shift or the hours), or type in hours that weren't on the schedule and approve them. |
@@ -232,6 +232,7 @@ src/
     openShifts.js    call-outs, offering open shifts in waves, first-to-claim, telling the office
     notify.js        app notifications (web push)
     shiftNews.js     tells officers when the office changes their upcoming shifts
+    reminders.js     shift reminders (24 h and 2 h before) and "time cards are due" (2 days before a period ends)
     availability.js  officers' "can't work" / "available" times, and who's free when
     shiftRequests.js shift requests from sites: repeating dates, approving, declining, first choice,
                      offering a repeating request's shifts two weeks ahead
@@ -364,7 +365,20 @@ the site to the Home Screen (Safari → Share → **Add to Home Screen**) and op
 page shows these steps. Notifications are free: they go through Apple's, Google's or Mozilla's own
 push services.
 
-**Timed jobs:** every 5 minutes the live site records the hours of shifts that have ended and moves
+**Reminders** go out by themselves, as app notifications (no email):
+- **Shifts:** each officer gets one 24 hours before each shift ("Shift tomorrow at 06:00"), and
+  another 2 hours before ("Your shift starts at 06:00"). If an officer is given a shift, or its time
+  changes, after a reminder would have gone out, they're told about the change straight away
+  instead, so they don't get two messages at once.
+- **Time cards due:** 2 days before a pay period ends (Thursday, from 9 am), officers who have
+  shifts or hours in it are asked to check their hours in **My pay** and tell the office about
+  anything missing or wrong. Admins and managers are asked to fix any hours before the pay run.
+- An officer only gets them if they've turned on notifications. Their staff page shows
+  **App notifications: On** or **Off**.
+- They're sent by the timed jobs below, so on the live site they arrive within 5 minutes of the
+  time. On a preview site they only go out when someone is using it.
+
+**Timed jobs:** every 5 minutes the live site records the hours of shifts that have ended, sends reminders, and moves
 open-shift offers along (`netlify/functions/autopilot.mjs`). Netlify only runs timed jobs on the
 live site, so on the preview (and on your computer) the same jobs run when someone loads a page,
 at most once a minute. That's about 8,600 short runs a month, a few of Netlify's credits.

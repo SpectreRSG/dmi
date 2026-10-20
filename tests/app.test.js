@@ -1800,6 +1800,94 @@ test('incident reports: an officer fills one in and signs it; only admins review
   assert.match((await officer.get('/my/incidents')).text, /Incident reports/);
 });
 
+test('reminders: officers hear about each shift 24 hours and 2 hours before, and everyone hears when time cards are due', async (t) => {
+  const notify = require('../src/services/notify');
+  const { remindShifts, remindTimeCards } = require('../src/services/reminders');
+  const { periodStartFor, periodEnd } = require('../src/services/officerTimesheet');
+  const sent = [];
+  notify.setSender(async (subscription, payload) => sent.push({ to: subscription.endpoint.split('/').pop(), ...JSON.parse(payload) }));
+  const about = (shiftId) => sent.filter((m) => m.tag === `shift-reminder-${shiftId}`);
+  const now = time.nowStr();
+  const longAgo = time.addMinutes(now, -3 * 24 * 60);
+  const shift = async (minutesAway, { status = 'scheduled', employee = ids.officer, assigned = longAgo } = {}) => {
+    const start = time.addMinutes(now, minutesAway);
+    const id = await db.insert(
+      'INSERT INTO shifts (site_id, employee_id, start_at, end_at, status) VALUES (?, ?, ?, ?, ?)',
+      ids.site, employee, start, time.addMinutes(start, 8 * 60), status
+    );
+    if (assigned) await db.run('UPDATE shifts SET assigned_at = ? WHERE id = ?', assigned, id);
+    return id;
+  };
+  const tomorrowish = await shift(23 * 60); // on her schedule for days: the 24-hour reminder
+  const soon = await shift(90); // the 2-hour one only, not both
+  const justGiven = await shift(20 * 60, { assigned: null }); // given to her just now: she was told then
+  const later = await shift(26 * 60); // not yet
+  const cancelled = await shift(3 * 60, { status: 'cancelled' });
+  const unfilled = await shift(5 * 60, { employee: null });
+  assert.ok((await db.get('SELECT assigned_at FROM shifts WHERE id = ?', justGiven)).assigned_at >= now, 'set by the database');
+
+  await remindShifts();
+  await remindShifts(); // twice at once, or the next run: nothing twice
+  assert.equal(about(tomorrowish).length, 1);
+  assert.equal(about(tomorrowish)[0].to, 'olivia');
+  assert.match(about(tomorrowish)[0].title, /^Shift (today|tomorrow) at \d\d:\d\d$/);
+  assert.match(about(tomorrowish)[0].body, /^(Today|Tomorrow) \d\d:\d\d–\d\d:\d\d( \(\+1\))? at Main entrance\. Can't make it\? Tap to tell the office\.$/);
+  assert.match(about(tomorrowish)[0].url, /^\/my\/schedule\?month=\d{4}-\d\d$/);
+  assert.equal(about(soon).length, 1);
+  assert.match(about(soon)[0].title, /^Your shift starts at \d\d:\d\d$/);
+  for (const id of [justGiven, later, cancelled, unfilled]) assert.equal(about(id).length, 0, `shift ${id}`);
+
+  // Later, the same shift is 2 hours away: the second reminder (it replaces the first on the phone).
+  await db.run('UPDATE shifts SET start_at = ? WHERE id = ?', time.addMinutes(now, 100), tomorrowish);
+  await db.run('UPDATE shifts SET assigned_at = ? WHERE id = ?', longAgo, tomorrowish);
+  await remindShifts();
+  assert.equal(about(tomorrowish).length, 2);
+  assert.match(about(tomorrowish)[1].title, /^Your shift starts at/);
+  // Moved, or given to someone else: they're told about that, so no extra reminder.
+  await db.run('UPDATE shifts SET start_at = ? WHERE id = ?', time.addMinutes(now, 110), soon);
+  await db.run('UPDATE shifts SET employee_id = ? WHERE id = ?', ids.backup, later);
+  await db.run('UPDATE shifts SET start_at = ? WHERE id = ?', time.addMinutes(now, 22 * 60), later);
+  await remindShifts();
+  assert.equal(about(soon).length, 1);
+  assert.equal(about(later).length, 0);
+
+  // Time cards: 2 days before the pay period ends, from 9 am. (The next period, at a set time.)
+  const start = time.addDays(periodStartFor(time.todayStr()), 14);
+  const end = periodEnd(start);
+  const thursday = time.addDays(end, -2);
+  assert.equal(time.dayOfWeek(thursday), 3, 'Thursday (0 = Monday)');
+  const worked = await shift(time.daysBetween(time.todayStr(), time.addDays(start, 1)) * 24 * 60);
+  const settings = await require('../src/settings').getSettings();
+  t.after(() => time.setTimeZone(settings.timezone));
+  time.setTimeZone('UTC');
+  t.mock.timers.enable({ apis: ['Date'], now: new Date(`${thursday}T08:59:00Z`) });
+  sent.length = 0;
+  await remindTimeCards();
+  assert.equal(sent.length, 0, 'not before 9 am');
+  t.mock.timers.setTime(new Date(`${thursday}T09:00:00Z`).getTime());
+  await remindTimeCards();
+  await remindTimeCards();
+  const officerNote = sent.filter((m) => m.to === 'olivia');
+  assert.equal(officerNote.length, 1);
+  assert.equal(officerNote[0].title, `Time cards are due ${time.fmtDay(end)}`);
+  assert.match(officerNote[0].body, /Check your hours in My pay/);
+  assert.equal(officerNote[0].url, '/my/pay');
+  const officeNote = sent.filter((m) => m.to === 'alex');
+  assert.equal(officeNote.length, 1);
+  assert.match(officeNote[0].body, new RegExp(`The pay period ${time.fmtDate(start)} to ${time.fmtDate(end)} ends`));
+  assert.match(officeNote[0].body, /before the pay run/);
+  assert.equal(officeNote[0].url, '/timesheets');
+  t.mock.timers.reset();
+  time.setTimeZone(settings.timezone);
+
+  // The office can see whose phone will get them.
+  const profile = await admin.get(`/staff/${ids.officer}`);
+  assert.match(profile.text, /App notifications<\/dt><dd>On \(1 device\)/);
+  assert.match((await officer.get('/my/details')).text, /reminders 24 hours and 2 hours before each shift/);
+
+  await db.run('DELETE FROM shifts WHERE id = ANY(?::int[])', [tomorrowish, soon, justGiven, later, cancelled, unfilled, worked]);
+});
+
 test('every main page loads', async () => {
   for (const url of ['/', '/schedule', '/timesheets?status=all', '/pay', `/pay/${ids.payRun}`, '/staff', `/staff/${ids.employee}`,
     '/clients', `/clients/${ids.client}`, '/contracts', '/training', '/training/records', '/training/sessions',

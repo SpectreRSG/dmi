@@ -50,7 +50,7 @@ async function setupSteps(employeeId, userId) {
   const me = await db.get('SELECT * FROM employees WHERE id = ?', employeeId);
   const steps = [];
   if (!(await db.get('SELECT 1 FROM push_subscriptions WHERE user_id = ? LIMIT 1', userId))) {
-    steps.push({ label: 'Turn on app notifications (for open shifts and schedule changes)', href: '/my/details#notifications' });
+    steps.push({ label: 'Turn on app notifications (shift reminders, open shifts and schedule changes)', href: '/my/details#notifications' });
   }
   if (!me.phone) steps.push({ label: 'Add your phone number', href: '/my/details' });
   if (!me.emergency_contact_name || !me.emergency_contact_phone) steps.push({ label: 'Add an emergency contact', href: '/my/details' });
