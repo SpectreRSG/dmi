@@ -67,6 +67,9 @@
     <% } else { %>
       <p><%- badge('Not set up', 'amber') %> They'll be asked to set it up the next time they sign in<%= user.role === 'pending' ? ', once they have a role' : '' %>.</p>
     <% } %>
+    <% if (user.id === currentUser.id) { %>
+      <p class="muted small">This is your own account. To add a passkey, or change your own password or two-step sign-in, go to <a href="/account">My account</a>.</p>
+    <% } %>
   </div>
 <% } %>
 <%- include('../partials/bottom') %>

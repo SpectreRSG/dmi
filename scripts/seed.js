@@ -32,7 +32,9 @@ async function seed(db) {
   const { calculatePayLine } = require('../src/services/payroll');
   const { getSettings, saveSettings } = require('../src/settings');
 
-  if (await db.get('SELECT 1 FROM clients LIMIT 1')) {
+  // The Demo Client that comes with the database doesn't count.
+  const NOT_DEMO_CLIENT = "NOT EXISTS (SELECT 1 FROM users u WHERE u.client_id = clients.id AND lower(u.email) = 'demo.client@example.com')";
+  if (await db.get(`SELECT 1 FROM clients WHERE ${NOT_DEMO_CLIENT} LIMIT 1`)) {
     console.log('The database already has clients in it, so demo data was NOT added.');
     console.log('To start fresh, stop the app, delete the "data" folder, and run this again.');
     return;
@@ -257,7 +259,7 @@ async function seed(db) {
   // Demo officer and client accounts, to see what they see.
   if (adminLogin) {
     const guard = await db.get("SELECT * FROM employees WHERE status = 'active' AND NOT EXISTS (SELECT 1 FROM users u WHERE u.employee_id = employees.id) ORDER BY id LIMIT 1");
-    const client = await db.get('SELECT * FROM clients ORDER BY id LIMIT 1');
+    const client = await db.get(`SELECT * FROM clients WHERE ${NOT_DEMO_CLIENT} ORDER BY id LIMIT 1`);
     await db.run(
       "INSERT INTO users (name, email, password_hash, role, employee_id) VALUES (?, 'officer@example.com', ?, 'officer', ?)",
       `${guard.first_name} ${guard.last_name}`, hashPassword(adminLogin), guard.id

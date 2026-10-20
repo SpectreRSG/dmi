@@ -218,6 +218,10 @@ h3 {
     position: fixed;
     inset: 0 auto 0 0;
     width: 270px;
+    /* The part of the screen you can actually see. On iPhones, 100vh reaches
+       under Safari's toolbar, which hid My account and Sign out. */
+    height: 100dvh;
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
     z-index: 50;
     transform: translateX(-100%);
     transition: transform 0.2s ease;
@@ -247,7 +251,7 @@ h3 {
     padding: 8px 12px;
   }
 
-  .mobile-brand { color: #fff; font-weight: 700; }
+  .mobile-brand { color: #fff; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .content { padding: 20px 16px 48px; }
 }
@@ -1104,7 +1108,9 @@ a.cal-item.is-claimable:hover { background: #bdeee5; }
 .or-line { display: flex; align-items: center; gap: 10px; margin: 16px 0; color: var(--muted); font-size: 13px; }
 .or-line::before, .or-line::after { content: ''; flex: 1; border-top: 1px solid var(--border); }
 .auth-card > .flash { margin-bottom: 14px; }
-.mobile-signout { margin-left: auto; }
+.mobile-account { margin-left: auto; display: inline-flex; padding: 8px; color: #dbe4f0; }
+.mobile-account .icon { width: 20px; height: 20px; }
+.mobile-account.active { color: #fff; }
 .mobile-signout button { background: none; border: 0; color: #dbe4f0; font: inherit; font-size: 14px; display: flex; align-items: center; gap: 6px; padding: 8px; cursor: pointer; }
 .mobile-signout .icon { width: 18px; height: 18px; }
 @media print {
