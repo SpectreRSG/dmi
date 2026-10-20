@@ -11,6 +11,10 @@ on:
     # job below skips whichever one isn't 21:07 in Los Angeles that day.
     # (Not exactly on the hour: GitHub is busiest then, and delays or even
     # drops scheduled runs.)
+    # GitHub only reads these times when a person pushes to main (the default
+    # branch). Pushes this job makes as github-actions[bot] don't count, so a
+    # change to the times must be pushed to main by a person, not carried over
+    # from dev by this job, or GitHub keeps using the old times (or none).
     - cron: '7 4 * * *'
     - cron: '7 5 * * *'
   workflow_dispatch:
