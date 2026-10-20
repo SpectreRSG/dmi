@@ -16,7 +16,7 @@ const ROLES = ['pending', 'officer', 'client', 'manager', 'admin'];
 
 function findUser(id) {
   return db.get(
-    `SELECT id, name, email, phone, role, requested_role, employee_id, client_id, active, last_login_at, created_at, totp_enabled_at,
+    `SELECT id, name, email, phone, role, requested_role, employee_id, client_id, active, last_login_at, created_at, totp_enabled_at, two_step_exempt,
        (SELECT COUNT(*)::int FROM passkeys p WHERE p.user_id = users.id) AS passkey_count
      FROM users WHERE id = ?`,
     id

@@ -84,8 +84,8 @@ async function codeFor(email) {
 async function signIn(client, email, password) {
   const res = await client.post('/login', { email, password }, '/login');
   if (res.location === '/login/verify') return client.post('/login/verify', { code: await codeFor(email) }, '/login/verify');
-  const user = await db.get('SELECT role, totp_enabled_at FROM users WHERE lower(email) = lower(?)', email);
-  if (res.status === 302 && user && !user.totp_enabled_at && user.role !== 'pending') await setUpTwoStep(client);
+  const user = await db.get('SELECT role, totp_enabled_at, two_step_exempt FROM users WHERE lower(email) = lower(?)', email);
+  if (res.status === 302 && user && !user.totp_enabled_at && user.role !== 'pending' && !user.two_step_exempt) await setUpTwoStep(client);
   return res;
 }
 
@@ -1356,16 +1356,47 @@ test('passkeys: Face ID instead of a password and code, as the second step, and 
   notify.setSender(null);
 });
 
-test('the demo client can sign in, set up two-step sign-in, and ask for a shift at its pretend sites', async () => {
+test('the demo accounts sign in with just their password (no code, no passkey), and can ask for a shift', async () => {
   const { hashPassword } = require('../src/auth');
-  await db.run("UPDATE users SET password_hash = ? WHERE email = 'demo.client@example.com'", hashPassword('demo password for tests 9'));
+  const twoStep = require('../src/services/twoStep');
+  const exempt = await db.all('SELECT email FROM users WHERE two_step_exempt = 1 ORDER BY email');
+  assert.deepEqual(exempt.map((u) => u.email), ['demo.client@example.com', 'test.officer@example.com'], 'only the two demo accounts');
+  await db.run("UPDATE users SET password_hash = ? WHERE email IN ('demo.client@example.com', 'test.officer@example.com')", hashPassword('demo password for tests 9'));
+
+  // The Demo Client: straight in after the password, even though everyone else needs two-step sign-in.
+  assert.equal((await require('../src/settings').getSettings()).two_step_required_for, 'everyone');
   const demo = makeClient();
-  await signIn(demo, 'demo.client@example.com', 'demo password for tests 9');
+  let res = await demo.post('/login', { email: 'demo.client@example.com', password: 'demo password for tests 9' }, '/login');
+  assert.equal(res.location, '/my');
+  assert.equal((await demo.get('/my/schedule')).status, 200, 'no two-step setup page first');
   assert.match((await demo.get('/my/schedule')).text, /Demo Client/);
   const form = await demo.get('/my/requests/new');
   assert.equal(form.status, 200);
   assert.match(form.text, /Demo Site: Front Gate[\s\S]*Demo Site: Warehouse/);
-  assert.doesNotMatch(form.text, /Harbour Mall|Northgate/, "only its own sites");
+  assert.doesNotMatch(form.text, /Harbour Mall|Northgate/, 'only its own sites');
+  // It can't set up a code or a passkey, and My account says why.
+  assert.equal((await demo.get('/account/two-step')).location, '/account');
+  assert.equal((await demo.get('/account/passkeys/options')).location, '/account');
+  assert.equal((await demo.post('/account/passkeys', { id: 'x' })).location, '/account');
+  const account = await demo.get('/account');
+  assert.match(account.text, /This is a demo account, so it signs in with just its password/);
+  assert.doesNotMatch(account.text, /id="passkeys"/);
+  assert.match((await admin.get('/users')).text, /Not needed \(demo\)/);
+
+  // The Test Officer too, even if a code had been set up on it before.
+  await db.run("UPDATE users SET totp_enabled_at = app_now() WHERE email = 'test.officer@example.com'");
+  const officerDemo = makeClient();
+  res = await officerDemo.post('/login', { email: 'test.officer@example.com', password: 'demo password for tests 9' }, '/login');
+  assert.equal(res.location, '/my', 'no code asked for');
+  assert.equal((await officerDemo.get('/my/schedule')).status, 200);
+  await db.run("UPDATE users SET totp_enabled_at = NULL WHERE email = 'test.officer@example.com'");
+
+  // Only while they're officer or client accounts: as a manager, two-step sign-in is back.
+  assert.equal(twoStep.isExempt({ two_step_exempt: 1, role: 'client' }), true);
+  assert.equal(twoStep.isExempt({ two_step_exempt: 1, role: 'manager' }), false);
+  assert.equal(twoStep.isRequired({ two_step_exempt: 1, role: 'admin' }, { two_step_required_for: 'everyone' }), true);
+  assert.equal(twoStep.isRequired({ two_step_exempt: 0, role: 'officer' }, { two_step_required_for: 'everyone' }), true);
+
   await db.run("UPDATE users SET active = 0 WHERE email = 'demo.client@example.com'"); // as the office would when done
   assert.match((await demo.get('/my/schedule')).location, /^\/login/);
 });

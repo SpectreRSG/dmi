@@ -26,7 +26,7 @@
               <% if (u.client_id) { %><a href="/clients/<%= u.client_id %>"><%= u.client_name %></a><% } %>
             </td>
             <td class="nowrap"><%= u.last_login_at ? fmtDateTime(u.last_login_at) : 'Never' %></td>
-            <td><%- u.totp_enabled_at || u.passkey_count ? badge(u.passkey_count ? 'On (passkey)' : 'On', 'green') : u.role === 'pending' ? '' : badge('Not set up', 'amber') %></td>
+            <td><%- isTwoStepExempt(u) ? badge('Not needed (demo)', 'gray') : u.totp_enabled_at || u.passkey_count ? badge(u.passkey_count ? 'On (passkey)' : 'On', 'green') : u.role === 'pending' ? '' : badge('Not set up', 'amber') %></td>
             <td><%- u.active ? badge('Active', 'green') : badge('Deactivated', 'gray') %></td>
             <td class="actions">
               <% if (u.role === 'pending' && u.active) { %><a class="btn btn-sm btn-primary" href="/users/<%= u.id %>/edit">Approve</a><% } else { %><a href="/users/<%= u.id %>/edit">Edit</a><% } %>

@@ -149,7 +149,8 @@ router.post('/login', async (req, res, next) => {
   await auth.clearFailedLogins(key);
   const goTo = nextUrl === '/' ? auth.homeFor(user) : nextUrl;
   const hasPasskey = await db.get('SELECT 1 FROM passkeys WHERE user_id = ? LIMIT 1', user.id);
-  if (!user.totp_enabled_at && !hasPasskey) return signIn(req, res, next, user.id, goTo); // they're asked to set it up next, if needed
+  // No second step set up yet (they're asked to set it up next, if needed), or a demo account that doesn't use it.
+  if (twoStep.isExempt(user) || (!user.totp_enabled_at && !hasPasskey)) return signIn(req, res, next, user.id, goTo);
   if (await twoStep.isTrustedDevice(req, user.id)) return signIn(req, res, next, user.id, goTo, { how: 'device' });
   // Password right: now the code. Not signed in until then.
   freshSession(req, next, () => {

@@ -44,6 +44,7 @@ async function renderAccount(req, res, error, status = 200) {
     codesLeft,
     passkeys: myPasskeys,
     hasSecondStep: twoStep.hasSecondStep(req.user),
+    twoStepExempt: twoStep.isExempt(req.user),
     twoStepRequired: twoStep.isRequired(req.user, res.locals.settings),
   });
 }
@@ -79,12 +80,22 @@ async function renderSetup(req, res, error, status = 200) {
   });
 }
 
-router.get('/two-step', async (req, res) => {
+// The demo accounts sign in with just their password, so they can't set up
+// two-step sign-in or add passkeys.
+function notForDemo(req, res, next) {
+  if (!twoStep.isExempt(req.user)) return next();
+  const message = "This demo account signs in with just its password, so it doesn't use two-step sign-in or passkeys.";
+  if (req.accepts(['html', 'json']) === 'json') return res.status(403).json({ error: message });
+  req.flash('warning', message);
+  res.redirect('/account');
+}
+
+router.get('/two-step', notForDemo, async (req, res) => {
   if (!req.user.totp_enabled_at) return renderSetup(req, res, null);
   res.redirect('/account#two-step');
 });
 
-router.post('/two-step', requireRecentCode, async (req, res) => {
+router.post('/two-step', notForDemo, requireRecentCode, async (req, res) => {
   if (req.user.totp_enabled_at) return res.redirect('/account#two-step');
   const secret = req.session.twoStepSetup?.secret;
   const step = secret ? twoStep.checkNewSecret(secret, req.body.code) : null;
@@ -180,12 +191,12 @@ function passkeyNeedsConfirm(req, res) {
   return true;
 }
 
-router.get('/passkeys/options', async (req, res) => {
+router.get('/passkeys/options', notForDemo, async (req, res) => {
   if (passkeyNeedsConfirm(req, res)) return;
   res.json(await passkeys.creationOptions(req, req.user, res.locals.settings.company_name));
 });
 
-router.post('/passkeys', async (req, res) => {
+router.post('/passkeys', notForDemo, async (req, res) => {
   if (passkeyNeedsConfirm(req, res)) return;
   const firstStep = !twoStep.hasSecondStep(req.user);
   const result = await passkeys.register(req, req.user, req.body, describeDevice(req.get('user-agent')));

@@ -123,7 +123,7 @@ async function loadUser(req, res, next) {
     req.session.signedInAt ??= Date.now(); // sessions from before this rule start counting now
     const user = Date.now() - req.session.signedInAt < MAX_SESSION_MS
       ? await db.get(
-          `SELECT id, name, email, phone, role, employee_id, client_id, totp_enabled_at,
+          `SELECT id, name, email, phone, role, employee_id, client_id, totp_enabled_at, two_step_exempt,
              (SELECT COUNT(*)::int FROM passkeys p WHERE p.user_id = users.id) AS passkey_count
            FROM users WHERE id = ? AND active = 1`,
           req.session.userId

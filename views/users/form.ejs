@@ -53,7 +53,9 @@
 <% if (user.id) { %>
   <div class="card card-pad narrow">
     <h2>Two-step sign-in</h2>
-    <% if (user.totp_enabled_at || user.passkey_count) { %>
+    <% if (isTwoStepExempt(user)) { %>
+      <p><%- badge('Not needed', 'gray') %> This is a demo account, so it signs in with just its password. If you make it a manager or admin, it will need two-step sign-in like everyone else.</p>
+    <% } else if (user.totp_enabled_at || user.passkey_count) { %>
       <p><%- badge('On', 'green') %>
         <%= [user.totp_enabled_at && `Authenticator app since ${fmtDate(user.totp_enabled_at.slice(0, 10))}`, user.passkey_count && `${user.passkey_count} passkey${user.passkey_count === 1 ? '' : 's'} (Face ID, Touch ID or screen lock)`].filter(Boolean).join('; ') %>.
       </p>

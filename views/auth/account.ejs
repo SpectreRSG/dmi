@@ -14,7 +14,9 @@
 
 <section class="card card-pad narrow" id="two-step">
   <h2>Two-step sign-in</h2>
-  <% if (hasSecondStep) { %>
+  <% if (twoStepExempt) { %>
+    <p><%- badge('Not used', 'gray') %> This is a demo account, so it signs in with just its password. Two-step sign-in and passkeys are turned off for it.</p>
+  <% } else if (hasSecondStep) { %>
     <p><%- badge('On', 'green') %>
       <% if (currentUser.totp_enabled_at && passkeys.length) { %>You use a passkey or a code from your authenticator app (on since <%= fmtDate(currentUser.totp_enabled_at.slice(0, 10)) %>).
       <% } else if (currentUser.totp_enabled_at) { %>Since <%= fmtDate(currentUser.totp_enabled_at.slice(0, 10)) %>. After your password, you type a code from your authenticator app.
@@ -43,6 +45,7 @@
   <% } %>
 </section>
 
+<% if (!twoStepExempt) { %>
 <section class="card card-pad narrow" id="passkeys">
   <h2>Passkeys</h2>
   <p class="muted small">Sign in with Face ID, Touch ID or your phone's screen lock, with no password or code to type. On iPhone, iPad and Mac they're kept in iCloud Keychain, so one passkey works on all your Apple devices.</p>
@@ -65,6 +68,7 @@
   </div>
   <div class="flash flash-error" role="alert" data-passkey-error hidden></div>
 </section>
+<% } %>
 
 <section class="card card-pad narrow">
   <h2>Where you're signed in</h2>

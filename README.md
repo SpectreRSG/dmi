@@ -142,6 +142,12 @@ Gate" and "Demo Site: Warehouse") and no shifts. Its password was given to the s
   it if they claim it straight away), or decline the request instead.
 - Deactivate it under **User accounts** when you're done.
 
+Both demo accounts sign in with **just their password**: no two-step code and no passkey, so
+they're quick to test with. If either is made a manager or admin, it needs two-step sign-in like
+everyone else. Every other account is unchanged. The Demo Client only sees its pretend sites, but
+the Test Officer is treated like any officer: it can be offered real open shifts and see those
+sites' details. So keep its password private, and deactivate it when you're not testing.
+
 ### Important rules the app follows
 
 - **Overtime** is counted per week (Monday–Sunday). By default, hours over 40 pay 1.5×. Change this in **Settings**.

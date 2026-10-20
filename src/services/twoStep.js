@@ -12,11 +12,17 @@ const TRUST_COOKIE = 'dmi.device';
 
 const sha256 = (text) => crypto.createHash('sha256').update(String(text)).digest('hex');
 
+// The demo accounts (Test Officer, Demo Client) skip it: they sign in with
+// just their password. Only while they're officer or client accounts.
+function isExempt(user) {
+  return Boolean(Number(user?.two_step_exempt)) && (user.role === 'officer' || user.role === 'client');
+}
+
 // Does this person have to use it? Everyone does by default; the Settings page
 // can limit it to the office (admins and managers always need it). New
 // sign-ups waiting for a role can't see anything yet, so they don't.
 function isRequired(user, settings) {
-  if (!user || user.role === 'pending') return false;
+  if (!user || user.role === 'pending' || isExempt(user)) return false;
   if (user.role === 'admin' || user.role === 'manager') return true;
   return settings.two_step_required_for !== 'office';
 }
@@ -24,6 +30,7 @@ function isRequired(user, settings) {
 // Has this person set up a second step: the authenticator app, or a passkey?
 // (`user` comes from loadUser, which counts their passkeys.)
 function hasSecondStep(user) {
+  if (isExempt(user)) return false;
   return Boolean(user?.totp_enabled_at || Number(user?.passkey_count) > 0);
 }
 
@@ -146,6 +153,6 @@ function readCookie(req, name) {
 }
 
 module.exports = {
-  isRequired, hasSecondStep, checkNewSecret, enable, newRecoveryCodes, recoveryCodesLeft, ensureRecoveryCodes, verify, reset,
+  isExempt, isRequired, hasSecondStep, checkNewSecret, enable, newRecoveryCodes, recoveryCodesLeft, ensureRecoveryCodes, verify, reset,
   trustDevice, isTrustedDevice, forgetDevices, TRUST_DAYS,
 };

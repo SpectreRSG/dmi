@@ -16,6 +16,7 @@ const { getSettings } = require('./settings');
 const { getSessionSecret } = require('./secrets');
 const viewHelpers = require('./viewHelpers');
 const { catchUp } = require('./services/jobs');
+const { isExempt: isTwoStepExempt } = require('./services/twoStep');
 
 const app = express();
 
@@ -25,7 +26,7 @@ const app = express();
 app.engine('ejs', require('ejs').__express);
 app.set('view engine', 'ejs');
 app.set('views', path.join(config.rootDir, 'views'));
-Object.assign(app.locals, viewHelpers, { maxFileMb: MAX_FILE_MB, homeFor });
+Object.assign(app.locals, viewHelpers, { maxFileMb: MAX_FILE_MB, homeFor, isTwoStepExempt });
 
 // Behind Netlify (or another HTTPS proxy), trust its headers for the visitor's
 // address and for knowing the connection is secure.
