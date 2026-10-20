@@ -117,14 +117,16 @@ router.get('/schedule', async (req, res) => {
     ? (await availability.entriesFor([scopeId], gridStart, gridEnd)).flatMap((entry) =>
         availability.windowsOf(entry, gridStart, gridEnd).map((w) => ({ ...w, entry })))
     : [];
+  // Requests waiting for approval: each of their dates in this month.
   const requested = isOfficer
     ? []
-    : await db.all(
+    : (await db.all(
         `SELECT r.*, si.name AS site_name FROM shift_requests r JOIN sites si ON si.id = r.site_id
-         WHERE r.client_id = ? AND r.status = 'pending' AND r.start_at >= ? AND r.start_at < ? ORDER BY r.start_at`,
+         WHERE r.client_id = ? AND r.status = 'pending' AND r.start_at < ? AND r.last_end_at > ? ORDER BY r.start_at`,
         scopeId,
-        ...range
-      );
+        range[1],
+        range[0]
+      )).flatMap((r) => shiftRequests.timesFor(r).filter((t) => t.start_at >= range[0] && t.start_at < range[1]).map((t) => ({ ...r, ...t })));
 
   const items = [
     ...shifts.map((s) => ({
@@ -369,15 +371,37 @@ function clientOnly(req, res, next) {
   res.status(403).render('error', { title: 'Not allowed', message: 'Shift requests are for site representatives.' });
 }
 
+const REQUEST_SELECT = `SELECT r.*, si.name AS site_name, u.name AS requested_by_name FROM shift_requests r
+  JOIN sites si ON si.id = r.site_id LEFT JOIN users u ON u.id = r.requested_by`;
+const HISTORY_PAGE = 25;
+
+// Two tabs. Current: requests with shifts still to come (and ones turned down
+// in the last week, so the news stays in view). History: every request the
+// client has sent, newest first.
 router.get('/requests', clientOnly, async (req, res) => {
-  const requests = await shiftRequests.withDetails(await db.all(
-    `SELECT r.*, si.name AS site_name FROM shift_requests r JOIN sites si ON si.id = r.site_id
-     WHERE r.client_id = ? AND (r.end_at > ? OR r.created_at > ?) ORDER BY (r.status = 'pending') DESC, r.start_at LIMIT 100`,
-    req.user.client_id,
-    `${time.addDays(time.todayStr(), -7)}T00:00`,
-    `${time.addDays(time.todayStr(), -7)} 00:00:00`
-  ));
-  res.render('my/requests', { title: 'Shift requests', requests, STATUS_LABELS: shiftRequests.STATUS_LABELS });
+  const view = req.query.view === 'history' ? 'history' : 'current';
+  const page = Math.max(1, Math.min(1000, Number.parseInt(req.query.page, 10) || 1));
+  const requests = view === 'current'
+    ? await db.all(
+      `${REQUEST_SELECT} WHERE r.client_id = ? AND r.last_end_at > ?
+         AND (r.status IN ('pending', 'approved') OR (r.status = 'declined' AND r.decided_at > ?))
+       ORDER BY (r.status = 'pending') DESC, r.start_at LIMIT 100`,
+      req.user.client_id, time.nowStr(), `${time.addDays(time.todayStr(), -7)} 00:00:00`
+    )
+    : await db.all(
+      `${REQUEST_SELECT} WHERE r.client_id = ? ORDER BY r.created_at DESC, r.id DESC LIMIT ? OFFSET ?`,
+      req.user.client_id, HISTORY_PAGE + 1, (page - 1) * HISTORY_PAGE
+    );
+  const more = view === 'history' && requests.length > HISTORY_PAGE;
+  res.render('my/requests', {
+    title: 'Shift requests',
+    view,
+    page,
+    more,
+    now: time.nowStr(),
+    requests: await shiftRequests.withDetails(view === 'history' ? requests.slice(0, HISTORY_PAGE) : requests),
+    STATUS_LABELS: shiftRequests.STATUS_LABELS,
+  });
 });
 
 async function renderRequestForm(req, res, values, error, status = 200) {
@@ -389,20 +413,58 @@ async function renderRequestForm(req, res, values, error, status = 200) {
     sites,
     officers: officers.map((e) => ({ id: e.id, name: `${e.first_name} ${e.last_name.charAt(0)}.` })),
     maxOfficers: shiftRequests.MAX_OFFICERS,
+    WEEKDAYS: shiftRequests.WEEKDAYS,
   });
 }
 
 router.get('/requests/new', clientOnly, (req, res) =>
-  renderRequestForm(req, res, { date: time.addDays(time.todayStr(), 1), start_time: '08:00', end_time: '16:00', break_minutes: 0, officers_needed: 1, officers: [] }, null));
+  renderRequestForm(req, res, {
+    date: time.addDays(time.todayStr(), 1), start_time: '08:00', end_time: '16:00', break_minutes: 0, officers_needed: 1, officers: [], repeat_days: [],
+  }, null));
 
 router.post('/requests', clientOnly, async (req, res) => {
   const { values, error } = await shiftRequests.readForm(req.body, req.user.client_id);
   if (error) return renderRequestForm(req, res, values, error, 400);
   const request = await shiftRequests.create(req.user.client_id, req.user.id, values);
-  await logActivity(req, `Requested ${values.officers_needed} officer(s) at ${request.site_name} on ${values.date}`);
-  req.flash('success', "Request sent. The office will approve it, then it's offered to officers" +
+  const dates = values.dates.length;
+  await logActivity(req, `Requested ${values.officers_needed} officer(s) at ${request.site_name}: ${shiftRequests.when(request)}`);
+  req.flash('success', `Request sent${dates > 1 ? ` for ${dates} dates` : ''}. The office will approve it, then it's offered to officers` +
     (values.officers.length ? ' (the ones you asked for first)' : '') + ". You'll get a notification at each step.");
   res.redirect('/my/requests');
+});
+
+// One request in full: each date, and who's covering it.
+router.get('/requests/:id', clientOnly, async (req, res) => {
+  const row = await db.get(`${REQUEST_SELECT} WHERE r.id = ? AND r.client_id = ?`, Number(req.params.id), req.user.client_id);
+  if (!row) return res.status(404).render('error', { title: 'Not found', message: "That request doesn't exist, or it's for another client." });
+  const [request] = await shiftRequests.withDetails([row]);
+  const decider = request.decided_by ? await db.get('SELECT name FROM users WHERE id = ?', request.decided_by) : null;
+  const now = time.nowStr();
+  let rows;
+  if (request.status === 'approved') {
+    // Each shift made, and how it stands.
+    const offers = await db.all(
+      `SELECT DISTINCT ON (o.shift_id) o.shift_id, o.status, o.closed_note FROM shift_offers o
+       WHERE o.shift_id = ANY(?::int[]) ORDER BY o.shift_id, o.id DESC`,
+      request.shifts.map((sh) => sh.id)
+    );
+    const latest = new Map(offers.map((o) => [o.shift_id, o]));
+    rows = request.shifts
+      .slice()
+      .sort((a, b) => (a.start_at < b.start_at ? -1 : a.start_at > b.start_at ? 1 : a.id - b.id))
+      .map((sh) => {
+        const offer = latest.get(sh.id);
+        const status = sh.status === 'cancelled' ? 'cancelled'
+          : sh.employee_id ? (sh.end_at <= now ? 'worked' : 'covered')
+            : sh.start_at <= now ? 'missed'
+              : offer?.status === 'open' ? 'offered'
+                : offer ? 'finding' : 'later';
+        return { start_at: sh.start_at, end_at: sh.end_at, name: sh.name, status };
+      });
+  } else {
+    rows = shiftRequests.timesFor(request).map((t) => ({ ...t, status: request.status }));
+  }
+  res.render('my/request', { title: 'Shift request', request, rows, decidedBy: decider?.name, now, STATUS_LABELS: shiftRequests.STATUS_LABELS });
 });
 
 router.post('/requests/:id/cancel', clientOnly, async (req, res) => {

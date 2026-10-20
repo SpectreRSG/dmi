@@ -1,0 +1,62 @@
+<%- include('../partials/top') %>
+<% const r = request; %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/my/requests<%= r.last_end_at <= now || ['declined', 'cancelled'].includes(r.status) ? '?view=history' : '' %>">← Shift requests</a></p>
+    <h1><%= r.site_name %></h1>
+    <p class="page-sub"><%= r.when %><%= r.repeating ? '' : ` ${r.start_at.slice(0, 4)}` %></p>
+  </div>
+  <% if (r.status === 'pending' && r.last_end_at > now) { %>
+    <div class="page-actions">
+      <form method="post" action="/my/requests/<%= r.id %>/cancel" class="inline-form" data-confirm="Cancel this request<%= r.repeating ? ' (all of its dates)' : '' %>?">
+        <%- include('../partials/csrf') %>
+        <button type="submit" class="btn">Cancel request</button>
+      </form>
+    </div>
+  <% } %>
+</div>
+
+<div class="card card-pad">
+  <dl class="facts">
+    <div><dt>Status</dt><dd>
+      <% if (r.status === 'approved') { %><%- badge(`Approved: ${r.covered} of ${r.total} covered`, r.covered === r.total ? 'green' : 'blue') %>
+      <% } else if (r.status === 'declined') { %><%- badge('Not approved', 'red') %>
+      <% } else if (r.status === 'pending' && r.last_end_at <= now) { %><%- badge('Not answered in time', 'gray') %>
+      <% } else { %><%- badge(STATUS_LABELS[r.status], r.status === 'pending' ? 'amber' : 'gray') %><% } %>
+    </dd></div>
+    <div><dt>Sent</dt><dd><%= fmtDateTime(r.created_at.replace(' ', 'T').slice(0, 16)) %><%= r.requested_by_name ? ` by ${r.requested_by_name}` : '' %></dd></div>
+    <% if (r.decided_at && r.status !== 'cancelled') { %><div><dt><%= r.status === 'approved' ? 'Approved' : 'Answered' %></dt><dd><%= fmtDateTime(r.decided_at.replace(' ', 'T').slice(0, 16)) %><%= decidedBy ? ` by ${decidedBy}` : '' %></dd></div><% } %>
+    <% if (r.decline_reason) { %><div><dt>Reason</dt><dd><%= r.decline_reason %></dd></div><% } %>
+    <div><dt>Officers</dt><dd><%= r.officers_needed %><%= r.repeating ? ` each time, on ${r.dateCount} dates` : '' %><%= r.break_minutes ? ` · ${r.break_minutes} min unpaid break` : '' %></dd></div>
+    <% if (r.asked.length) { %><div><dt>Asked for</dt><dd><%= r.asked.map((a) => a.name).join(', ') %> (first choice)</dd></div><% } %>
+    <% if (r.notes) { %><div><dt>Notes</dt><dd class="pre-line"><%= r.notes %></dd></div><% } %>
+  </dl>
+</div>
+
+<h2 class="section-title"><%= r.status === 'approved' ? 'Shifts' : 'Dates' %></h2>
+<div class="card">
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Date and time</th><th><%= r.status === 'approved' ? 'Officer' : 'Status' %></th></tr></thead>
+      <tbody>
+        <% for (const row of rows) { %>
+          <tr>
+            <td class="nowrap"><strong><%= fmtDay(row.start_at) %></strong> <span class="muted"><%= row.start_at.slice(0, 4) %></span><div class="muted small"><%= fmtRange(row.start_at, row.end_at) %></div></td>
+            <td>
+              <% if (row.status === 'covered') { %><strong><%= row.name %></strong>
+              <% } else if (row.status === 'worked') { %><%= row.name %> <span class="muted small">(worked)</span>
+              <% } else if (row.status === 'offered') { %><span class="muted">Being offered to officers</span>
+              <% } else if (row.status === 'later') { %><span class="muted">Offered about two weeks ahead</span>
+              <% } else if (row.status === 'finding') { %><span class="muted">The office is finding cover</span>
+              <% } else if (row.status === 'missed') { %><span class="muted">Not covered</span>
+              <% } else if (row.status === 'cancelled') { %><span class="muted">Cancelled</span>
+              <% } else if (row.status === 'pending') { %><span class="muted"><%= row.start_at <= now ? 'Passed' : 'Waiting for approval' %></span>
+              <% } else { %><span class="muted"><%= STATUS_LABELS[row.status] || row.status %></span><% } %>
+            </td>
+          </tr>
+        <% } %>
+      </tbody>
+    </table>
+  </div>
+</div>
+<%- include('../partials/bottom') %>

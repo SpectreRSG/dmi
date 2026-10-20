@@ -1075,6 +1075,148 @@ test('shift requests: a site asks, the office approves, and the officers they as
   notify.setSender(null);
 });
 
+test('repeating shift requests: one approval, offered two weeks ahead, one alert per officer; and the site sees its history', async () => {
+  const notify = require('../src/services/notify');
+  const { advanceOffers } = require('../src/services/openShifts');
+  const { runDueJobs } = require('../src/services/jobs');
+  const sent = [];
+  notify.setSender(async (subscription, payload) => sent.push({ to: subscription.endpoint.split('/').pop(), ...JSON.parse(payload) }));
+  const site = makeClient();
+  await signIn(site, 'carla@example.com', 'client password 1');
+  const carla = await db.get("SELECT id, client_id FROM users WHERE email = 'carla@example.com'");
+  const owenId = (await db.get("SELECT employee_id FROM users WHERE email = 'owen@example.com'")).employee_id;
+  const form = (fields) => site.postList('/my/requests', Object.entries(fields).flatMap(([k, v]) => [v].flat().map((x) => [k, String(x)])), '/my/requests/new');
+  const base = { site_id: ids.site, start_time: '18:00', end_time: '06:00', officers_needed: 1 };
+  const monday = time.addDays(time.startOfWeek(time.todayStr()), 7);
+
+  // The form has the repeat box; mistakes are explained.
+  assert.match((await site.get('/my/requests/new')).text, /name="repeat_days" value="0"[\s\S]*name="repeat_until"/);
+  for (const [fields, message] of [
+    [{ date: monday, repeat_days: [0, 2, 4], repeat_until: time.addDays(monday, -1) }, /on or after the first date/],
+    [{ date: monday, repeat_days: [0, 2, 4], repeat_until: time.addDays(monday, 120) }, /up to 3 months/],
+    [{ date: monday, repeat_days: [4], repeat_until: time.addDays(monday, 2) }, /None of the ticked days/],
+    [{ date: monday, repeat_days: [0, 1, 2, 3, 4, 5, 6], repeat_until: time.addDays(monday, 90), officers_needed: 3 }, /Please ask for 200 or fewer/],
+  ]) {
+    const res = await form({ ...base, ...fields });
+    assert.equal(res.status, 400, String(message));
+    assert.match(res.text, message);
+  }
+
+  // Every Mon, Wed and Fri, 18:00–06:00, for five weeks (14 dates), with Owen first.
+  const until = time.addDays(monday, 31); // a Thursday: weeks 1–4 (12 dates), then Mon and Wed of week 5
+  let res = await form({ ...base, date: monday, repeat_days: [0, 2, 4], repeat_until: until, officers: owenId, notes: 'Night patrol' });
+  assert.equal(res.status, 302);
+  const request = await db.get('SELECT * FROM shift_requests ORDER BY id DESC');
+  assert.equal(request.repeat_days, '0,2,4');
+  assert.equal(request.repeat_until, until);
+  assert.equal(request.start_at, `${monday}T18:00`);
+  assert.equal(request.last_end_at, `${time.addDays(monday, 31)}T06:00`, 'the last shift: Wed of week 5, ending Thursday morning');
+  assert.match(sent.at(-1).body, /^Every Mon, Wed, Fri, 18:00–06:00 \(\+1\), .* \(14 dates\) at Main entrance, 1 officer each time/);
+  let page = await site.get('/my/requests');
+  assert.match(page.text, /Repeats[\s\S]*Every Mon, Wed, Fri[\s\S]*Waiting for approval/);
+  page = await site.get(`/my/requests/${request.id}`);
+  assert.equal((page.text.match(/<span class="muted">Waiting for approval<\/span>/g) || []).length, 14, "each date listed");
+  page = await admin.get('/schedule/requests');
+  assert.match(page.text, /See all 14 dates[\s\S]*Approve all 14 shifts/);
+  // The site's calendar shows each waiting date, not just the first.
+  const lastDate = time.addDays(monday, 30);
+  page = await site.get(`/my/schedule?month=${lastDate.slice(0, 7)}`);
+  assert.ok((page.text.match(/Requested/g) || []).length >= (lastDate.slice(0, 7) === monday.slice(0, 7) ? 14 : 2));
+
+  // One approval: 14 shifts on the schedule; only the next two weeks' are offered now.
+  const before = sent.length;
+  res = await admin.post(`/schedule/requests/${request.id}/approve`);
+  assert.equal(res.status, 302);
+  const shifts = await db.all('SELECT * FROM shifts WHERE request_id = ? ORDER BY start_at', request.id);
+  assert.equal(shifts.length, 14);
+  const horizon = `${time.addDays(time.todayStr(), 14)}T23:59`;
+  const soon = shifts.filter((sh) => sh.start_at <= horizon);
+  const tried = await db.all('SELECT * FROM shift_offers WHERE shift_id = ANY(?::int[])', shifts.map((sh) => sh.id));
+  assert.equal(new Set(tried.map((o) => o.shift_id)).size, soon.length, 'every shift in the next two weeks, and no others');
+  assert.ok(tried.every((o) => soon.some((sh) => sh.id === o.shift_id)));
+  // Each officer gets one alert for all of them, not one per shift.
+  const alerts = sent.slice(before).filter((m) => m.to !== 'carla');
+  const perOfficer = new Map();
+  for (const m of alerts) perOfficer.set(m.to, (perOfficer.get(m.to) || 0) + 1);
+  assert.ok(perOfficer.size > 0, 'someone was told');
+  assert.ok([...perOfficer.values()].every((n) => n === 1), 'one alert each');
+  if (tried.filter((o) => o.status === 'open').length > 1) assert.ok(alerts.some((m) => /asked for you: \d+ shifts|^\d+ open shifts/.test(m.title)));
+  assert.match(sent.slice(before).find((m) => m.to === 'carla').body, /about two weeks ahead/);
+  assert.match((await admin.get('/schedule/requests')).text, /about two weeks before each date/);
+  page = await site.get(`/my/requests/${request.id}`);
+  assert.match(page.text, /Offered about two weeks ahead/);
+  assert.match((await site.get('/my/requests')).text, /0 of 14 covered/);
+
+  // Later waves that fall due together are one alert per officer too, and so is the office's "still open".
+  await db.run("UPDATE shift_offers SET next_wave_at = '2000-01-01T00:00', escalate_at = '2000-01-01T00:00' WHERE shift_id = ANY(?::int[]) AND status = 'open'", shifts.map((sh) => sh.id));
+  const beforeWaves = sent.length;
+  await advanceOffers();
+  const waveCounts = new Map();
+  for (const m of sent.slice(beforeWaves)) waveCounts.set(m.to, (waveCounts.get(m.to) || 0) + 1);
+  assert.ok([...waveCounts.values()].every((n) => n === 1), 'one alert each');
+  const openNow = tried.filter((o) => o.status === 'open').length;
+  if (openNow > 1) assert.ok(sent.slice(beforeWaves).some((m) => m.to === 'alex' && new RegExp(`^${openNow} shifts still open`).test(m.title)));
+
+  // As dates come within two weeks, the 5-minute job offers them (once).
+  const later = shifts.find((sh) => sh.start_at > horizon);
+  const day = time.addDays(time.todayStr(), 3);
+  await db.run('UPDATE shifts SET start_at = ?, end_at = ? WHERE id = ?', `${day}T18:00`, `${time.addDays(day, 1)}T06:00`, later.id);
+  await runDueJobs();
+  assert.ok(await db.get("SELECT 1 FROM shift_offers WHERE shift_id = ? AND status = 'open'", later.id));
+  await runDueJobs();
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM shift_offers WHERE shift_id = ?', later.id)).n, 1, 'offered once');
+  // Nobody free: it's noted once, and the office is told once.
+  const another = shifts.filter((sh) => sh.start_at > horizon)[1];
+  const day2 = time.addDays(time.todayStr(), 4);
+  await db.run('UPDATE shifts SET start_at = ?, end_at = ? WHERE id = ?', `${day2}T18:00`, `${time.addDays(day2, 1)}T06:00`, another.id);
+  await db.run("UPDATE users SET active = 0 WHERE role = 'officer'");
+  const beforeNobody = sent.length;
+  await runDueJobs();
+  await runDueJobs();
+  await db.run("UPDATE users SET active = 1 WHERE role = 'officer'");
+  const marked = await db.all('SELECT * FROM shift_offers WHERE shift_id = ?', another.id);
+  assert.deepEqual(marked.map((o) => [o.status, o.closed_note]), [['withdrawn', 'Nobody was free to take it']]);
+  assert.equal(sent.slice(beforeNobody).filter((m) => m.to === 'alex' && /^No officer free/.test(m.title)).length, 1);
+  assert.match((await site.get(`/my/requests/${request.id}`)).text, /The office is finding cover/);
+
+  // History: every request, newest first, with page buttons; the current tab only has what's still to come.
+  await site.post(`/my/requests/${request.id}/cancel`, {}, '/my/requests'); // approved already: only the office can cancel it
+  assert.equal((await db.get('SELECT status FROM shift_requests WHERE id = ?', request.id)).status, 'approved');
+  const old = await db.insert(
+    `INSERT INTO shift_requests (client_id, site_id, requested_by, start_at, end_at, last_end_at, status, decided_at, created_at)
+     VALUES (?, ?, ?, '2025-03-03T08:00', '2025-03-03T16:00', '2025-03-03T16:00', 'approved', '2025-03-01 09:00:00', '2025-03-01 08:00:00')`,
+    carla.client_id, ids.site, carla.id
+  );
+  assert.doesNotMatch((await site.get('/my/requests')).text, new RegExp(`/my/requests/${old}"`), 'past requests leave the current tab');
+  page = await site.get('/my/requests?view=history');
+  assert.match(page.text, /class="active">History/);
+  assert.match(page.text, new RegExp(`/my/requests/${request.id}"[\\s\\S]*/my/requests/${old}"`), 'newest first');
+  assert.match(page.text, /Done/);
+  for (let i = 0; i < 26; i += 1) {
+    await db.run(
+      `INSERT INTO shift_requests (client_id, site_id, start_at, end_at, last_end_at, status, created_at)
+       VALUES (?, ?, '2025-01-06T08:00', '2025-01-06T16:00', '2025-01-06T16:00', 'cancelled', '2024-12-01 08:00:00')`,
+      carla.client_id, ids.site
+    );
+  }
+  page = await site.get('/my/requests?view=history');
+  assert.match(page.text, /Older →/);
+  page = await site.get('/my/requests?view=history&page=2');
+  assert.match(page.text, /← Newer/);
+  assert.match(page.text, /Cancelled/);
+  assert.equal((await site.get(`/my/requests/${old}`)).status, 200);
+  // Another client's request can't be opened.
+  const otherClient = await db.insert("INSERT INTO clients (name) VALUES ('Someone Else')");
+  const otherSite = await db.insert("INSERT INTO sites (client_id, name) VALUES (?, 'Their site')", otherClient);
+  const theirs = await db.insert(
+    "INSERT INTO shift_requests (client_id, site_id, start_at, end_at, last_end_at) VALUES (?, ?, '2030-01-01T08:00', '2030-01-01T16:00', '2030-01-01T16:00')",
+    otherClient, otherSite
+  );
+  assert.equal((await site.get(`/my/requests/${theirs}`)).status, 404);
+  assert.doesNotMatch((await site.get('/my/requests?view=history')).text, /Their site/);
+  notify.setSender(null);
+});
+
 test('security: two-step codes, backup codes, remembered devices, signing out, and the office resetting it', async () => {
   const notify = require('../src/services/notify');
   const twoStep = require('../src/services/twoStep');

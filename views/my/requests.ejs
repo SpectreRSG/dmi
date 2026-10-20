@@ -2,39 +2,55 @@
 <div class="page-head">
   <div>
     <h1>Shift requests</h1>
-    <p class="page-sub">Ask for officers at your sites. The office approves your request, then it's offered to officers: the ones you ask for get first choice. You'll get a notification when it's approved and when each shift is covered.</p>
+    <p class="page-sub">Ask for officers at your sites, once or on a regular schedule. The office approves your request, then it's offered to officers: the ones you ask for get first choice. You'll get a notification when it's approved and when each shift is covered.</p>
   </div>
   <div class="page-actions"><a class="btn btn-primary" href="/my/requests/new"><%- icon('plus') %> Request a shift</a></div>
 </div>
+<nav class="tabs" aria-label="Which requests">
+  <a href="/my/requests" class="<%= view === 'current' ? 'active' : '' %>">Current</a>
+  <a href="/my/requests?view=history" class="<%= view === 'history' ? 'active' : '' %>">History</a>
+</nav>
 <div class="card">
   <% if (!requests.length) { %>
-    <p class="empty">No requests yet. Press <strong>Request a shift</strong> to ask for officers.</p>
+    <p class="empty"><%- view === 'current'
+      ? 'Nothing coming up. Press <strong>Request a shift</strong> to ask for officers.'
+      : (page > 1 ? 'No older requests.' : "You haven't sent any requests yet.") %></p>
   <% } else { %>
     <div class="table-wrap">
       <table class="table stack-on-phone">
-        <thead><tr><th>When</th><th>Site</th><th class="num">Officers</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><% if (view === 'history') { %><th>Sent</th><% } %><th>When</th><th>Site</th><th class="num">Officers</th><th>Status</th><th></th></tr></thead>
         <tbody>
           <% for (const r of requests) { %>
             <tr>
-              <td class="nowrap" data-label="When"><%= fmtDay(r.start_at) %> <span class="muted"><%= r.start_at.slice(0, 4) %></span><br><%= fmtRange(r.start_at, r.end_at) %></td>
-              <td data-label="Site"><%= r.site_name %><% if (r.notes) { %><div class="muted small"><%= r.notes %></div><% } %>
-                <% if (r.asked.length) { %><div class="small">Asked for: <%= r.asked.map((a) => a.name).join(', ') %></div><% } %></td>
-              <td class="num" data-label="Officers"><%= r.officers_needed %></td>
+              <% if (view === 'history') { %>
+                <td class="nowrap" data-label="Sent"><%= fmtDate(r.created_at.slice(0, 10)) %><div class="muted small"><%= r.requested_by_name || '' %></div></td>
+              <% } %>
+              <td data-label="When"><% if (r.repeating) { %><%- badge('Repeats', 'blue') %> <% } %><%= r.when %><%= r.repeating ? '' : ` ${r.start_at.slice(0, 4)}` %></td>
+              <td data-label="Site"><%= r.site_name %></td>
+              <td class="num" data-label="Officers"><%= r.officers_needed %><%= r.repeating ? ' each time' : '' %></td>
               <td data-label="Status">
                 <% if (r.status === 'approved') { %>
-                  <%- r.covered === r.officers_needed ? badge('Covered', 'green') : badge(`${r.covered} of ${r.officers_needed} covered`, 'blue') %>
-                  <% const names = r.shifts.filter((s) => s.name).map((s) => s.name); %>
-                  <% if (names.length) { %><div class="small"><%= names.join(', ') %></div><% } %>
-                  <% if (r.covered < r.officers_needed) { %><div class="muted small">Being offered to officers</div><% } %>
+                  <% if (r.last_end_at <= now) { %>
+                    <%- badge('Done', 'gray') %><div class="small"><%= r.covered %> of <%= r.total %> covered</div>
+                  <% } else { %>
+                    <%- r.covered === r.total ? badge('Covered', 'green') : badge(`${r.covered} of ${r.total} covered`, 'blue') %>
+                    <% if (!r.repeating) { const names = r.shifts.filter((s) => s.name).map((s) => s.name); %>
+                      <% if (names.length) { %><div class="small"><%= names.join(', ') %></div><% } %>
+                    <% } %>
+                    <% if (r.covered < r.total) { %><div class="muted small"><%= r.repeating ? 'Offered to officers about two weeks ahead' : 'Being offered to officers' %></div><% } %>
+                  <% } %>
                 <% } else if (r.status === 'declined') { %>
                   <%- badge('Not approved', 'red') %><% if (r.decline_reason) { %><div class="small"><%= r.decline_reason %></div><% } %>
+                <% } else if (r.status === 'pending' && r.last_end_at <= now) { %>
+                  <%- badge('Not answered in time', 'gray') %>
                 <% } else { %>
                   <%- badge(STATUS_LABELS[r.status], r.status === 'pending' ? 'amber' : 'gray') %>
                 <% } %>
               </td>
               <td class="actions" data-label="">
-                <% if (r.status === 'pending') { %>
-                  <form method="post" action="/my/requests/<%= r.id %>/cancel" class="inline-form" data-confirm="Cancel this request?">
+                <a class="btn btn-sm" href="/my/requests/<%= r.id %>">Details</a>
+                <% if (r.status === 'pending' && r.last_end_at > now) { %>
+                  <form method="post" action="/my/requests/<%= r.id %>/cancel" class="inline-form" data-confirm="Cancel this request<%= r.repeating ? ' (all of its dates)' : '' %>?">
                     <%- include('../partials/csrf') %>
                     <button type="submit" class="btn btn-sm btn-ghost">Cancel</button>
                   </form>
@@ -47,4 +63,10 @@
     </div>
   <% } %>
 </div>
+<% if (view === 'history' && (page > 1 || more)) { %>
+  <div class="btn-row pager">
+    <% if (page > 1) { %><a class="btn btn-sm" href="/my/requests?view=history&page=<%= page - 1 %>">← Newer</a><% } %>
+    <% if (more) { %><a class="btn btn-sm" href="/my/requests?view=history&page=<%= page + 1 %>">Older →</a><% } %>
+  </div>
+<% } %>
 <%- include('../partials/bottom') %>

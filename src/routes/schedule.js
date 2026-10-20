@@ -267,14 +267,32 @@ router.get('/requests', async (req, res) => {
   ]);
   await shiftRequests.withDetails(pending);
   await shiftRequests.withDetails(recent);
-  // For each officer a site asked for: can they actually take it?
+  // For each officer a site asked for: can they actually take it? (For a
+  // repeating request: on how many of its dates they can't.)
   for (const r of pending) {
-    const said = await availability.statusDuring(r.asked.map((a) => a.id), r.start_at, r.end_at);
+    if (!r.asked.length) continue;
+    r.dates = shiftRequests.datesFor(r);
+    if (!r.repeating) {
+      const said = await availability.statusDuring(r.asked.map((a) => a.id), r.start_at, r.end_at);
+      for (const a of r.asked) {
+        const clash = await findClash(db, a.id, r.start_at, r.end_at);
+        a.problem = clash ? 'already booked' : said.get(a.id).unavailable ? "said they can't work" : null;
+      }
+      continue;
+    }
+    const times = shiftRequests.timesFor(r);
+    const unavailable = await availability.unavailableCounts(r.asked.map((a) => a.id), times);
     for (const a of r.asked) {
-      const clash = await findClash(db, a.id, r.start_at, r.end_at);
-      a.problem = clash ? 'already booked' : said.get(a.id).unavailable ? "said they can't work" : null;
+      const { n: booked } = await db.get(
+        `SELECT COUNT(*)::int AS n FROM unnest(?::text[], ?::text[]) AS t(start_at, end_at)
+         WHERE EXISTS (SELECT 1 FROM shifts s WHERE s.employee_id = ? AND s.status != 'cancelled' AND s.start_at < t.end_at AND s.end_at > t.start_at)`,
+        times.map((t) => t.start_at), times.map((t) => t.end_at), a.id
+      );
+      const cant = unavailable.get(a.id);
+      a.problem = [booked && `already booked on ${booked} of ${times.length} dates`, cant && `said they can't work on ${cant}`].filter(Boolean).join('; ') || null;
     }
   }
+  for (const r of pending) r.dates ??= shiftRequests.datesFor(r);
   res.render('schedule/requests', { title: 'Shift requests', pending, recent, now: time.nowStr(), STATUS_LABELS: shiftRequests.STATUS_LABELS });
 });
 
@@ -285,11 +303,17 @@ router.post('/requests/:id/approve', async (req, res) => {
     return res.redirect('/schedule/requests');
   }
   const r = result.request;
-  await logActivity(req, `Approved shift request #${r.id} from ${r.client_name} (${r.officers_needed} shift(s) on ${r.start_at.slice(0, 10)})`);
-  const offered = result.offered === result.shifts.length
-    ? 'They\'re being offered to officers now'
-    : `${result.offered} of ${result.shifts.length} are being offered to officers; nobody else is free for the rest, so use "Find cover"`;
-  req.flash('success', `Approved: ${result.shifts.length} open shift${result.shifts.length === 1 ? '' : 's'} added to the schedule. ${offered}${result.firstChoice.length ? ', the officers the site asked for first' : ''}. The site has been told.`);
+  const n = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
+  await logActivity(req, `Approved shift request #${r.id} from ${r.client_name}: ${n(result.shifts.length, 'shift')}, ${shiftRequests.when(r)}`);
+  const parts = [`Approved: ${n(result.shifts.length, 'open shift')} added to the schedule.`];
+  if (result.offered) {
+    parts.push(`${result.offered === result.shifts.length ? (result.offered === 1 ? "It's" : "They're") : `${result.offered} ${result.offered === 1 ? 'is' : 'are'}`} being offered to officers now${result.firstChoice.length ? ', the officers the site asked for first' : ''}.`);
+  }
+  if (result.later) parts.push(`The other ${result.later} will be offered about two weeks before each date.`);
+  if (result.nobody) parts.push(`Nobody who could take ${result.nobody === 1 ? 'one' : result.nobody} is free, so use "Find cover" for ${result.nobody === 1 ? 'it' : 'them'}.`);
+  if (result.skipped) parts.push(`${n(result.skipped, 'date')} had already passed and ${result.skipped === 1 ? 'was' : 'were'} skipped.`);
+  parts.push('The site has been told.');
+  req.flash('success', parts.join(' '));
   res.redirect('/schedule/requests');
 });
 

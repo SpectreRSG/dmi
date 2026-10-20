@@ -15,11 +15,21 @@
         <% for (const site of sites) { %><option value="<%= site.id %>" <%= values.site_id === site.id ? 'selected' : '' %>><%= site.name %><%= site.address ? ` (${site.address})` : '' %></option><% } %>
       </select>
     </label>
-    <label>Date <input type="date" name="date" value="<%= values.date || '' %>" required min="<%= todayStr() %>"></label>
+    <label>Date <span class="hint">The first date, if it repeats</span> <input type="date" name="date" value="<%= values.date || '' %>" required min="<%= todayStr() %>"></label>
     <label>Officers needed <input type="number" name="officers_needed" min="1" max="<%= maxOfficers %>" step="1" value="<%= values.officers_needed %>" required></label>
     <label>Start time <input type="time" name="start_time" value="<%= values.start_time || '' %>" required></label>
     <label>End time <input type="time" name="end_time" value="<%= values.end_time || '' %>" required><span class="hint">Earlier than the start means it ends the next day.</span></label>
     <label>Unpaid break (minutes) <input type="number" name="break_minutes" min="0" max="600" step="5" value="<%= values.break_minutes %>"></label>
+    <fieldset class="field-full repeat-box">
+      <legend>Repeat (optional)</legend>
+      <div class="weekday-picker">
+        <% WEEKDAYS.forEach((name, i) => { %>
+          <label class="day-chip"><input type="checkbox" name="repeat_days" value="<%= i %>" <%= (values.repeat_days || []).includes(i) ? 'checked' : '' %>><span><%= name %></span></label>
+        <% }) %>
+      </div>
+      <label class="repeat-until">Until <input type="date" name="repeat_until" value="<%= values.repeat_until || '' %>" min="<%= todayStr() %>"></label>
+      <p class="hint">For a regular shift, tick the days: you'll get it on each ticked day from the date above until this date, for up to 3 months. The office approves them all at once, and each shift is offered to officers about two weeks ahead.</p>
+    </fieldset>
   </div>
   <% if (officers.length) { %>
     <fieldset class="choice-row">

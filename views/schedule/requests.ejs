@@ -3,7 +3,7 @@
   <div>
     <p class="page-sub"><a href="/schedule">← Schedule</a></p>
     <h1>Shift requests</h1>
-    <p class="page-sub">Shifts your clients' site representatives have asked for. Approving one adds open shifts to the schedule and offers them to officers straight away. Officers the site asked for get first choice, then everyone else who's free.</p>
+    <p class="page-sub">Shifts your clients' site representatives have asked for. Approving one adds open shifts to the schedule and offers them to officers: straight away, or for a repeating request, about two weeks before each date. Officers the site asked for get first choice, then everyone else who's free.</p>
   </div>
 </div>
 
@@ -17,19 +17,27 @@
       <h2><%= r.client_name %>: <%= r.site_name %></h2>
       <span class="muted small">Sent by <%= r.requested_by_name || 'the site' %>, <%= fmtDateTime(r.created_at.replace(' ', 'T').slice(0, 16)) %></span>
     </div>
-    <p><strong><%= fmtDay(r.start_at) %> <%= r.start_at.slice(0, 4) %> · <%= fmtRange(r.start_at, r.end_at) %></strong>
-      · <%= r.officers_needed %> officer<%= r.officers_needed === 1 ? '' : 's' %><%= r.break_minutes ? ` · ${r.break_minutes} min break` : '' %></p>
+    <p><% if (r.repeating) { %><%- badge('Repeats', 'blue') %> <% } %><strong><%= r.when %><%= r.repeating ? '' : ` ${r.start_at.slice(0, 4)}` %></strong>
+      · <%= r.officers_needed %> officer<%= r.officers_needed === 1 ? '' : 's' %><%= r.repeating ? ` each time (${r.total} shifts)` : '' %><%= r.break_minutes ? ` · ${r.break_minutes} min break` : '' %></p>
+    <% if (r.repeating) { %>
+      <details>
+        <summary class="small">See all <%= r.dates.length %> dates</summary>
+        <ol class="date-list"><% for (const d of r.dates) { %><li><%= fmtDay(d) %> <%= d.slice(0, 4) %></li><% } %></ol>
+      </details>
+      <p class="muted small">Approving adds all <%= r.total %> shifts to the schedule. Each one is offered to officers about two weeks before its date.</p>
+    <% } %>
     <% if (r.notes) { %><p class="pre-line"><%= r.notes %></p><% } %>
     <% if (r.asked.length) { %>
       <p class="small">Asked for:
         <% r.asked.forEach((a, i) => { %><%= i ? ', ' : '' %><strong><%= a.name %></strong><% if (a.problem) { %> <span class="muted">(<%= a.problem %>)</span><% } %><% }) %>
       </p>
     <% } %>
-    <% if (r.start_at <= now) { %><p class="flash flash-warning">This time has already passed.</p><% } %>
+    <% if (r.last_end_at <= now) { %><p class="flash flash-warning">This time has already passed.</p>
+    <% } else if (r.start_at <= now) { %><p class="flash flash-warning">Some of these dates have already passed. Approving adds only the ones still to come.</p><% } %>
     <div class="btn-row">
       <form method="post" action="/schedule/requests/<%= r.id %>/approve" class="inline-form">
         <%- include('../partials/csrf') %>
-        <button type="submit" class="btn btn-primary" <%= r.start_at <= now ? 'disabled' : '' %>>Approve and offer to officers</button>
+        <button type="submit" class="btn btn-primary" <%= r.last_end_at <= now ? 'disabled' : '' %>><%= r.repeating ? `Approve all ${r.total} shifts` : 'Approve and offer to officers' %></button>
       </form>
       <form method="post" action="/schedule/requests/<%= r.id %>/decline" class="inline-form decline-form" data-confirm="Decline this request? The site will be told.">
         <%- include('../partials/csrf') %>
@@ -51,13 +59,18 @@
         <tbody>
           <% for (const r of recent) { %>
             <tr>
-              <td class="nowrap" data-label="When"><%= fmtDay(r.start_at) %> <span class="muted"><%= r.start_at.slice(0, 4) %></span><br><%= fmtRange(r.start_at, r.end_at) %></td>
+              <td data-label="When"><%= r.when %><%= r.repeating ? '' : ` ${r.start_at.slice(0, 4)}` %></td>
               <td data-label="Client and site"><%= r.client_name %>: <%= r.site_name %></td>
               <td data-label="Status"><%- r.status === 'approved' ? badge('Approved', 'green') : r.status === 'declined' ? badge('Declined', 'red') : badge(STATUS_LABELS[r.status], 'gray') %>
                 <div class="muted small"><%= r.decided_by_name ? `by ${r.decided_by_name}` : '' %><%= r.decline_reason ? ` · ${r.decline_reason}` : '' %></div></td>
               <td data-label="Shifts">
-                <% for (const sh of r.shifts) { %>
-                  <div><a href="/schedule/<%= sh.id %>/edit"><%= sh.name || (sh.offered ? 'Open: offered to officers' : 'Unfilled') %></a></div>
+                <% if (r.repeating) { %>
+                  <%= r.covered %> of <%= r.total %> covered
+                  <% if (r.shifts.length) { %><div><a href="/schedule?week=<%= startOfWeek(r.shifts[0].start_at.slice(0, 10)) %>">See on the schedule</a></div><% } %>
+                <% } else { %>
+                  <% for (const sh of r.shifts) { %>
+                    <div><a href="/schedule/<%= sh.id %>/edit"><%= sh.name || (sh.offered ? 'Open: offered to officers' : 'Unfilled') %></a></div>
+                  <% } %>
                 <% } %>
               </td>
             </tr>

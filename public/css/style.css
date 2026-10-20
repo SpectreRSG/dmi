@@ -1056,6 +1056,14 @@ a.cal-item.is-claimable:hover { background: #bdeee5; }
 .agenda-item.is-past { opacity: 0.7; }
 
 .pre-line { white-space: pre-line; }
+/* Labelled facts, one per line (e.g. a shift request's details). */
+.facts { margin: 0; display: grid; gap: 10px; }
+.facts > div { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 12px; }
+.facts dt { color: var(--muted); font-size: 13.5px; }
+.facts dd { margin: 0; }
+@media (max-width: 640px) { .facts > div { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+.pager { margin-top: 12px; justify-content: flex-end; }
+.date-list { columns: 3 160px; margin: 8px 0 0; padding-left: 18px; font-size: 13.5px; }
 
 /* Phones: the calendar just shows how many shifts each day has; the list below has the details. */
 @media (max-width: 640px) {

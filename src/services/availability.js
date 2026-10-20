@@ -56,6 +56,21 @@ async function statusDuring(employeeIds, startAt, endAt) {
   return status;
 }
 
+// For a repeating shift request: on how many of these times has each officer
+// said they can't work? (Looks up their entries once, for the whole stretch.)
+async function unavailableCounts(employeeIds, ranges) {
+  const counts = new Map(employeeIds.map((id) => [id, 0]));
+  if (!employeeIds.length || !ranges.length) return counts;
+  const from = time.addDays(ranges[0].start_at.slice(0, 10), -1);
+  const to = ranges.at(-1).end_at.slice(0, 10);
+  const entries = (await entriesFor(employeeIds, from, to)).filter((e) => e.kind === 'unavailable');
+  for (const id of employeeIds) {
+    const windows = entries.filter((e) => e.employee_id === id).flatMap((e) => windowsOf(e, from, to));
+    counts.set(id, ranges.filter((r) => windows.some((w) => overlaps(w, r.start_at, r.end_at))).length);
+  }
+  return counts;
+}
+
 // "Every Tue, Thu, 18:00–23:00, from 20 Oct" / "Mon 20 Oct – Wed 22 Oct, all day"
 function describe(entry) {
   const hours = entry.start_time
@@ -99,4 +114,4 @@ function readForm(body) {
   return { values, error };
 }
 
-module.exports = { KINDS, WEEKDAYS, windowsOf, entriesFor, statusDuring, describe, readForm };
+module.exports = { KINDS, WEEKDAYS, windowsOf, entriesFor, statusDuring, unavailableCounts, describe, readForm };

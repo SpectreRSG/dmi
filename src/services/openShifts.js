@@ -59,10 +59,51 @@ async function eligibleOfficers(shift, settings) {
   return options.filter((o) => canSignIn.has(o.employee.id) && !saidNo.has(o.employee.id) && !claimProblem(o));
 }
 
+// Officers offered several shifts at once (a repeating request, or several
+// waves due together) get one alert listing them, not one per shift. Collect
+// the offers in a digest, then send it.
+function newDigest() {
+  return new Map(); // employee id -> [{ offer, shift, requested }]
+}
+
+function addToDigest(digest, employeeIds, item) {
+  for (const id of employeeIds) {
+    if (!digest.has(id)) digest.set(id, []);
+    digest.get(id).push(item);
+  }
+}
+
+async function sendDigest(digest) {
+  // Officers offered exactly the same shifts share one send.
+  const groups = new Map();
+  for (const [employeeId, items] of digest) {
+    const key = items.map((i) => `${i.offer.id}${i.requested ? '*' : ''}`).join(',');
+    if (!groups.has(key)) groups.set(key, { items, employeeIds: [] });
+    groups.get(key).employeeIds.push(employeeId);
+  }
+  for (const { items, employeeIds } of groups.values()) {
+    if (items.length === 1) {
+      await tellOfficers(items[0].offer, items[0].shift, employeeIds, { requested: items[0].requested });
+      continue;
+    }
+    const sorted = [...items].sort((a, b) => (a.shift.start_at < b.shift.start_at ? -1 : 1));
+    const sites = [...new Set(sorted.map((i) => i.shift.site_name))];
+    const requested = sorted.every((i) => i.requested) && new Set(sorted.map((i) => i.shift.client_name)).size === 1;
+    await notifyEmployees(employeeIds, {
+      title: requested ? `${sorted[0].shift.client_name} asked for you: ${sorted.length} shifts` : `${sorted.length} open shifts`,
+      body: `${sites.length === 1 ? sites[0] : `${sites.length} sites`}, ${time.fmtDay(sorted[0].shift.start_at)} – ${time.fmtDay(sorted.at(-1).shift.start_at)}. `
+        + (requested ? "You have first choice before they're offered to others." : 'First to claim each one gets it.') + ' Tap to see them.',
+      url: '/my/schedule#open-shifts',
+      tag: `offers-${sorted[0].offer.id}`,
+    });
+  }
+}
+
 // Offers an unfilled, upcoming shift to officers. `firstChoice` = officers a
-// site asked for by name. Returns { offer, toldNow, toldLater, firstChoice }
-// (offer is null when nobody could take it) or { error }.
-async function offerShift(shiftId, { userId = null, settings, firstChoice = [] }) {
+// site asked for by name. With a `digest`, the officers are told when it's
+// sent (see above). Returns { offer, toldNow, toldLater, firstChoice } (offer
+// is null when nobody could take it) or { error }.
+async function offerShift(shiftId, { userId = null, settings, firstChoice = [], digest = null }) {
   const shift = await findShift(shiftId);
   const now = time.nowStr();
   if (!shift || shift.status !== 'scheduled') return { error: 'Only scheduled shifts can be offered.' };
@@ -114,7 +155,9 @@ async function offerShift(shiftId, { userId = null, settings, firstChoice = [] }
     throw err;
   }
   const offer = await db.get('SELECT * FROM shift_offers WHERE id = ?', offerId);
-  await tellOfficers(offer, shift, first.map((o) => o.employee.id), { requested: asked.length > 0 });
+  const told = first.map((o) => o.employee.id);
+  if (digest) addToDigest(digest, told, { offer, shift, requested: asked.length > 0 });
+  else await tellOfficers(offer, shift, told, { requested: asked.length > 0 });
   return { offer, toldNow: first.length, toldLater: later.length, firstChoice: asked.map((o) => o.employee.id) };
 }
 
@@ -219,7 +262,7 @@ async function claimShift(offerId, employeeId, settings) {
     await notifyClient(shift.client_id, {
       title: `Covered: ${when(shift)}`,
       body: `${shortName(employee)} will work at ${shift.site_name}.`,
-      url: '/my/requests',
+      url: `/my/requests/${shift.request_id}`,
       tag: `request-${shift.request_id}`,
     });
   }
@@ -235,6 +278,8 @@ async function withdrawOffer(shiftId, note) {
 // when nobody has claimed a shift, and close offers that no longer apply.
 async function advanceOffers() {
   const now = time.nowStr();
+  const digest = newDigest();
+  const stillOpen = [];
   const offers = await db.all(
     `SELECT o.*, s.employee_id AS shift_employee, s.status AS shift_status, s.start_at
      FROM shift_offers o JOIN shifts s ON s.id = o.shift_id WHERE o.status = 'open'`
@@ -256,21 +301,38 @@ async function advanceOffers() {
           'UPDATE shift_offer_recipients SET notified_at = ? WHERE offer_id = ? AND notified_at IS NULL RETURNING employee_id',
           now, offer.id
         );
-        await tellOfficers(offer, await findShift(offer.shift_id), rows.map((r) => r.employee_id));
+        addToDigest(digest, rows.map((r) => r.employee_id), { offer, shift: await findShift(offer.shift_id), requested: false });
       }
     }
     if (!offer.escalated_at && offer.escalate_at <= now) {
       const claimed = await db.run('UPDATE shift_offers SET escalated_at = ? WHERE id = ? AND escalated_at IS NULL', now, offer.id);
-      if (claimed.changes) {
-        const shift = await findShift(offer.shift_id);
-        await notifyOffice({
-          title: `Still open: ${when(shift)}`,
-          body: `Nobody has claimed ${shift.site_name} (${shift.client_name}) yet. Tap to find cover.`,
-          url: `/schedule/${shift.id}/cover`,
-          tag: `shift-${shift.id}`,
-        });
-      }
+      if (claimed.changes) stillOpen.push(await findShift(offer.shift_id));
     }
+  }
+  await sendDigest(digest);
+  await tellOfficeStillOpen(stillOpen);
+}
+
+// Nobody has claimed these shifts: one alert for the office (one per shift
+// would be a lot when a repeating request's shifts are offered together).
+async function tellOfficeStillOpen(shifts) {
+  if (shifts.length === 1) {
+    const [shift] = shifts;
+    await notifyOffice({
+      title: `Still open: ${when(shift)}`,
+      body: `Nobody has claimed ${shift.site_name} (${shift.client_name}) yet. Tap to find cover.`,
+      url: `/schedule/${shift.id}/cover`,
+      tag: `shift-${shift.id}`,
+    });
+  } else if (shifts.length > 1) {
+    const sorted = [...shifts].sort((a, b) => (a.start_at < b.start_at ? -1 : 1));
+    const sites = [...new Set(sorted.map((s) => s.site_name))];
+    await notifyOffice({
+      title: `${sorted.length} shifts still open`,
+      body: `Nobody has claimed them yet: ${sites.length === 1 ? sites[0] : `${sites.length} sites`}, ${time.fmtDay(sorted[0].start_at)} – ${time.fmtDay(sorted.at(-1).start_at)}. Tap to find cover.`,
+      url: `/schedule?week=${time.startOfWeek(sorted[0].start_at.slice(0, 10))}`,
+      tag: `still-open-${sorted[0].id}`,
+    });
   }
 }
 
@@ -291,4 +353,4 @@ async function openShiftsFor(employeeId) {
   );
 }
 
-module.exports = { offerShift, callOut, claimShift, withdrawOffer, advanceOffers, openShiftsFor, findShift };
+module.exports = { offerShift, newDigest, sendDigest, callOut, claimShift, withdrawOffer, advanceOffers, openShiftsFor, findShift };

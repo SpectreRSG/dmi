@@ -1,5 +1,6 @@
 // The jobs that keep things moving without anyone pressing a button:
-// recording the hours of shifts that have ended, and moving open-shift offers
+// recording the hours of shifts that have ended, offering a repeating shift
+// request's shifts as they come within two weeks, and moving open-shift offers
 // along (next wave of officers, telling the office when nobody has claimed one).
 //
 // They run in two ways, and either is enough on its own:
@@ -11,10 +12,13 @@ const time = require('../time');
 const { getSettings } = require('../settings');
 const { recordFinishedShifts } = require('./hoursFromSchedule');
 const { advanceOffers } = require('./openShifts');
+const { offerUpcoming } = require('./shiftRequests');
 
 async function runDueJobs() {
-  time.setTimeZone((await getSettings()).timezone); // what "now" means for the company
+  const settings = await getSettings();
+  time.setTimeZone(settings.timezone); // what "now" means for the company
   await recordFinishedShifts();
+  await offerUpcoming(settings);
   await advanceOffers();
 }
 
