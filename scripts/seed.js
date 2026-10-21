@@ -29,7 +29,7 @@ async function main() {
 async function seed(db) {
   const time = require('../src/time');
   const { hashPassword } = require('../src/auth');
-  const { calculatePayLine } = require('../src/services/payroll');
+  const { calculatePayLine, overtimeRules } = require('../src/services/payroll');
   const { getSettings, saveSettings } = require('../src/settings');
 
   // The Demo Client that comes with the database doesn't count.
@@ -249,7 +249,7 @@ async function seed(db) {
     for (const e of paid) byEmployee.set(e.employee_id, [...(byEmployee.get(e.employee_id) || []), e]);
     for (const [employeeId, entries] of byEmployee) {
       const { hourly_rate } = await tx.get('SELECT hourly_rate FROM employees WHERE id = ?', employeeId);
-      const line = calculatePayLine({ entries, hourlyRate: hourly_rate, weeklyLimit: settings.overtime_weekly_hours, multiplier: settings.overtime_multiplier });
+      const line = calculatePayLine({ entries, hourlyRate: hourly_rate, rules: overtimeRules(settings) });
       await insert('pay_run_items', { pay_run_id: payRun, employee_id: employeeId, ...line });
     }
 

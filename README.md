@@ -16,7 +16,7 @@ A private website for running the business side of a security company:
 | **Sign-in security** | Two-step sign-in (an authenticator app code) or a passkey (Face ID, Touch ID, screen lock), backup codes, remembered devices, and signing out everywhere. |
 | **1099 forms** | Works out what each contractor was paid in a year (from finalized pay runs), makes Form 1099-NEC (Copy B and 2 for the officer, C and 1 for the company), shares it in the officer's account if they agreed, and gives you a filing summary for sending Copy A to the IRS. Admins only. |
 | **Timesheets** | Hours actually worked. When a shift ends, its hours are recorded and approved from the schedule by themselves. You only fix the exceptions (edit the shift or the hours), or type in hours that weren't on the schedule and approve them. |
-| **Pay** | Turns approved hours into pay for a period: regular hours, weekly overtime, bonuses or deductions. Printable payslips, a spreadsheet download for your accountant, and each person's DMI timesheet PDF, filled in and stamped "Approved by" when you finalize. Admins only. |
+| **Pay** | Turns approved hours into pay for a period: regular hours, California daily and weekly overtime and double time, bonuses or deductions. Printable payslips, a spreadsheet download for your accountant, and each person's DMI timesheet PDF, filled in and stamped "Approved by" when you finalize. Admins only. |
 | **Staff** | Guard profiles: position (Armed Security Officer, Unarmed Security Officer, Supervisor, Manager or Administrator), contact details, pay rate, security license, emergency contact, whether their app notifications are on, hours, training and contracts. |
 | **Clients & sites** | Your customers and the places your guards work, with site instructions. |
 | **Contracts** | Client agreements, employment contracts, NDAs, subcontracts. Upload the signed copy and get warned before they end. |
@@ -175,7 +175,16 @@ sites' details. So keep its password private, and deactivate it when you're not 
 
 ### Important rules the app follows
 
-- **Overtime** is counted per week (Monday–Sunday). By default, hours over 40 pay 1.5×. Change this in **Settings**.
+- **Overtime follows California's rules** (Labor Code 510), set under **Settings → Overtime**:
+  - hours over 8 in a workday pay 1.5×, and hours over 12 pay 2× ("double time");
+  - working all 7 days of a week (Monday–Sunday), the 7th day's first 8 hours pay 1.5× and the rest 2×;
+  - hours over 40 in a week pay 1.5× (counting only the hours that weren't already overtime that day).
+  A workday is the 24 hours from **Each workday starts at** (06:00 by default, so a 6 PM–6 AM night shift
+  is one 12-hour workday). Pick it once and keep it. A pay run that starts mid-week (pay periods run
+  Sunday to Saturday) counts the hours earlier that week, so nothing is missed between pay runs, and
+  nothing is paid twice. Choose **Weekly only** to go back to just hours over 40 a week. Pay runs that
+  were already finalized keep the numbers they had. Overtime applies to everyone on the pay run, as
+  before. Have your accountant confirm the setup the first time.
 - **Rest between shifts:** the conflict checker warns when someone has less than 8 hours between
   shifts. Change the number in **Settings → Scheduling**.
 - **Gross pay only.** The app does not work out tax or other deductions; your accountant or

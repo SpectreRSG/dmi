@@ -176,6 +176,7 @@ module.exports = {
   isValidDate,
   isValidTime,
   hoursBetween,
+  minutesSinceEpoch,
   addMinutes,
   buildRange,
   fmtDate,

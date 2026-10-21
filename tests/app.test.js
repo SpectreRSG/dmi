@@ -357,7 +357,7 @@ test('pay run: overtime is calculated and finalized hours are locked', async () 
 
   const csv = await admin.get(`/pay/${ids.payRun}/export.csv`);
   assert.match(csv.headers.get('content-type'), /text\/csv/);
-  assert.match(csv.text, /Sam Guard,.*,40,10,30,1.5,1200,450,50,Bonus,1700/);
+  assert.match(csv.text, /Sam Guard,.*,40,10,0,30,1.5,1200,450,0,50,Bonus,1700/);
 
   // Rejecting hours after the draft was made: the page warns, and finalizing leaves them out.
   const lastEntry = (await db.get('SELECT id FROM time_entries WHERE pay_run_id = ? ORDER BY start_at DESC', ids.payRun)).id;
@@ -366,7 +366,8 @@ test('pay run: overtime is calculated and finalized hours are locked', async () 
 
   res = await admin.post(`/pay/${ids.payRun}/finalize`);
   assert.equal((await db.get('SELECT status FROM pay_runs WHERE id = ?', ids.payRun)).status, 'finalized');
-  assert.equal((await db.get('SELECT gross_pay FROM pay_run_items WHERE pay_run_id = ?', ids.payRun)).gross_pay, 40 * 30 + 50);
+  // Four 10-hour days are left: under California's daily rule, 2 hours of each are overtime.
+  assert.equal((await db.get('SELECT gross_pay FROM pay_run_items WHERE pay_run_id = ?', ids.payRun)).gross_pay, 32 * 30 + 8 * 30 * 1.5 + 50);
   assert.equal((await db.get('SELECT pay_run_id FROM time_entries WHERE id = ?', lastEntry)).pay_run_id, null);
 
   res = await admin.post(`/timesheets/${ids.entry}/delete`);
@@ -1972,6 +1973,59 @@ test("notifications first: the app setup at sign-up, a notification when approve
   await signIn(client, 'carla@example.com', 'client password 1');
   assert.equal((await client.get('/my/schedule')).status, 200);
   assert.equal((await client.get('/my/setup')).status, 200, 'but can use the setup page');
+});
+
+test('California daily overtime: on by default, set in Settings, and counted across pay runs', async () => {
+  // Settings: on, with workdays from 6 AM. (Saving sends every setting, as the page does.)
+  const current = await require('../src/settings').getSettings();
+  const save = (changes) => admin.post('/settings', { ...current, ...changes }, '/settings');
+  let page = await admin.get('/settings');
+  assert.match(page.text, /<option value="california" selected>California \(daily and weekly\)<\/option>/);
+  assert.match(page.text, /name="workday_start" value="06:00"/);
+  let res = await save({ workday_start: '25:00' });
+  assert.equal(res.status, 400);
+  assert.match(res.text, /Enter the time each workday starts/);
+
+  // A week next year, so nothing else is in it: Monday 14 hours, then 8 hours a day to Sunday.
+  const monday = time.startOfWeek(`${Number(time.todayStr().slice(0, 4)) + 1}-03-10`);
+  const danaId = await db.insert("INSERT INTO employees (first_name, last_name, status, hourly_rate) VALUES ('Dana', 'Daily', 'active', 20)");
+  const hours = [['06:00', '20:00'], ...Array(6).fill(['09:00', '17:00'])];
+  for (const [i, [start, end]] of hours.entries()) {
+    const day = time.addDays(monday, i);
+    await db.run("INSERT INTO time_entries (employee_id, start_at, end_at, status) VALUES (?, ?, ?, 'approved')", danaId, `${day}T${start}`, `${day}T${end}`);
+  }
+  // Pay periods run Sunday to Saturday, so the Sunday falls in the next one.
+  res = await admin.post('/pay', { period_start: time.addDays(monday, -1), period_end: time.addDays(monday, 5) });
+  const first = Number(res.location.split('/').pop());
+  res = await admin.post('/pay', { period_start: time.addDays(monday, 6), period_end: time.addDays(monday, 12) });
+  const second = Number(res.location.split('/').pop());
+  const line = (run) => db.get('SELECT * FROM pay_run_items WHERE pay_run_id = ? AND employee_id = ?', run, danaId);
+  let one = await line(first);
+  // Monday: 8 regular, 4 overtime, 2 double. Tue–Sat: 40 more hours, the last 8 over 40 for the week.
+  assert.deepEqual([one.regular_hours, one.overtime_hours, one.double_time_hours], [40, 12, 2]);
+  assert.deepEqual([one.regular_pay, one.overtime_pay, one.double_time_pay, one.gross_pay], [800, 360, 80, 1240]);
+  const two = await line(second);
+  assert.deepEqual([two.regular_hours, two.overtime_hours, two.double_time_hours], [0, 8, 0], 'Sunday is the 7th day in a row');
+  page = await admin.get(`/pay/${first}`);
+  assert.match(page.text, /Double time hrs/);
+  assert.match((await admin.get('/pay/new')).text, /Hours over 8 in a workday \(workdays start at 06:00\)/);
+  const slip = await admin.get(`/pay/${first}/payslips/${one.id}`);
+  assert.match(slip.text, /Double time \(2×\)/);
+  assert.match((await admin.raw('GET', `/pay/${first}/export.csv`)).text, /Dana Daily,.*,40,12,2,20,1.5,800,360,80,0,,1240/);
+  // An adjustment keeps the double time in the total.
+  await admin.post(`/pay/${first}/items/${one.id}`, { adjustment: '10', adjustment_note: 'Boots' }, `/pay/${first}`);
+  assert.equal((await line(first)).gross_pay, 1250);
+
+  // Turned off: weekly overtime only (Monday–Saturday is 54 hours: 14 over 40).
+  res = await save({ daily_overtime: 'off' });
+  assert.equal(res.status, 302);
+  assert.match((await admin.get('/activity')).text, /daily overtime off/);
+  await admin.post(`/pay/${first}/recalculate`, {}, `/pay/${first}`);
+  one = await line(first);
+  assert.deepEqual([one.regular_hours, one.overtime_hours, one.double_time_hours], [40, 14, 0]);
+  res = await save({ daily_overtime: 'california' });
+  assert.match((await admin.get('/activity')).text, /California daily overtime on, workdays from 06:00/);
+  for (const run of [first, second]) await admin.post(`/pay/${run}/delete`, {}, `/pay/${run}`);
 });
 
 test('every main page loads', async () => {

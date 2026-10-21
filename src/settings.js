@@ -7,6 +7,8 @@ const DEFAULTS = {
   currency_symbol: '$',
   overtime_weekly_hours: '40', // hours per week before overtime starts (0 = no overtime)
   overtime_multiplier: '1.5', // overtime pays this many times the normal rate
+  daily_overtime: 'california', // 'california': also over 8 hours in a workday (and double time over 12); 'off': weekly only
+  workday_start: '06:00', // when each 24-hour workday starts, for daily overtime ('06:00' = 6 AM to 6 AM)
   expiry_warning_days: '30', // warn this many days before licenses/training/contracts expire
   min_rest_hours: '8', // the conflict checker warns if someone has less rest than this between shifts
   two_step_required_for: 'everyone', // who must use two-step sign-in: 'everyone' or 'office' (admins and managers)
@@ -43,6 +45,8 @@ async function getSettings() {
     currency_symbol: s.currency_symbol,
     overtime_weekly_hours: Number(s.overtime_weekly_hours),
     overtime_multiplier: Number(s.overtime_multiplier),
+    daily_overtime: s.daily_overtime === 'off' ? 'off' : 'california',
+    workday_start: /^([01]\d|2[0-3]):[0-5]\d$/.test(s.workday_start) ? s.workday_start : '06:00',
     expiry_warning_days: Number(s.expiry_warning_days),
     min_rest_hours: Number(s.min_rest_hours),
     two_step_required_for: s.two_step_required_for === 'office' ? 'office' : 'everyone',

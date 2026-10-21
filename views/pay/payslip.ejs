@@ -26,6 +26,9 @@
       <% if (item.overtime_hours) { %>
         <tr><td>Overtime (<%= item.overtime_multiplier %>×)</td><td class="num"><%= fmtHours(item.overtime_hours) %></td><td class="num"><%= money(item.hourly_rate * item.overtime_multiplier) %></td><td class="num"><%= money(item.overtime_pay) %></td></tr>
       <% } %>
+      <% if (item.double_time_hours) { %>
+        <tr><td>Double time (2×)</td><td class="num"><%= fmtHours(item.double_time_hours) %></td><td class="num"><%= money(item.hourly_rate * 2) %></td><td class="num"><%= money(item.double_time_pay) %></td></tr>
+      <% } %>
       <% if (item.adjustment) { %>
         <tr><td>Adjustment<%= item.adjustment_note ? `: ${item.adjustment_note}` : '' %></td><td></td><td></td><td class="num"><%= money(item.adjustment) %></td></tr>
       <% } %>

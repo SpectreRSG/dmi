@@ -6,7 +6,7 @@ const db = require('../db');
 const { clean, notFound, numericIdParam, logActivity, employeeName } = require('../helpers');
 const time = require('../time');
 const { homeFor } = require('../auth');
-const { entryHours, round2, calculatePayLine } = require('../services/payroll');
+const { entryHours, round2, calculatePayLine, overtimeRules } = require('../services/payroll');
 const { recordFinishedShifts } = require('../services/hoursFromSchedule');
 const { findPayLine, payLineTimesheet, timesheetFileName } = require('../services/payTimesheet');
 const openShifts = require('../services/openShifts');
@@ -241,12 +241,17 @@ router.get('/pay', officerOnly, async (req, res) => {
   for (const entry of recorded) entry.hours = round2(entryHours(entry));
   const approved = recorded.filter((e) => e.status === 'approved');
   const { settings } = res.locals;
-  const estimate = calculatePayLine({
-    entries: approved,
-    hourlyRate: req.me.hourly_rate,
-    weeklyLimit: settings.overtime_weekly_hours,
-    multiplier: settings.overtime_multiplier,
-  });
+  // Hours already paid earlier in the first week count towards its overtime.
+  const firstDay = approved.length ? approved.map((e) => e.start_at.slice(0, 10)).sort()[0] : null;
+  const earlier = firstDay
+    ? await db.all(
+      `SELECT t.* FROM time_entries t JOIN pay_runs p ON p.id = t.pay_run_id
+       WHERE t.employee_id = ? AND t.status = 'approved' AND p.status = 'finalized'
+         AND substr(t.start_at, 1, 10) >= ? AND substr(t.start_at, 1, 10) < ?`,
+      req.me.id, time.startOfWeek(firstDay), firstDay
+    )
+    : [];
+  const estimate = calculatePayLine({ entries: approved, earlier, hourlyRate: req.me.hourly_rate, rules: overtimeRules(settings) });
   res.render('my/pay', {
     title: 'My pay',
     recorded,

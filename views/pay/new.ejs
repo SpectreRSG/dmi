@@ -15,7 +15,7 @@
     <label>Last day <input type="date" name="period_end" value="<%= values.period_end %>" required></label>
     <label class="field-full">Notes (optional) <input name="notes" value="<%= values.notes || '' %>"></label>
   </div>
-  <p class="hint">Overtime: hours over <strong><%= settings.overtime_weekly_hours %></strong> in a week (Monday–Sunday) are paid at <strong><%= settings.overtime_multiplier %>×</strong>.
+  <p class="hint">Overtime: <%= overtimeSummary(settings) %>
     <% if (locals.isAdmin) { %>Change this in <a href="/settings">Settings</a>.<% } %></p>
   <div class="form-actions">
     <button type="submit" class="btn btn-primary">Create draft pay run</button>

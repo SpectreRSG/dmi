@@ -21,9 +21,20 @@
   </div>
   <h2>Overtime</h2>
   <div class="form-grid">
+    <label>Daily overtime
+      <select name="daily_overtime">
+        <option value="california" <%= values.daily_overtime === 'california' ? 'selected' : '' %>>California (daily and weekly)</option>
+        <option value="off" <%= values.daily_overtime === 'off' ? 'selected' : '' %>>Weekly only</option>
+      </select>
+      <span class="hint">California: hours over 8 in a workday pay the overtime rate, hours over 12 pay double. Working all 7 days of a week: the 7th day’s first 8 hours are overtime, the rest double. The weekly limit below still applies to the other hours.</span>
+    </label>
+    <label>Each workday starts at
+      <input type="time" name="workday_start" value="<%= values.workday_start %>" required>
+      <span class="hint">A workday is the 24 hours from this time. 06:00 counts a 6 PM–6 AM night shift as one workday. Pick it once and keep it: California expects the same workday every day.</span>
+    </label>
     <label>Hours per week before overtime
       <input type="number" name="overtime_weekly_hours" min="0" max="168" step="0.5" value="<%= values.overtime_weekly_hours %>">
-      <span class="hint">Weeks run Monday to Sunday. Use 0 to turn overtime off.</span>
+      <span class="hint">Weeks run Monday to Sunday. Use 0 for no weekly overtime.</span>
     </label>
     <label>Overtime pay multiplier
       <input type="number" name="overtime_multiplier" min="1" max="5" step="0.05" value="<%= values.overtime_multiplier %>">

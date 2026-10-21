@@ -79,6 +79,16 @@ function fmtHours(n) {
   return (Number(n) || 0).toFixed(2);
 }
 
+// The overtime rules in a sentence, e.g. for the pay run pages.
+function overtimeSummary(settings) {
+  const weekly = settings.overtime_weekly_hours > 0 ? `over ${settings.overtime_weekly_hours} hours in a week (Monday–Sunday)` : '';
+  if (settings.daily_overtime === 'california') {
+    return `Hours over 8 in a workday (workdays start at ${settings.workday_start})${weekly ? ` or ${weekly}` : ''} pay ${settings.overtime_multiplier}×, `
+      + 'hours over 12 in a workday pay 2×, and working all 7 days of a week, the 7th day pays 1.5× (2× after 8 hours).';
+  }
+  return weekly ? `Hours ${weekly} pay ${settings.overtime_multiplier}×.` : 'Overtime is turned off.';
+}
+
 // Coloured status labels.
 const STATUS_COLORS = {
   active: 'green',
@@ -148,6 +158,7 @@ module.exports = {
   isActive,
   formatMoney,
   fmtHours,
+  overtimeSummary,
   badge,
   capitalize,
   statusBadge,

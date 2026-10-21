@@ -4,6 +4,7 @@ const { getSettings, saveSettings, TIMEZONES } = require('../settings');
 const { clean, toNumber, logActivity } = require('../helpers');
 const { US_STATES, digitsOnly, zipOk } = require('../services/tax1099');
 const { requireRecentCode } = require('../auth');
+const { isValidTime } = require('../time');
 
 
 const router = express.Router();
@@ -18,7 +19,8 @@ router.get('/', async (req, res) => {
 
 router.post('/', requireRecentCode, async (req, res) => {
   const v = clean(req.body, [
-    'company_name', 'timezone', 'currency_symbol', 'overtime_weekly_hours', 'overtime_multiplier', 'expiry_warning_days', 'min_rest_hours', 'two_step_required_for',
+    'company_name', 'timezone', 'currency_symbol', 'overtime_weekly_hours', 'overtime_multiplier', 'daily_overtime', 'workday_start',
+    'expiry_warning_days', 'min_rest_hours', 'two_step_required_for',
     'payer_name', 'payer_ein', 'payer_address', 'payer_city', 'payer_state', 'payer_zip', 'payer_phone', 'payer_state_id', 'ppo_license',
   ]);
   const ein = digitsOnly(v.payer_ein);
@@ -28,6 +30,9 @@ router.post('/', requireRecentCode, async (req, res) => {
     currency_symbol: v.currency_symbol || '',
     overtime_weekly_hours: toNumber(v.overtime_weekly_hours, 0),
     overtime_multiplier: toNumber(v.overtime_multiplier, 1),
+    // (Left out of the form: kept as they are.)
+    daily_overtime: ['california', 'off'].includes(v.daily_overtime) ? v.daily_overtime : res.locals.settings.daily_overtime,
+    workday_start: v.workday_start ?? res.locals.settings.workday_start,
     expiry_warning_days: toNumber(v.expiry_warning_days, 30),
     min_rest_hours: toNumber(v.min_rest_hours, 8),
     two_step_required_for: v.two_step_required_for === 'office' ? 'office' : 'everyone',
@@ -50,6 +55,8 @@ router.post('/', requireRecentCode, async (req, res) => {
     error = 'Weekly hours before overtime must be between 0 and 168.';
   } else if (Number.isNaN(values.overtime_multiplier) || values.overtime_multiplier < 1 || values.overtime_multiplier > 5) {
     error = 'Overtime multiplier must be between 1 and 5 (e.g. 1.5 for "time and a half").';
+  } else if (!isValidTime(values.workday_start)) {
+    error = 'Enter the time each workday starts, like 06:00.';
   } else if (!Number.isInteger(values.expiry_warning_days) || values.expiry_warning_days < 0 || values.expiry_warning_days > 365) {
     error = 'Warning days must be a whole number between 0 and 365.';
   } else if (Number.isNaN(values.min_rest_hours) || values.min_rest_hours < 0 || values.min_rest_hours > 24) {
@@ -64,8 +71,15 @@ router.post('/', requireRecentCode, async (req, res) => {
   if (error) return render(res, values, error, 400);
 
   await saveSettings(values);
-  const before = res.locals.settings.two_step_required_for;
-  await logActivity(req, `Updated company settings${before !== values.two_step_required_for ? ` (two-step sign-in now required for ${values.two_step_required_for === 'office' ? 'office staff only' : 'everyone'})` : ''}`);
+  const was = res.locals.settings;
+  const notes = [];
+  if (was.two_step_required_for !== values.two_step_required_for) {
+    notes.push(`two-step sign-in now required for ${values.two_step_required_for === 'office' ? 'office staff only' : 'everyone'}`);
+  }
+  if (was.daily_overtime !== values.daily_overtime || was.workday_start !== values.workday_start) {
+    notes.push(values.daily_overtime === 'california' ? `California daily overtime on, workdays from ${values.workday_start}` : 'daily overtime off');
+  }
+  await logActivity(req, `Updated company settings${notes.length ? ` (${notes.join('; ')})` : ''}`);
   req.flash('success', 'Settings saved.');
   res.redirect('/settings');
 });

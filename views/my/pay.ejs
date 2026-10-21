@@ -19,7 +19,7 @@
   <div class="stat">
     <span class="stat-label">Estimated pay for those</span>
     <span class="stat-value"><%= money(estimate.gross_pay) %></span>
-    <span class="stat-note">before tax, at <%= money(me.hourly_rate) %> an hour<%= estimate.overtime_hours ? `, with ${fmtHours(estimate.overtime_hours)} h overtime` : '' %></span>
+    <span class="stat-note">before tax, at <%= money(me.hourly_rate) %> an hour<%= estimate.overtime_hours ? `, with ${fmtHours(estimate.overtime_hours)} h overtime` : '' %><%= estimate.double_time_hours ? ` and ${fmtHours(estimate.double_time_hours)} h double time` : '' %></span>
   </div>
   <a class="stat" href="/my/tax">
     <span class="stat-label">Tax forms</span>
@@ -41,7 +41,7 @@
             <tr>
               <td data-label="Pay period"><%= fmtDate(p.period_start) %> – <%= fmtDate(p.period_end) %></td>
               <td class="nowrap" data-label="Paid on"><%= p.paid_on ? fmtDate(p.paid_on) : '—' %></td>
-              <td class="num" data-label="Hours"><%= fmtHours(p.regular_hours + p.overtime_hours) %></td>
+              <td class="num" data-label="Hours"><%= fmtHours(p.regular_hours + p.overtime_hours + p.double_time_hours) %></td>
               <td class="num" data-label="Gross pay"><strong><%= money(p.gross_pay) %></strong></td>
               <td class="nowrap stack-full" data-label="Documents">
                 <div class="btn-row">

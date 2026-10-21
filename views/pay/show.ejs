@@ -43,6 +43,8 @@
   <div class="stat"><span class="stat-label">People</span><span class="stat-value"><%= items.length %></span></div>
   <div class="stat"><span class="stat-label">Regular hours</span><span class="stat-value"><%= fmtHours(totals.regular_hours) %></span></div>
   <div class="stat"><span class="stat-label">Overtime hours</span><span class="stat-value"><%= fmtHours(totals.overtime_hours) %></span></div>
+  <% const dt = totals.double_time_hours > 0; %>
+  <% if (dt) { %><div class="stat"><span class="stat-label">Double time hours</span><span class="stat-value"><%= fmtHours(totals.double_time_hours) %></span></div><% } %>
   <div class="stat"><span class="stat-label">Total gross pay</span><span class="stat-value"><%= money(totals.gross_pay) %></span></div>
 </div>
 
@@ -54,8 +56,8 @@
       <table class="table">
         <thead>
           <tr>
-            <th>Staff member</th><th class="num">Regular hrs</th><th class="num">Overtime hrs</th><th class="num">Rate</th>
-            <th class="num">Regular pay</th><th class="num">Overtime pay</th><th>Adjustment</th><th class="num">Gross pay</th><th></th>
+            <th>Staff member</th><th class="num">Regular hrs</th><th class="num">Overtime hrs</th><% if (dt) { %><th class="num">Double time hrs</th><% } %><th class="num">Rate</th>
+            <th class="num">Regular pay</th><th class="num">Overtime pay</th><% if (dt) { %><th class="num">Double time pay</th><% } %><th>Adjustment</th><th class="num">Gross pay</th><th></th>
           </tr>
         </thead>
         <tbody>
@@ -64,9 +66,11 @@
               <td><a href="/staff/<%= i.employee_id %>"><%= i.first_name %> <%= i.last_name %></a><br><span class="muted small"><%= i.position || '' %></span></td>
               <td class="num"><%= fmtHours(i.regular_hours) %></td>
               <td class="num"><%= fmtHours(i.overtime_hours) %></td>
+              <% if (dt) { %><td class="num"><%= fmtHours(i.double_time_hours) %></td><% } %>
               <td class="num"><%= money(i.hourly_rate) %></td>
               <td class="num"><%= money(i.regular_pay) %></td>
               <td class="num"><%= money(i.overtime_pay) %><% if (i.overtime_hours) { %><br><span class="muted small">at <%= i.overtime_multiplier %>×</span><% } %></td>
+              <% if (dt) { %><td class="num"><%= money(i.double_time_pay) %><% if (i.double_time_hours) { %><br><span class="muted small">at 2×</span><% } %></td><% } %>
               <td>
                 <% if (run.status === 'draft') { %>
                   <form method="post" action="/pay/<%= run.id %>/items/<%= i.id %>" class="adjust-form">
@@ -89,7 +93,8 @@
             <td><strong>Total</strong></td>
             <td class="num"><strong><%= fmtHours(totals.regular_hours) %></strong></td>
             <td class="num"><strong><%= fmtHours(totals.overtime_hours) %></strong></td>
-            <td colspan="3"></td>
+            <% if (dt) { %><td class="num"><strong><%= fmtHours(totals.double_time_hours) %></strong></td><% } %>
+            <td colspan="<%= dt ? 4 : 3 %>"></td>
             <td><strong><%= money(totals.adjustment) %></strong></td>
             <td class="num"><strong><%= money(totals.gross_pay) %></strong></td>
             <td></td>

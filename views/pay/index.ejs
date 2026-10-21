@@ -15,8 +15,8 @@
   <% if (!runs.length) { %>
     <div class="empty">
       <p>No pay runs yet.</p>
-      <p class="muted">A pay run collects all <strong>approved</strong> hours between two dates and works out everyone's pay, including overtime
-        (over <%= settings.overtime_weekly_hours %> hours a week pays <%= settings.overtime_multiplier %>×).</p>
+      <p class="muted">A pay run collects all <strong>approved</strong> hours between two dates and works out everyone's pay, including overtime.
+        <%= overtimeSummary(settings) %></p>
       <p><a class="btn btn-primary" href="/pay/new">Create your first pay run</a></p>
     </div>
   <% } else { %>

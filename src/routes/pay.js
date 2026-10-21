@@ -10,7 +10,7 @@ const express = require('express');
 const db = require('../db');
 const { toNumber, notFound, numericIdParam, logActivity, employeeName } = require('../helpers');
 const time = require('../time');
-const { calculatePayLine, entryHours, round2 } = require('../services/payroll');
+const { calculatePayLine, overtimeRules, entryHours, round2 } = require('../services/payroll');
 const { recordFinishedShifts } = require('../services/hoursFromSchedule');
 const { findPayLine, payLineTimesheet, timesheetFileName } = require('../services/payTimesheet');
 const { sendUpload } = require('../uploads');
@@ -40,6 +40,7 @@ function totalsOf(items) {
   return {
     regular_hours: round2(items.reduce((s, i) => s + i.regular_hours, 0)),
     overtime_hours: round2(items.reduce((s, i) => s + i.overtime_hours, 0)),
+    double_time_hours: round2(items.reduce((s, i) => s + i.double_time_hours, 0)),
     adjustment: round2(items.reduce((s, i) => s + i.adjustment, 0)),
     gross_pay: round2(items.reduce((s, i) => s + i.gross_pay, 0)),
   };
@@ -71,22 +72,30 @@ async function recalculate(run, settings) {
       if (!byEmployee.has(entry.employee_id)) byEmployee.set(entry.employee_id, []);
       byEmployee.get(entry.employee_id).push(entry);
     }
+    // The period can start mid-week (pay periods run Sunday to Saturday, overtime
+    // weeks Monday to Sunday): hours earlier that week count towards its overtime.
+    const earlier = await tx.all(
+      `SELECT * FROM time_entries
+       WHERE status = 'approved' AND substr(start_at, 1, 10) >= ? AND substr(start_at, 1, 10) < ?`,
+      time.startOfWeek(run.period_start),
+      run.period_start
+    );
 
     for (const [employeeId, list] of byEmployee) {
       const old = previous.get(employeeId);
       const { hourly_rate } = await tx.get('SELECT hourly_rate FROM employees WHERE id = ?', employeeId);
       const line = calculatePayLine({
         entries: list,
+        earlier: earlier.filter((e) => e.employee_id === employeeId),
         hourlyRate: hourly_rate,
-        weeklyLimit: settings.overtime_weekly_hours,
-        multiplier: settings.overtime_multiplier,
+        rules: overtimeRules(settings),
         adjustment: old?.adjustment || 0,
       });
       await tx.run(
-        `INSERT INTO pay_run_items (pay_run_id, employee_id, regular_hours, overtime_hours, hourly_rate,
-           overtime_multiplier, regular_pay, overtime_pay, adjustment, adjustment_note, gross_pay)
-         VALUES (@pay_run_id, @employee_id, @regular_hours, @overtime_hours, @hourly_rate,
-           @overtime_multiplier, @regular_pay, @overtime_pay, @adjustment, @adjustment_note, @gross_pay)`,
+        `INSERT INTO pay_run_items (pay_run_id, employee_id, regular_hours, overtime_hours, double_time_hours, hourly_rate,
+           overtime_multiplier, regular_pay, overtime_pay, double_time_pay, adjustment, adjustment_note, gross_pay)
+         VALUES (@pay_run_id, @employee_id, @regular_hours, @overtime_hours, @double_time_hours, @hourly_rate,
+           @overtime_multiplier, @regular_pay, @overtime_pay, @double_time_pay, @adjustment, @adjustment_note, @gross_pay)`,
         { pay_run_id: run.id, employee_id: employeeId, adjustment_note: old?.adjustment_note ?? null, ...line }
       );
       await tx.run('UPDATE time_entries SET pay_run_id = ? WHERE id = ANY(?::int[])', run.id, list.map((e) => e.id));
@@ -126,7 +135,7 @@ router.get('/', async (req, res) => {
   const [runs, unpaid] = await Promise.all([
     db.all(
       `SELECT p.*, COUNT(i.id)::int AS people, COALESCE(SUM(i.gross_pay), 0) AS gross_total,
-         COALESCE(SUM(i.regular_hours + i.overtime_hours), 0) AS hours_total
+         COALESCE(SUM(i.regular_hours + i.overtime_hours + i.double_time_hours), 0) AS hours_total
        FROM pay_runs p LEFT JOIN pay_run_items i ON i.pay_run_id = p.id
        GROUP BY p.id ORDER BY p.period_end DESC`
     ),
@@ -223,7 +232,7 @@ router.post('/:id/items/:itemId', async (req, res) => {
     'UPDATE pay_run_items SET adjustment = ?, adjustment_note = ?, gross_pay = ? WHERE id = ?',
     round2(adjustment),
     note,
-    round2(item.regular_pay + item.overtime_pay + adjustment),
+    round2(item.regular_pay + item.overtime_pay + item.double_time_pay + adjustment),
     item.id
   );
   await logActivity(req, `Set adjustment of ${adjustment} on pay run #${run.id}`);
@@ -272,12 +281,12 @@ router.get('/:id/export.csv', async (req, res) => {
   const run = await findRun(req.params.id);
   if (!run) return notFound(res, 'pay run');
   const header = [
-    'Employee', 'Position', 'Regular hours', 'Overtime hours', 'Hourly rate', 'Overtime multiplier',
-    'Regular pay', 'Overtime pay', 'Adjustment', 'Adjustment note', 'Gross pay',
+    'Employee', 'Position', 'Regular hours', 'Overtime hours', 'Double time hours', 'Hourly rate', 'Overtime multiplier',
+    'Regular pay', 'Overtime pay', 'Double time pay', 'Adjustment', 'Adjustment note', 'Gross pay',
   ];
   const rows = (await runItems(run.id)).map((i) => [
-    employeeName(i), i.position, i.regular_hours, i.overtime_hours, i.hourly_rate, i.overtime_multiplier,
-    i.regular_pay, i.overtime_pay, i.adjustment, i.adjustment_note, i.gross_pay,
+    employeeName(i), i.position, i.regular_hours, i.overtime_hours, i.double_time_hours, i.hourly_rate, i.overtime_multiplier,
+    i.regular_pay, i.overtime_pay, i.double_time_pay, i.adjustment, i.adjustment_note, i.gross_pay,
   ]);
   const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
   res.attachment(`pay-run-${run.period_start}-to-${run.period_end}.csv`);
