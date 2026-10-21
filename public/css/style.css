@@ -259,6 +259,10 @@ h3 {
 
 .icon-button {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px; /* a comfortable size for a finger */
+  min-height: 44px;
   background: none;
   border: 0;
   color: #fff;
@@ -343,6 +347,10 @@ h3 {
 .btn-ghost:hover { background: var(--gray-bg); }
 
 .btn-sm { padding: 4px 9px; font-size: 12.5px; }
+/* On touch screens (phones, tablets), small buttons are a little taller, so they're easy to tap. */
+@media (pointer: coarse) {
+  .btn-sm { min-height: 38px; padding: 7px 12px; }
+}
 .btn-block { width: 100%; justify-content: center; padding: 11px 14px; }
 .btn-current { background: var(--blue-bg); border-color: #b9cbf7; }
 
