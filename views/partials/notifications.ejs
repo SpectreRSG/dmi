@@ -1,14 +1,18 @@
-<section class="card card-pad push-box" data-push data-push-key="<%= pushKey %>">
-  <h2>App notifications</h2>
+<section class="card card-pad push-box" data-push data-push-key="<%= pushKey %>"<% if (locals.continueTo) { %> data-push-continue="<%= continueTo %>"<% } %><% if (locals.afterInstall) { %> data-push-after-install<% } %>>
+  <h2><%= locals.heading || 'App notifications' %></h2>
   <p class="muted small"><%= locals.pushWhat || 'Free alerts on this phone or computer, like a text message.' %> Turn them on separately on each phone or computer you use.</p>
   <%- include('csrf') %>
   <p class="push-status" data-push-status>Checking this device…</p>
   <div class="push-apple" data-push-apple hidden>
-    <ol>
-      <li>In Safari, tap the <strong>Share</strong> button (the square with an arrow pointing up).</li>
-      <li>Choose <strong>Add to Home Screen</strong>, then <strong>Add</strong>.</li>
-      <li>Open <strong>DMI</strong> from your home screen, sign in, and come back to this page.</li>
-    </ol>
+    <% if (locals.afterInstall) { %>
+      <p class="small">Do step 1 first. Then, in the DMI app on your Home Screen, come back here and turn them on.</p>
+    <% } else { %>
+      <ol>
+        <li>In Safari, tap the <strong>Share</strong> button (the square with an arrow pointing up).</li>
+        <li>Choose <strong>Add to Home Screen</strong>, then <strong>Add</strong>.</li>
+        <li>Open <strong>DMI</strong> from your home screen, sign in, and come back to this page.</li>
+      </ol>
+    <% } %>
   </div>
   <div class="btn-row">
     <button type="button" class="btn btn-primary" data-push-on hidden>Turn on notifications</button>

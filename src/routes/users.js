@@ -6,6 +6,7 @@ const { hashPassword, passwordProblem, endSessionsForUser, requireRecentCode } =
 const twoStep = require('../services/twoStep');
 const { clean, toId, notFound, numericIdParam, logActivity, isDuplicateError } = require('../helpers');
 const { ROLE_NAMES } = require('../viewHelpers');
+const { notifyUsers } = require('../services/notify');
 
 const router = express.Router();
 numericIdParam(router);
@@ -153,6 +154,15 @@ router.post('/:id', async (req, res) => {
   // A new password or deactivation signs the person out everywhere.
   if ((password || !values.active) && user.id !== req.user.id) await endSessionsForUser(user.id);
   if (password || !values.active) await twoStep.forgetDevices(user.id);
+  if (user.role === 'pending' && values.role !== 'pending' && values.active) {
+    // They may have turned on notifications while waiting (the waiting page asks them to).
+    await notifyUsers([user.id], {
+      title: 'Your DMI account is approved',
+      body: values.role === 'officer' ? 'Tap to open DMI and see your shifts.' : 'Tap to open DMI.',
+      url: '/',
+      tag: 'approved',
+    });
+  }
   const roleNote = values.role !== user.role ? ` (now ${ROLE_NAMES[values.role].toLowerCase()})` : '';
   await logActivity(req, `Updated account for ${values.name}${roleNote}${password ? ' (password reset)' : ''}`);
   req.flash('success', values.new_employee ? `Account saved, and a staff record was made for ${values.name}. Set their pay rate on the Staff page.` : 'Account saved.');

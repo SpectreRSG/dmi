@@ -81,6 +81,12 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
 4. **Officers and clients sign up** at `https://dmi.codehound.org/register`. Their account waits
    (the dashboard tells you) until you open **User accounts**, press **Approve**, and choose a role:
    for an officer, pick their staff record (or "make a new one"); for a client, pick the client.
+   While they wait, the page walks them through adding DMI to their phone's Home Screen and turning
+   on notifications, and they get a notification the moment you approve them. **Officers must turn
+   on notifications before they can use their pages** (so they get shift reminders and open shifts);
+   until then DMI shows them the setup steps. Incident reports and My account always work. If an
+   officer's phone can't get notifications (an iPhone older than iOS 16.4, for example), open their
+   staff page and press **Their phone can't: let them in without**.
 5. **Call-outs fill themselves:** when an officer presses **I can't make it** (or you open the shift
    and press **Note call-out and offer it** after they phone in), the shift is offered to the officers
    who could take it, and the first to claim it gets it. You get a notification when it's covered, or
@@ -360,7 +366,11 @@ their details, and keep a copy of it somewhere safe: without it those numbers ca
 
 **App notifications** need nothing set up: the site makes its own key pair the first time (kept
 in the database). Each person turns them on under **My details** (officers) or **My account**
-(office), once per phone or computer. On an **iPhone or iPad** (iOS 16.4 or newer), they first add
+(office), once per phone or computer. Officers are shown **Set up the DMI app** (`/my/setup`) after
+signing up and can't use their pages until they're on. A phone only has one person's notifications:
+whoever signed in on it last. Phones don't let a website add itself to the Home Screen or turn on its
+own notifications: the person taps **Add** and **Allow** themselves, and the setup page shows how
+(on Android, a button opens the phone's own install box). On an **iPhone or iPad** (iOS 16.4 or newer), they first add
 the site to the Home Screen (Safari → Share → **Add to Home Screen**) and open it from there; the
 page shows these steps. Notifications are free: they go through Apple's, Google's or Mozilla's own
 push services.

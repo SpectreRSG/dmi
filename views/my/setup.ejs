@@ -1,0 +1,24 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Set up the DMI app</h1>
+    <p class="page-sub">
+      <% if (firstTime) { %>Two quick steps before you start. Shift reminders, open shifts and changes to your schedule come to your phone as notifications, so they need to be on to use DMI.<% } else { %>Shift reminders, open shifts and changes to your schedule come to your phone as notifications.<% } %>
+    </p>
+  </div>
+</div>
+<div class="narrow app-setup">
+  <%- include('../partials/install', { step: 1 }) %>
+  <%- include('../partials/notifications', {
+    heading: '2. Turn on notifications',
+    afterInstall: true,
+    continueTo: firstTime ? '/my/schedule' : null,
+    pushWhat: 'Free alerts on this phone, like a text message: reminders 24 hours and 2 hours before each shift, open shifts you can take, changes to your shifts, when time cards are due, and pay day.',
+  }) %>
+  <% if (firstTime) { %>
+    <p class="muted small">Once they're on, your schedule opens by itself. Can't turn them on? Your phone may be too old for notifications: ask the office, and they can let you in without them. <a href="/my/incidents">Incident reports</a> and <a href="/account">My account</a> work without them.</p>
+  <% } else { %>
+    <p><a class="btn" href="<%= currentUser.role === 'officer' || currentUser.role === 'client' ? '/my/schedule' : '/' %>">Done</a></p>
+  <% } %>
+</div>
+<%- include('../partials/bottom') %>

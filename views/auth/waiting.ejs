@@ -11,6 +11,14 @@
     <li><strong>Officers</strong> can see their shifts on a monthly calendar, their pay and their tax forms, and keep their contact details up to date. Hours are recorded from the schedule, so there are no timesheets to fill in.</li>
     <li><strong>Clients</strong> can see the schedule for their sites.</li>
   </ul>
-  <p class="muted">You don't need to do anything else. Sign in again later, or refresh this page once the office tells you you're set up.</p>
+  <p class="muted">While you wait, set up the app on your phone (below), and you'll get a notification the moment you're approved. Officers need notifications on to use DMI.</p>
+</div>
+<div class="narrow app-setup setup-below">
+  <%- include('../partials/install', { step: 1 }) %>
+  <%- include('../partials/notifications', {
+    heading: '2. Turn on notifications',
+    afterInstall: true,
+    pushWhat: "Free alerts on this phone, like a text message. First, when your account is approved; then shift reminders, open shifts and changes to your schedule.",
+  }) %>
 </div>
 <%- include('../partials/bottom') %>

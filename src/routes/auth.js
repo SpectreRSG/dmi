@@ -8,7 +8,7 @@ const { saveSettings } = require('../settings');
 const { clean, logActivity } = require('../helpers');
 const twoStep = require('../services/twoStep');
 const passkeys = require('../services/passkeys');
-const { notifyUsers } = require('../services/notify');
+const { notifyUsers, publicKey } = require('../services/notify');
 const config = require('../config');
 const time = require('../time');
 
@@ -296,10 +296,10 @@ router.post('/register', async (req, res, next) => {
   signIn(req, res, next, userId, '/waiting', { flash: 'Your account is created.' });
 });
 
-router.get('/waiting', (req, res) => {
+router.get('/waiting', async (req, res) => {
   if (!req.user) return res.redirect('/login');
   if (req.user.role !== 'pending') return res.redirect(auth.homeFor(req.user));
-  res.render('auth/waiting', { title: 'Waiting for approval' });
+  res.render('auth/waiting', { title: 'Waiting for approval', pushKey: await publicKey() });
 });
 
 router.post('/logout', async (req, res, next) => {

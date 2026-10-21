@@ -273,8 +273,10 @@ function readSubscription(body) {
 router.post('/push', async (req, res) => {
   const sub = readSubscription(req.body);
   if (!sub) return res.status(400).json({ error: 'That notification address is not valid.' });
+  // (A device that already had them on is linked again to whoever is signed in on it now.)
+  const before = await db.get('SELECT user_id FROM push_subscriptions WHERE endpoint = ?', sub.endpoint);
   await notify.saveSubscription(req.user.id, sub);
-  await logActivity(req, `Turned on notifications (${sub.device || 'a device'})`);
+  if (before?.user_id !== req.user.id) await logActivity(req, `Turned on notifications (${sub.device || 'a device'})`);
   res.json({ ok: true });
 });
 

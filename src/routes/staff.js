@@ -146,7 +146,7 @@ router.get('/:id', async (req, res) => {
     complianceForEmployee(employee, res.locals.settings.expiry_warning_days),
   ]);
   const account = await db.get(
-    `SELECT id, email, role, last_login_at, (SELECT COUNT(*)::int FROM push_subscriptions p WHERE p.user_id = users.id) AS devices
+    `SELECT id, email, role, last_login_at, push_exempt, (SELECT COUNT(*)::int FROM push_subscriptions p WHERE p.user_id = users.id) AS devices
      FROM users WHERE employee_id = ?`,
     employee.id
   );
@@ -193,6 +193,24 @@ router.post('/:id', async (req, res) => {
   await logActivity(req, `Updated staff member ${employeeName(values)}`);
   req.flash('success', 'Changes saved.');
   res.redirect(`/staff/${existing.id}`);
+});
+
+// An officer whose phone can't get notifications (e.g. an old iPhone): let
+// them use their pages without them, or require them again.
+router.post('/:id/notifications', async (req, res) => {
+  const employee = await db.get('SELECT * FROM employees WHERE id = ?', req.params.id);
+  if (!employee) return notFound(res, 'staff member');
+  const exempt = req.body.exempt === '1';
+  const done = await db.run("UPDATE users SET push_exempt = ? WHERE employee_id = ? AND role = 'officer'", exempt ? 1 : 0, employee.id);
+  if (done.changes) {
+    await logActivity(req, exempt
+      ? `Let ${employeeName(employee)} use the app without notifications`
+      : `Asked ${employeeName(employee)} to turn on notifications again`);
+  }
+  req.flash('success', exempt
+    ? `${employeeName(employee)} can use DMI without notifications now. They won't get shift reminders or open shifts, so tell them about shifts another way.`
+    : `${employeeName(employee)} will be asked to turn on notifications the next time they open DMI.`);
+  res.redirect(`/staff/${employee.id}`);
 });
 
 router.post('/:id/delete', async (req, res) => {

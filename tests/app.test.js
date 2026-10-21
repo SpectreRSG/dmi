@@ -80,12 +80,22 @@ async function codeFor(email) {
   return totp.codeAt(await decrypt(user.totp_secret), Math.max(totp.currentStep(), Number(user.totp_last_step ?? -1) + 1));
 }
 
+// A pretend phone with notifications turned on, named like the person ("olivia").
+function addDevice(client, who) {
+  return client.post('/account/push', { endpoint: `https://push.example.com/${who}`, p256dh: `BKey${who}`, auth: `auth${who}`, device: 'Android phone' });
+}
+
 // Signs in with the password, then the code (setting two-step up the first time).
-async function signIn(client, email, password) {
-  const res = await client.post('/login', { email, password }, '/login');
-  if (res.location === '/login/verify') return client.post('/login/verify', { code: await codeFor(email) }, '/login/verify');
-  const user = await db.get('SELECT role, totp_enabled_at, two_step_exempt FROM users WHERE lower(email) = lower(?)', email);
+// Officers then turn on notifications on a pretend phone, as they must before
+// using their pages (unless `device: false`).
+async function signIn(client, email, password, { device = true } = {}) {
+  let res = await client.post('/login', { email, password }, '/login');
+  if (res.location === '/login/verify') res = await client.post('/login/verify', { code: await codeFor(email) }, '/login/verify');
+  const user = await db.get('SELECT id, role, totp_enabled_at, two_step_exempt FROM users WHERE lower(email) = lower(?)', email);
   if (res.status === 302 && user && !user.totp_enabled_at && user.role !== 'pending' && !user.two_step_exempt) await setUpTwoStep(client);
+  if (device && res.status === 302 && user?.role === 'officer' && !(await db.get('SELECT 1 FROM push_subscriptions WHERE user_id = ?', user.id))) {
+    await addDevice(client, email.split('@')[0].toLowerCase());
+  }
   return res;
 }
 
@@ -150,6 +160,7 @@ test.before(async () => {
   process.env.DATABASE_URL = localDb.url;
   app = require('../src/app');
   db = require('../src/db');
+  require('../src/services/notify').setSender(async () => {}); // never real notifications (tests set their own to read them)
   server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   base = `http://localhost:${server.address().port}`;
@@ -605,9 +616,24 @@ test('sign-up: new accounts wait for approval, then an admin makes them an offic
   assert.equal((await officer.get('/my')).location, '/account/two-step');
   assert.equal((await setUpTwoStep(officer)).status, 200);
 
+  // Then notifications: until they're on, every officer page shows the app setup.
+  assert.equal((await officer.get('/my')).location, '/my/setup');
+  assert.equal((await officer.get('/my/schedule')).location, '/my/setup');
+  assert.equal((await officer.get('/staff')).location, '/my');
+  const setup = await officer.get('/my/setup');
+  assert.equal(setup.status, 200);
+  assert.match(setup.text, /Add DMI to your Home Screen/);
+  assert.match(setup.text, /2\. Turn on notifications/);
+  assert.match(setup.text, /data-push-continue="\/my\/schedule"/);
+  assert.equal((await officer.post('/my/availability', { kind: 'unavailable', start_date: time.todayStr() }, '/account')).status, 403, 'no entering anything');
+  assert.equal((await officer.get('/my/incidents')).status, 200, 'incident reports always work');
+  assert.equal((await officer.get('/account')).status, 200);
+  assert.deepEqual(JSON.parse((await addDevice(officer, 'olivia')).text), { ok: true });
+
   // Officers get their own pages, and nothing from the back office.
   assert.equal((await officer.get('/')).location, '/my');
   assert.equal((await officer.get('/my')).location, '/my/schedule');
+  assert.doesNotMatch((await officer.get('/my/setup')).text, /data-push-continue/, 'set up: no rush on the page now');
   for (const url of ['/staff', '/pay', '/timesheets', '/users', '/tax']) {
     assert.equal((await officer.get(url)).location, '/my', url);
   }
@@ -1882,10 +1908,70 @@ test('reminders: officers hear about each shift 24 hours and 2 hours before, and
 
   // The office can see whose phone will get them.
   const profile = await admin.get(`/staff/${ids.officer}`);
-  assert.match(profile.text, /App notifications<\/dt><dd>On \(1 device\)/);
+  assert.match(profile.text, /App notifications<\/dt>\s*<dd>\s*On \(1 device\)/);
   assert.match((await officer.get('/my/details')).text, /reminders 24 hours and 2 hours before each shift/);
 
   await db.run('DELETE FROM shifts WHERE id = ANY(?::int[])', [tomorrowish, soon, justGiven, later, cancelled, unfilled, worked]);
+});
+
+test("notifications first: the app setup at sign-up, a notification when approved, and the office's way in for phones that can't", async () => {
+  const notify = require('../src/services/notify');
+  const sent = [];
+  notify.setSender(async (subscription, payload) => sent.push({ to: subscription.endpoint.split('/').pop(), ...JSON.parse(payload) }));
+
+  // Signing up: the waiting page shows how to set up the app, and notifications can be turned on already.
+  const nina = makeClient();
+  const password = 'harbor quiet lantern 58';
+  let res = await nina.post('/register', { requested_role: 'officer', name: 'Nina Newhire', email: 'nina@example.com', password, confirm: password }, '/register');
+  assert.equal(res.location, '/waiting');
+  const waiting = await nina.get('/waiting');
+  assert.match(waiting.text, /Add DMI to your Home Screen/);
+  assert.match(waiting.text, /data-push-key="[A-Za-z0-9_-]+"/);
+  assert.match(waiting.text, /you(&#39;|')ll get a notification the moment you(&#39;|')re approved/);
+  assert.deepEqual(JSON.parse((await addDevice(nina, 'nina')).text), { ok: true });
+
+  // Approved: she hears about it straight away.
+  const ninaId = (await db.get("SELECT id FROM users WHERE email = 'nina@example.com'")).id;
+  res = await admin.post(`/users/${ninaId}`, { name: 'Nina Newhire', email: 'nina@example.com', role: 'officer', employee_id: 'new', active: '1' });
+  assert.equal(res.status, 302);
+  assert.deepEqual(sent.filter((m) => m.to === 'nina').map((m) => m.title), ['Your DMI account is approved']);
+  assert.equal((await nina.get('/my/schedule')).location, '/account/two-step', 'still signed in: two-step sign-in first');
+  await setUpTwoStep(nina);
+  assert.equal((await nina.get('/my/schedule')).status, 200, 'notifications already on: straight in');
+
+  // Turned on again from the same phone (or the page linking it again): noted once.
+  await addDevice(nina, 'nina');
+  assert.equal((await db.get("SELECT COUNT(*)::int AS n FROM activity_log WHERE user_id = ? AND action LIKE 'Turned on notifications%'", ninaId)).n, 1);
+  // The same phone signed in to someone else moves to them (one person per phone).
+  const quinn = makeClient();
+  res = await admin.post('/users', { name: 'Quinn Officer', email: 'quinn@example.com', role: 'officer', employee_id: 'new', password: 'maple river cobalt 31', confirm: 'maple river cobalt 31', active: '1' });
+  assert.equal(res.status, 302);
+  await signIn(quinn, 'quinn@example.com', 'maple river cobalt 31', { device: false });
+  assert.equal((await quinn.get('/my/schedule')).location, '/my/setup');
+  await addDevice(quinn, 'nina');
+  assert.equal((await quinn.get('/my/schedule')).status, 200);
+  assert.equal((await nina.get('/my/schedule')).location, '/my/setup', "it's Quinn's phone now");
+
+  // A phone that can't get notifications: the office lets her in, and can take that back.
+  const ninaStaff = (await db.get('SELECT employee_id FROM users WHERE id = ?', ninaId)).employee_id;
+  let profile = await admin.get(`/staff/${ninaStaff}`);
+  assert.match(profile.text, /Off: they(&#39;|')re asked to turn them on before they can use DMI/);
+  assert.match(profile.text, /Their phone can(&#39;|')t: let them in without/);
+  res = await admin.post(`/staff/${ninaStaff}/notifications`, { exempt: '1' }, `/staff/${ninaStaff}`);
+  assert.equal(res.location, `/staff/${ninaStaff}`);
+  assert.equal((await nina.get('/my/schedule')).status, 200);
+  profile = await admin.get(`/staff/${ninaStaff}`);
+  assert.match(profile.text, /the office let them use DMI without notifications/);
+  assert.match((await admin.get('/activity')).text, /Let Nina Newhire use the app without notifications/);
+  await admin.post(`/staff/${ninaStaff}/notifications`, { exempt: '0' }, `/staff/${ninaStaff}`);
+  assert.equal((await nina.get('/my/schedule')).location, '/my/setup');
+  assert.equal((await nina.post('/my/availability', { kind: 'unavailable', start_date: time.todayStr() }, '/account')).status, 403);
+
+  // Clients, managers and admins aren't asked.
+  const client = makeClient();
+  await signIn(client, 'carla@example.com', 'client password 1');
+  assert.equal((await client.get('/my/schedule')).status, 200);
+  assert.equal((await client.get('/my/setup')).status, 200, 'but can use the setup page');
 });
 
 test('every main page loads', async () => {

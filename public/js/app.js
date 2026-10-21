@@ -1,5 +1,15 @@
 // Small bits of interactivity. Every page still works without JavaScript;
 // this file just makes things a little smoother.
+// Chrome and Edge offer to install the site as an app ("Add to Home Screen").
+// Kept for the Install button (setUpInstall below) on pages that have one.
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', (event) => {
+  if (!document.querySelector('[data-install]')) return; // elsewhere, the browser's own offer
+  event.preventDefault();
+  installPrompt = event;
+  document.dispatchEvent(new Event('dmi:installable'));
+});
+
 document.addEventListener('DOMContentLoaded', () => {
   // Ask "are you sure?" before dangerous actions (forms or buttons with data-confirm).
   document.addEventListener('submit', (event) => {
@@ -121,6 +131,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // "Add DMI to your Home Screen" (views/partials/install.ejs).
+  const installBox = document.querySelector('[data-install]');
+  if (installBox) setUpInstall(installBox);
+
+  // A phone that has notifications on gets them for whoever is signed in on it.
+  if (document.body.dataset.user && !document.querySelector('[data-push]')) linkThisDevice().catch(() => {});
+
   // App notifications: the "Turn on notifications" box (views/partials/notifications.ejs).
   const pushBox = document.querySelector('[data-push]');
   if (pushBox) setUpNotifications(pushBox);
@@ -163,11 +180,18 @@ function setUpNotifications(box) {
     if (!reply.ok) throw new Error(`the site answered ${reply.status}`);
     return reply.json();
   };
+  // Sends this browser's notification address to the site, for whoever is signed in.
+  const link = (subscription) => {
+    const { keys } = subscription.toJSON();
+    return send('/account/push', { endpoint: subscription.endpoint, p256dh: keys.p256dh, auth: keys.auth, device: deviceName() });
+  };
+  // On the setup page: the page to go to once notifications are on.
+  const continueTo = box.dataset.pushContinue;
+  let linked = false;
   const ua = navigator.userAgent;
   const isApple = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const onHomeScreen = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
   const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
-  const deviceName = isApple ? 'iPhone or iPad' : /Android/.test(ua) ? 'Android phone' : 'Computer';
   // The site's public key, as the bytes the browser wants.
   const siteKey = () => {
     const text = box.dataset.pushKey.replace(/-/g, '+').replace(/_/g, '/');
@@ -178,7 +202,7 @@ function setUpNotifications(box) {
     ['[data-push-on]', '[data-push-off]', '[data-push-test]', '[data-push-apple]'].forEach((s) => show(s, false));
     if (!supported) {
       if (isApple && !onHomeScreen) {
-        status.textContent = 'Off. On an iPhone or iPad, add DMI to your Home Screen first:';
+        status.textContent = 'pushAfterInstall' in box.dataset ? 'Not yet.' : 'Off. On an iPhone or iPad, add DMI to your Home Screen first:';
         show('[data-push-apple]', true);
       } else {
         status.textContent = "This browser can't show notifications. Try Chrome, Edge, Firefox or Safari.";
@@ -191,6 +215,12 @@ function setUpNotifications(box) {
     }
     const registration = await navigator.serviceWorker.register('/sw.js');
     const subscription = await registration.pushManager.getSubscription();
+    if (subscription && !linked) {
+      // Already on in this browser (perhaps for someone else who signed in here): link it to this account.
+      linked = true;
+      await link(subscription);
+      if (continueTo) return window.location.assign(continueTo);
+    }
     status.textContent = subscription ? 'On for this device.' : 'Off on this device.';
     show('[data-push-on]', !subscription);
     show('[data-push-test]', Boolean(subscription));
@@ -204,8 +234,12 @@ function setUpNotifications(box) {
       const registration = await navigator.serviceWorker.register('/sw.js');
       await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: siteKey() });
-      const { keys } = subscription.toJSON();
-      await send('/account/push', { endpoint: subscription.endpoint, p256dh: keys.p256dh, auth: keys.auth, device: deviceName });
+      await link(subscription);
+      linked = true;
+      if (continueTo) {
+        status.textContent = 'On. Opening your schedule…';
+        return window.location.assign(continueTo);
+      }
       await refresh();
     } catch (err) {
       status.textContent = `Couldn't turn notifications on (${err.message}). Please try again.`;
@@ -238,6 +272,83 @@ function setUpNotifications(box) {
   refresh().catch((err) => {
     status.textContent = `Couldn't check notifications on this device (${err.message}).`;
   });
+}
+
+// What to call this device in the list of devices with notifications on.
+function deviceName() {
+  const ua = navigator.userAgent;
+  if (/iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'iPhone or iPad';
+  return /Android/.test(ua) ? 'Android phone' : 'Computer';
+}
+
+// If this browser already has notifications on (perhaps turned on by someone
+// else who signed in here before), they now go to whoever is signed in. Once
+// per person per visit. (The notifications box does the same on its pages.)
+async function linkThisDevice() {
+  const who = document.body.dataset.user;
+  const token = document.querySelector('input[name="_csrf"]');
+  if (!token || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    if (sessionStorage.getItem('dmi-push-linked') === who) return;
+  } catch {
+    return; // storage turned off: don't send it on every page
+  }
+  const registration = await navigator.serviceWorker.getRegistration('/');
+  const subscription = registration && (await registration.pushManager.getSubscription());
+  if (!subscription) return;
+  const { keys } = subscription.toJSON();
+  const body = new URLSearchParams({ _csrf: token.value, endpoint: subscription.endpoint, p256dh: keys.p256dh, auth: keys.auth, device: deviceName() });
+  const reply = await fetch('/account/push', { method: 'POST', body, credentials: 'same-origin' });
+  if (reply.ok) sessionStorage.setItem('dmi-push-linked', who);
+}
+
+// "Add DMI to your Home Screen". Phones only let the person do it: Chrome and
+// Edge (Android, computers) can show their install box when a button is
+// pressed; on an iPhone or iPad it's Safari's Share button, so we show the steps.
+function setUpInstall(box) {
+  const $ = (selector) => box.querySelector(selector);
+  const status = $('[data-install-status]');
+  const button = $('[data-install-button]');
+  const ua = navigator.userAgent;
+  const isApple = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isPhone = isApple || /Android|Mobi/.test(ua);
+  const installed = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+  function show() {
+    ['[data-install-apple]', '[data-install-other]'].forEach((s) => {
+      $(s).hidden = true;
+    });
+    button.hidden = true;
+    if (installed()) {
+      status.textContent = "Done: you're in the DMI app.";
+    } else if (isApple) {
+      status.textContent = 'Not yet. On an iPhone or iPad, notifications only work in DMI from the Home Screen:';
+      $('[data-install-apple]').hidden = false;
+    } else if (installPrompt) {
+      status.textContent = isPhone ? 'Not yet. Tap the button, then Install:' : 'Optional on a computer:';
+      button.hidden = false;
+    } else {
+      status.textContent = isPhone ? 'Not yet:' : 'Optional on a computer. If your browser offers it:';
+      $('[data-install-other]').hidden = false;
+    }
+  }
+
+  button.addEventListener('click', async () => {
+    if (!installPrompt) return show();
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    installPrompt = null;
+    if (outcome !== 'accepted') return show();
+    button.hidden = true;
+    status.textContent = 'Added. You can open DMI from your Home Screen now.';
+  });
+  document.addEventListener('dmi:installable', show);
+  window.addEventListener('appinstalled', () => {
+    installPrompt = null;
+    button.hidden = true;
+    status.textContent = 'Added. You can open DMI from your Home Screen now.';
+  });
+  show();
 }
 
 // Passkeys: signing in with Face ID, Touch ID or the device's screen lock

@@ -11,7 +11,7 @@ const time = require('./time');
 const PgSessionStore = require('./sessionStore');
 const csrfProtection = require('./csrf');
 const { upload, MAX_FILE_MB } = require('./uploads');
-const { loadUser, requireLogin, requireAdmin, requireBackOffice, requireTwoStep, homeFor } = require('./auth');
+const { loadUser, requireLogin, requireAdmin, requireBackOffice, requireTwoStep, requireNotifications, homeFor } = require('./auth');
 const { getSettings } = require('./settings');
 const { getSessionSecret } = require('./secrets');
 const viewHelpers = require('./viewHelpers');
@@ -114,7 +114,8 @@ app.use(async (req, res, next) => {
 });
 
 app.use('/account', require('./routes/account')); // every kind of account
-app.use('/my/incidents', require('./routes/incidents').officerRouter); // officers' incident reports
+app.use('/my/incidents', require('./routes/incidents').officerRouter); // officers' incident reports (always open)
+app.use('/my', requireNotifications); // officers: notifications on first
 app.use('/my', require('./routes/my')); // officers' and clients' own pages
 app.use(requireBackOffice); // everything below is for admins and managers
 

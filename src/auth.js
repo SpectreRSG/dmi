@@ -123,8 +123,9 @@ async function loadUser(req, res, next) {
     req.session.signedInAt ??= Date.now(); // sessions from before this rule start counting now
     const user = Date.now() - req.session.signedInAt < MAX_SESSION_MS
       ? await db.get(
-          `SELECT id, name, email, phone, role, employee_id, client_id, totp_enabled_at, two_step_exempt,
-             (SELECT COUNT(*)::int FROM passkeys p WHERE p.user_id = users.id) AS passkey_count
+          `SELECT id, name, email, phone, role, employee_id, client_id, totp_enabled_at, two_step_exempt, push_exempt,
+             (SELECT COUNT(*)::int FROM passkeys p WHERE p.user_id = users.id) AS passkey_count,
+             (SELECT COUNT(*)::int FROM push_subscriptions s WHERE s.user_id = users.id) AS push_devices
            FROM users WHERE id = ? AND active = 1`,
           req.session.userId
         )
@@ -172,6 +173,20 @@ function requireTwoStep(req, res, next) {
   res.status(403).render('error', { title: 'Two-step sign-in needed', message: 'Please finish two-step sign-in first, then try again.' });
 }
 
+// Officers turn on app notifications (shift reminders, open shifts) on a
+// phone before they can use their pages: until then, every /my page shows
+// /my/setup instead. Incident reports and My account always work. The office
+// can let in an officer whose phone can't get notifications (push_exempt).
+function requireNotifications(req, res, next) {
+  const user = req.user;
+  if (user.role !== 'officer' || user.push_devices || user.push_exempt || req.path === '/setup') return next();
+  if (req.method === 'GET') return res.redirect('/my/setup');
+  res.status(403).render('error', {
+    title: 'Turn on notifications first',
+    message: 'Turn on app notifications on your phone first (DMI shows you how), then try again.',
+  });
+}
+
 // Pages that show or change the most sensitive things (full tax ID numbers,
 // accounts, company settings) ask for a fresh code if the last one was more
 // than 15 minutes ago, so an unattended signed-in computer isn't enough.
@@ -211,6 +226,7 @@ module.exports = {
   passwordProblem,
   describeDevice,
   requireTwoStep,
+  requireNotifications,
   requireRecentCode,
   hasRecentCode,
   endSessionsForUser,

@@ -1,0 +1,17 @@
+<%# Adding DMI to the Home Screen, so it opens like an app (public/js/app.js: setUpInstall). %>
+<section class="card card-pad install-box" data-install>
+  <h2><%= locals.step ? `${step}. ` : '' %>Add DMI to your Home Screen</h2>
+  <p class="muted small">Then it opens like an app, full screen, from the DMI icon. Phones only let you do this yourself: it takes a few taps.</p>
+  <p class="push-status" data-install-status>Checking this device…</p>
+  <button type="button" class="btn btn-primary" data-install-button hidden>Add to Home Screen</button>
+  <ol class="install-steps" data-install-apple hidden>
+    <li>In <strong>Safari</strong>, tap the <strong>Share</strong> button (the square with an arrow pointing up).</li>
+    <li>Scroll down, tap <strong>Add to Home Screen</strong>, then <strong>Add</strong>.</li>
+    <li>Close Safari, open <strong>DMI</strong> from your Home Screen, and sign in there.</li>
+  </ol>
+  <ol class="install-steps" data-install-other hidden>
+    <li>Open your browser's menu (<strong>⋮</strong> at the top or bottom of the screen).</li>
+    <li>Tap <strong>Add to Home screen</strong> or <strong>Install app</strong>, then <strong>Install</strong>.</li>
+    <li>Open <strong>DMI</strong> from your Home Screen.</li>
+  </ol>
+</section>

@@ -964,7 +964,12 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
 .open-shifts li { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .callout-link { display: inline-block; margin-top: 4px; color: var(--red); }
 .push-status { font-weight: 600; margin: 8px 0; }
-.push-apple ol { margin: 0 0 10px; padding-left: 20px; display: grid; gap: 4px; }
+.push-apple ol, .install-steps { margin: 0 0 10px; padding-left: 20px; display: grid; gap: 4px; }
+/* The app setup steps (my/setup, auth/waiting). */
+.app-setup { display: flex; flex-direction: column; gap: 16px; }
+.app-setup > .card { margin: 0; }
+.app-setup > p { margin: 0; }
+.setup-below { margin-top: 16px; }
 .open-shift-when { font-size: 17px; margin-bottom: 6px; }
 .setup-steps { border-left: 4px solid var(--amber); }
 .setup-steps h2 { margin-bottom: 2px; }

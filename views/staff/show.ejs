@@ -39,7 +39,19 @@
       <dt>License expiry</dt><dd><%= employee.license_expiry ? fmtDate(employee.license_expiry) : '—' %></dd>
       <% if (employee.notes) { %><dt>Notes</dt><dd class="pre"><%= employee.notes %></dd><% } %>
       <dt>Sign-in account</dt><dd><% if (account) { %><%= account.email %> · <%= ROLE_NAMES[account.role] %><%= account.last_login_at ? ` · last in ${fmtDate(account.last_login_at)}` : '' %><% } else { %><span class="muted">None. They can sign up at /register; then link them under User accounts.</span><% } %></dd>
-      <% if (account && account.role === 'officer') { %><dt>App notifications</dt><dd><% if (account.devices) { %>On (<%= account.devices %> device<%= account.devices === 1 ? '' : 's' %>)<% } else { %><span class="muted">Off: they won't get shift reminders or open shifts. They turn them on under My details.</span><% } %></dd><% } %>
+      <% if (account && account.role === 'officer') { %>
+        <dt>App notifications</dt>
+        <dd>
+          <% if (account.devices) { %>On (<%= account.devices %> device<%= account.devices === 1 ? '' : 's' %>)<% } else if (account.push_exempt) { %>Off: the office let them use DMI without notifications, so they don't get shift reminders or open shifts.<% } else { %><span class="muted">Off: they're asked to turn them on before they can use DMI.</span><% } %>
+          <% if (!account.devices) { %>
+            <form method="post" action="/staff/<%= employee.id %>/notifications" class="inline-form">
+              <%- include('../partials/csrf') %>
+              <input type="hidden" name="exempt" value="<%= account.push_exempt ? '0' : '1' %>">
+              <button type="submit" class="btn btn-sm btn-ghost"><%= account.push_exempt ? 'Require notifications again' : "Their phone can't: let them in without" %></button>
+            </form>
+          <% } %>
+        </dd>
+      <% } %>
       <% if (locals.isAdmin) { %>
         <dt>Paid as</dt><dd><%= employee.tax_form === 'W-2' ? 'W-2 employee' : '1099 independent contractor' %></dd>
         <% if (employee.tax_form !== 'W-2') { %>

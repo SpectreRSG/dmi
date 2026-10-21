@@ -24,6 +24,13 @@ router.use((req, res, next) => {
   res.status(403).render('error', { title: 'Not allowed', message: 'These pages are for officers and clients.' });
 });
 
+// Setting the app up on a phone: on the Home Screen, with notifications on.
+// Officers do this before anything else (see requireNotifications in auth.js).
+router.get('/setup', async (req, res) => {
+  const done = Boolean(req.user.push_devices || req.user.push_exempt);
+  res.render('my/setup', { title: 'Set up the app', pushKey: await notify.publicKey(), firstTime: req.user.role === 'officer' && !done });
+});
+
 // Officers' pages need the account to be linked to their staff record.
 async function officerOnly(req, res, next) {
   const me = req.user.role === 'officer' && req.user.employee_id
@@ -46,12 +53,9 @@ router.get('/', (req, res) => res.redirect('/my/schedule'));
 
 // What an officer still needs to do once, after their account is set up.
 // After that, there's nothing to fill in: hours come from the schedule.
-async function setupSteps(employeeId, userId) {
+async function setupSteps(employeeId) {
   const me = await db.get('SELECT * FROM employees WHERE id = ?', employeeId);
   const steps = [];
-  if (!(await db.get('SELECT 1 FROM push_subscriptions WHERE user_id = ? LIMIT 1', userId))) {
-    steps.push({ label: 'Turn on app notifications (shift reminders, open shifts and schedule changes)', href: '/my/details#notifications' });
-  }
   if (!me.phone) steps.push({ label: 'Add your phone number', href: '/my/details' });
   if (!me.emergency_contact_name || !me.emergency_contact_phone) steps.push({ label: 'Add an emergency contact', href: '/my/details' });
   if (me.tax_form === '1099' && !(await db.get('SELECT 1 FROM tax_profiles WHERE employee_id = ?', employeeId))) {
@@ -179,7 +183,7 @@ router.get('/schedule', async (req, res) => {
     ? []
     : await db.all('SELECT name, address, instructions FROM sites WHERE client_id = ? AND active = 1 ORDER BY name', scopeId);
   const client = isOfficer ? null : await db.get('SELECT name FROM clients WHERE id = ?', scopeId);
-  const setup = isOfficer ? await setupSteps(scopeId, req.user.id) : [];
+  const setup = isOfficer ? await setupSteps(scopeId) : [];
   const offers = isOfficer ? await openShifts.openShiftsFor(scopeId) : [];
 
   res.render('my/schedule', {
