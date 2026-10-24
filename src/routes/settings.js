@@ -5,12 +5,13 @@ const { clean, toNumber, logActivity } = require('../helpers');
 const { US_STATES, digitsOnly, zipOk } = require('../services/tax1099');
 const { requireRecentCode } = require('../auth');
 const { isValidTime } = require('../time');
+const { PAY_FREQUENCIES } = require('../services/taxTables');
 
 
 const router = express.Router();
 
 function render(res, values, error, status = 200) {
-  res.status(status).render('settings', { title: 'Settings', values, error, TIMEZONES });
+  res.status(status).render('settings', { title: 'Settings', values, error, TIMEZONES, PAY_FREQUENCIES });
 }
 
 router.get('/', async (req, res) => {
@@ -22,7 +23,11 @@ router.post('/', requireRecentCode, async (req, res) => {
     'company_name', 'timezone', 'currency_symbol', 'overtime_weekly_hours', 'overtime_multiplier', 'daily_overtime', 'workday_start',
     'expiry_warning_days', 'min_rest_hours', 'two_step_required_for',
     'payer_name', 'payer_ein', 'payer_address', 'payer_city', 'payer_state', 'payer_zip', 'payer_phone', 'payer_state_id', 'ppo_license',
+    'pay_frequency', 'ca_ui_rate', 'ca_ett_rate', 'futa_credit_reduction',
   ]);
+  const was = res.locals.settings;
+  // A field left out of the form (or empty) keeps its current value.
+  const rate = (field) => (v[field] == null ? was[field] : toNumber(v[field], NaN));
   const ein = digitsOnly(v.payer_ein);
   const values = {
     company_name: v.company_name,
@@ -45,6 +50,10 @@ router.post('/', requireRecentCode, async (req, res) => {
     payer_phone: (v.payer_phone || '').slice(0, 30),
     payer_state_id: (v.payer_state_id || '').slice(0, 30),
     ppo_license: (v.ppo_license || '').slice(0, 30),
+    pay_frequency: v.pay_frequency ?? was.pay_frequency,
+    ca_ui_rate: rate('ca_ui_rate'),
+    ca_ett_rate: rate('ca_ett_rate'),
+    futa_credit_reduction: rate('futa_credit_reduction'),
   };
 
   let error = null;
@@ -67,17 +76,28 @@ router.post('/', requireRecentCode, async (req, res) => {
     error = 'Use the 2-letter state code, like CA.';
   } else if (values.payer_zip && !zipOk(values.payer_zip)) {
     error = 'The ZIP code should be 5 digits (or ZIP+4).';
+  } else if (!PAY_FREQUENCIES[values.pay_frequency]) {
+    error = 'Choose how often people are paid.';
+  } else if (Number.isNaN(values.ca_ui_rate) || values.ca_ui_rate < 0 || values.ca_ui_rate > 10) {
+    error = 'The unemployment insurance (UI) rate is a percentage between 0 and 10, like 3.4.';
+  } else if (Number.isNaN(values.ca_ett_rate) || values.ca_ett_rate < 0 || values.ca_ett_rate > 1) {
+    error = 'The employment training tax (ETT) rate is a percentage between 0 and 1, like 0.1.';
+  } else if (Number.isNaN(values.futa_credit_reduction) || values.futa_credit_reduction < 0 || values.futa_credit_reduction > 6) {
+    error = 'The FUTA credit reduction is a percentage between 0 and 6, like 1.5.';
   }
   if (error) return render(res, values, error, 400);
 
   await saveSettings(values);
-  const was = res.locals.settings;
   const notes = [];
   if (was.two_step_required_for !== values.two_step_required_for) {
     notes.push(`two-step sign-in now required for ${values.two_step_required_for === 'office' ? 'office staff only' : 'everyone'}`);
   }
   if (was.daily_overtime !== values.daily_overtime || was.workday_start !== values.workday_start) {
     notes.push(values.daily_overtime === 'california' ? `California daily overtime on, workdays from ${values.workday_start}` : 'daily overtime off');
+  }
+  if (was.pay_frequency !== values.pay_frequency) notes.push(`pay frequency now ${PAY_FREQUENCIES[values.pay_frequency].label.toLowerCase()}`);
+  if (was.ca_ui_rate !== values.ca_ui_rate || was.ca_ett_rate !== values.ca_ett_rate || was.futa_credit_reduction !== values.futa_credit_reduction) {
+    notes.push(`unemployment rates now UI ${values.ca_ui_rate}%, ETT ${values.ca_ett_rate}%, FUTA credit reduction ${values.futa_credit_reduction}%`);
   }
   await logActivity(req, `Updated company settings${notes.length ? ` (${notes.join('; ')})` : ''}`);
   req.flash('success', 'Settings saved.');

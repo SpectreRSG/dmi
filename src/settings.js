@@ -22,6 +22,12 @@ const DEFAULTS = {
   payer_phone: '',
   payer_state_id: '', // state payer number (box 6), if your state has one
   ppo_license: '', // California private patrol operator (PPO) license number, for incident reports
+  // Payroll for W-2 employees.
+  pay_frequency: 'biweekly', // how often people are paid (decides the tax withholding): weekly, biweekly, semimonthly, monthly
+  ca_ui_rate: '3.4', // the company's California unemployment insurance rate, in % (EDD sends it each December; 3.4 for new employers)
+  ca_ett_rate: '0.1', // California employment training tax, in %
+  futa_credit_reduction: '1.5', // extra federal unemployment tax for California employers, in % (set each November)
+  tax_tables_confirmed: '', // the year whose tax rates an admin has checked, e.g. '2026'
 };
 
 // The time zones you can pick on the Settings page.
@@ -59,6 +65,11 @@ async function getSettings() {
     payer_phone: s.payer_phone,
     payer_state_id: s.payer_state_id,
     ppo_license: s.ppo_license,
+    pay_frequency: ['weekly', 'biweekly', 'semimonthly', 'monthly'].includes(s.pay_frequency) ? s.pay_frequency : 'biweekly',
+    ca_ui_rate: Number(s.ca_ui_rate),
+    ca_ett_rate: Number(s.ca_ett_rate),
+    futa_credit_reduction: Number(s.futa_credit_reduction),
+    tax_tables_confirmed: s.tax_tables_confirmed,
   };
 }
 
