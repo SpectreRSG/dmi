@@ -15,7 +15,7 @@
     <label>Last day <input type="date" name="period_end" value="<%= values.period_end %>" required></label>
     <label class="field-full">Notes (optional) <input name="notes" value="<%= values.notes || '' %>"></label>
   </div>
-  <p class="hint">Overtime: <%= overtimeSummary(settings) %>
+  <p class="hint">Overtime (W-2 employees; 1099 contractors get their rate for every hour): <%= overtimeSummary(settings) %>
     <% if (locals.isAdmin) { %>Change this in <a href="/settings">Settings</a>.<% } %></p>
   <div class="form-actions">
     <button type="submit" class="btn btn-primary">Create draft pay run</button>

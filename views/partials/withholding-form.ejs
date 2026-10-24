@@ -1,0 +1,72 @@
+<%# The W-4 and DE 4 questions. Needs: values, FEDERAL_STATUSES, CALIFORNIA_STATUSES, credits, office (true when the office types in a paper form). %>
+<h2>About you</h2>
+<div class="form-grid">
+  <label class="field-full">Name (as on your Social Security card) <input name="legal_name" value="<%= values.legal_name || '' %>" required maxlength="100" autocomplete="name"></label>
+  <label class="field-full">Street address <input name="address" value="<%= values.address || '' %>" required maxlength="120" autocomplete="street-address"></label>
+  <label>City <input name="city" value="<%= values.city || '' %>" required maxlength="60" autocomplete="address-level2"></label>
+  <div class="field-pair">
+    <label>State <input name="state" value="<%= values.state || '' %>" required maxlength="2" placeholder="CA" autocomplete="address-level1"></label>
+    <label>ZIP <input name="zip" value="<%= values.zip || '' %>" required maxlength="10" autocomplete="postal-code"></label>
+  </div>
+  <label class="field-full">Social Security number
+    <input name="ssn" inputmode="numeric" maxlength="11" autocomplete="off" spellcheck="false" placeholder="<%= values.ssn_on_file ? `***-**-${values.ssn_on_file}` : '123-45-6789' %>" <%= values.ssn_on_file ? '' : 'required' %>>
+    <span class="hint"><%= values.ssn_on_file ? `We have ***-**-${values.ssn_on_file} on file. Leave this empty to keep it.` : 'Needed for your W-2.' %> It is stored encrypted.</span>
+  </label>
+</div>
+
+<h2>Federal: Form W-4</h2>
+<div class="form-grid">
+  <fieldset class="field-full choice-list">
+    <legend>Step 1(c): filing status</legend>
+    <% for (const [key, label] of Object.entries(FEDERAL_STATUSES)) { %>
+      <label class="check"><input type="radio" name="fed_filing_status" value="<%= key %>" <%= values.fed_filing_status === key ? 'checked' : '' %>> <%= label %></label>
+    <% } %>
+  </fieldset>
+  <label class="check field-full"><input type="checkbox" name="fed_multiple_jobs" value="1" <%= values.fed_multiple_jobs ? 'checked' : '' %>> <span>Step 2(c): I have more than one job at a time, or I'm married filing jointly and my spouse also works <span class="hint">(tick it on the W-4 for the highest-paying job only)</span></span></label>
+  <label>Step 3: dependents ($ a year)
+    <input type="number" name="fed_dependents" min="0" step="1" value="<%= values.fed_dependents || '' %>" placeholder="0">
+    <span class="hint"><%= money(credits.child) %> for each child under 17, plus <%= money(credits.other) %> for each other dependent (if your income is $200,000 or less, $400,000 married filing jointly).</span>
+  </label>
+  <label>Step 4(a): other income ($ a year)
+    <input type="number" name="fed_other_income" min="0" step="1" value="<%= values.fed_other_income || '' %>" placeholder="0">
+    <span class="hint">Not from jobs, like interest or dividends. Optional.</span>
+  </label>
+  <label>Step 4(b): deductions ($ a year)
+    <input type="number" name="fed_deductions" min="0" step="1" value="<%= values.fed_deductions || '' %>" placeholder="0">
+    <span class="hint">From the Deductions Worksheet on the W-4. Optional.</span>
+  </label>
+  <label>Step 4(c): extra withholding ($ each paycheck)
+    <input type="number" name="fed_extra" min="0" step="0.01" value="<%= values.fed_extra || '' %>" placeholder="0.00">
+  </label>
+  <label class="check field-full"><input type="checkbox" name="fed_exempt" value="1" <%= values.fed_exempt ? 'checked' : '' %>> <span>I claim exemption from federal income tax withholding <span class="hint">(only if you owed no federal income tax last year and expect to owe none this year; it lasts for this year only)</span></span></label>
+</div>
+
+<h2>California: Form DE 4</h2>
+<div class="form-grid">
+  <fieldset class="field-full choice-list">
+    <legend>Filing status</legend>
+    <% for (const [key, label] of Object.entries(CALIFORNIA_STATUSES)) { %>
+      <label class="check"><input type="radio" name="ca_filing_status" value="<%= key %>" <%= values.ca_filing_status === key ? 'checked' : '' %>> <%= label %></label>
+    <% } %>
+  </fieldset>
+  <label>1a. Regular withholding allowances
+    <input type="number" name="ca_allowances" min="0" max="99" step="1" value="<%= values.ca_allowances ?? 0 %>">
+    <span class="hint">From Worksheet A on the DE 4: usually 1 for yourself, plus 1 for a spouse who doesn't work, plus 1 for each dependent.</span>
+  </label>
+  <label>1b. Allowances for estimated deductions
+    <input type="number" name="ca_estimated_allowances" min="0" max="99" step="1" value="<%= values.ca_estimated_allowances ?? 0 %>">
+    <span class="hint">From Worksheet B. Most people put 0.</span>
+  </label>
+  <label>2. Extra California withholding ($ each paycheck)
+    <input type="number" name="ca_extra" min="0" step="0.01" value="<%= values.ca_extra || '' %>" placeholder="0.00">
+  </label>
+  <label class="check field-full"><input type="checkbox" name="ca_exempt" value="1" <%= values.ca_exempt ? 'checked' : '' %>> <span>I claim exemption from California withholding <span class="hint">(only in the situations the DE 4 lists, such as some military spouses; most people can't)</span></span></label>
+</div>
+
+<h2>Signature</h2>
+<p class="small">Under penalties of perjury, I declare that this certificate, to the best of my knowledge and belief, is true, correct, and complete.</p>
+<div class="form-grid">
+  <label class="check field-full"><input type="checkbox" name="certify" value="1" required> <%= office ? 'The employee signed paper Forms W-4 and DE 4 with exactly these answers, and we are keeping them on file.' : 'I agree, and sign this as my Form W-4 and Form DE 4.' %></label>
+  <label><%= office ? 'Name as signed on the forms' : 'Signature (type your full name)' %> <input name="signed_name" value="<%= values.signed_name || '' %>" required maxlength="100"></label>
+  <label>Date <input value="<%= fmtDate(todayStr()) %>" disabled></label>
+</div>

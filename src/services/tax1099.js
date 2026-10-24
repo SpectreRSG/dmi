@@ -58,17 +58,19 @@ function zipOk(zip) {
   return /^\d{5}(-?\d{4})?$/.test(zip);
 }
 
-// Everyone paid in the year, from finalized pay runs, by the date the pay went out.
+// Everyone paid as a 1099 contractor in the year, from finalized pay runs, by
+// the date the pay went out (pay as a W-2 employee goes on their W-2 instead).
+// `withheld`: backup withholding, for box 4.
 async function paymentsForYear(year) {
   const rows = await db.all(
-    `SELECT i.employee_id, SUM(i.gross_pay) AS total, COUNT(DISTINCT p.id)::int AS pay_runs
+    `SELECT i.employee_id, SUM(i.gross_pay) AS total, SUM(i.fed_income_tax) AS withheld, COUNT(DISTINCT p.id)::int AS pay_runs
      FROM pay_run_items i JOIN pay_runs p ON p.id = i.pay_run_id
-     WHERE p.status = 'finalized' AND COALESCE(p.paid_on, substr(p.finalized_at, 1, 10)) BETWEEN ? AND ?
+     WHERE p.status = 'finalized' AND i.tax_form = '1099' AND COALESCE(p.paid_on, substr(p.finalized_at, 1, 10)) BETWEEN ? AND ?
      GROUP BY i.employee_id`,
     `${year}-01-01`,
     `${year}-12-31`
   );
-  return new Map(rows.map((r) => [r.employee_id, { total: round2(r.total), payRuns: r.pay_runs }]));
+  return new Map(rows.map((r) => [r.employee_id, { total: round2(r.total), withheld: round2(r.withheld), payRuns: r.pay_runs }]));
 }
 
 // The company details for the "PAYER" boxes, from Settings.

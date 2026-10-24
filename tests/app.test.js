@@ -258,7 +258,7 @@ test('add a client, a site and a staff member', async () => {
   res = await admin.post(`/clients/${ids.client}/sites`, { name: 'Main entrance' });
   assert.equal(res.status, 302);
   ids.site = (await db.get('SELECT id FROM sites WHERE client_id = ?', ids.client)).id;
-  res = await admin.post('/staff', { first_name: 'Sam', last_name: 'Guard', hourly_rate: '30', license_required: '1', status: 'active' });
+  res = await admin.post('/staff', { first_name: 'Sam', last_name: 'Guard', hourly_rate: '30', license_required: '1', status: 'active', tax_form: 'W-2' });
   assert.equal(res.status, 302);
   ids.employee = Number(res.location.split('/').pop());
   assert.equal((await db.get('SELECT hourly_rate FROM employees WHERE id = ?', ids.employee)).hourly_rate, 30);
@@ -355,14 +355,39 @@ test('pay run: overtime is calculated and finalized hours are locked', async () 
   await admin.post(`/pay/${ids.payRun}/recalculate`);
   assert.equal((await db.get('SELECT gross_pay FROM pay_run_items WHERE pay_run_id = ?', ids.payRun)).gross_pay, 1700);
 
+  // Sam is a W-2 employee with no W-4 yet: single, no adjustments; paid every two weeks.
+  let line = await db.get('SELECT * FROM pay_run_items WHERE pay_run_id = ?', ids.payRun);
+  assert.equal(line.tax_form, 'W-2');
+  assert.deepEqual([line.fed_income_tax, line.social_security, line.medicare, line.ca_income_tax, line.ca_sdi], [120.15, 105.4, 24.65, 38.23, 22.1]);
+  assert.equal(line.net_pay, 1389.47);
+
   const csv = await admin.get(`/pay/${ids.payRun}/export.csv`);
   assert.match(csv.headers.get('content-type'), /text\/csv/);
-  assert.match(csv.text, /Sam Guard,.*,40,10,0,30,1.5,1200,450,0,50,Bonus,1700/);
+  assert.match(csv.text, /Sam Guard,.*,40,10,0,30,1.5,1200,450,0,50,Bonus,1700,W-2,0,0,120.15,105.4,24.65,0,38.23,22.1,0,,1389.47/);
 
   // Rejecting hours after the draft was made: the page warns, and finalizing leaves them out.
   const lastEntry = (await db.get('SELECT id FROM time_entries WHERE pay_run_id = ? ORDER BY start_at DESC', ids.payRun)).id;
   await admin.post(`/timesheets/${lastEntry}/reject`);
   assert.match((await admin.get(`/pay/${ids.payRun}`)).text, /no longer approved/);
+
+  // W-2 pay needs the company's tax details and a once-a-year check of the tax rates first.
+  res = await admin.post(`/pay/${ids.payRun}/finalize`);
+  assert.equal((await db.get('SELECT status FROM pay_runs WHERE id = ?', ids.payRun)).status, 'draft');
+  let page = await admin.get(`/pay/${ids.payRun}`);
+  assert.match(page.text, /Before this can be finalized/);
+  assert.match(page.text, /Fill in the company tax details/);
+  const year = time.todayStr().slice(0, 4);
+  assert.match((await admin.get('/pay/taxes')).text, new RegExp(`Tax rates for ${year}[\\s\\S]*Not checked yet`));
+  res = await admin.post('/pay/taxes/confirm', { year }, '/pay/taxes');
+  assert.notEqual((await require('../src/settings').getSettings()).tax_tables_confirmed, year, 'the box must be ticked');
+  res = await admin.post('/pay/taxes/confirm', { year, checked: '1' }, '/pay/taxes');
+  assert.equal((await require('../src/settings').getSettings()).tax_tables_confirmed, year);
+  assert.match((await admin.get('/activity')).text, new RegExp(`Confirmed the ${year} payroll tax rates were checked`));
+  const current = await require('../src/settings').getSettings();
+  res = await admin.post('/settings', {
+    ...current, payer_name: 'Test Security LLC', payer_ein: '12-3456789', payer_address: '100 Main St', payer_city: 'Los Angeles', payer_state: 'CA', payer_zip: '90012',
+  }, '/settings');
+  assert.equal(res.status, 302);
 
   res = await admin.post(`/pay/${ids.payRun}/finalize`);
   assert.equal((await db.get('SELECT status FROM pay_runs WHERE id = ?', ids.payRun)).status, 'finalized');
@@ -378,7 +403,7 @@ test('pay run: overtime is calculated and finalized hours are locked', async () 
   // Each person's DMI timesheet for the pay run, stamped with who finalized it.
   const alex = await db.get("SELECT id FROM users WHERE email = 'alex@example.com'");
   assert.equal((await db.get('SELECT finalized_by FROM pay_runs WHERE id = ?', ids.payRun)).finalized_by, alex.id);
-  const line = await db.get('SELECT id FROM pay_run_items WHERE pay_run_id = ?', ids.payRun);
+  line = await db.get('SELECT id FROM pay_run_items WHERE pay_run_id = ?', ids.payRun);
   const sheet = await admin.get(`/pay/${ids.payRun}/items/${line.id}/timesheet.pdf`);
   assert.equal(sheet.status, 200);
   assert.ok(sheet.text.startsWith('%PDF'));
@@ -1988,7 +2013,7 @@ test('California daily overtime: on by default, set in Settings, and counted acr
 
   // A week next year, so nothing else is in it: Monday 14 hours, then 8 hours a day to Sunday.
   const monday = time.startOfWeek(`${Number(time.todayStr().slice(0, 4)) + 1}-03-10`);
-  const danaId = await db.insert("INSERT INTO employees (first_name, last_name, status, hourly_rate) VALUES ('Dana', 'Daily', 'active', 20)");
+  const danaId = await db.insert("INSERT INTO employees (first_name, last_name, status, hourly_rate, tax_form) VALUES ('Dana', 'Daily', 'active', 20, 'W-2')");
   const hours = [['06:00', '20:00'], ...Array(6).fill(['09:00', '17:00'])];
   for (const [i, [start, end]] of hours.entries()) {
     const day = time.addDays(monday, i);
@@ -2028,11 +2053,141 @@ test('California daily overtime: on by default, set in Settings, and counted acr
   for (const run of [first, second]) await admin.post(`/pay/${run}/delete`, {}, `/pay/${run}`);
 });
 
+test('W-2 payroll: W-4 and DE 4, taxes, sick leave and deductions, pay stubs; 1099 contractors get straight time', async () => {
+  const { tablesFor } = require('../src/services/taxTables');
+  const { payrollTaxes, EMPLOYEE_TAXES, sumOf } = require('../src/services/withholding');
+  const year = time.todayStr().slice(0, 4);
+  // A W-2 employee and a 1099 contractor, each working Monday to Friday, 10 hours a day, in a quiet fortnight.
+  let res = await admin.post('/staff', { first_name: 'Wendy', last_name: 'Wages', hourly_rate: '25', status: 'active', tax_form: 'W-2', start_date: '2024-01-08' });
+  const wendy = Number(res.location.split('/').pop());
+  res = await admin.post('/staff', { first_name: 'Carl', last_name: 'Contract', hourly_rate: '40', status: 'active', tax_form: '1099' });
+  const carl = Number(res.location.split('/').pop());
+  const addWeek = async (id, monday, hours) => {
+    for (let i = 0; i < 5; i += 1) {
+      const day = time.addDays(monday, i);
+      await db.run("INSERT INTO time_entries (employee_id, start_at, end_at, status) VALUES (?, ?, ?, 'approved')", id, `${day}T07:00`, `${day}T${String(7 + hours).padStart(2, '0')}:00`);
+    }
+  };
+  await addWeek(wendy, '2025-03-03', 10);
+  await addWeek(carl, '2025-03-03', 10);
+
+  // The office types in Wendy's signed paper W-4 and DE 4.
+  const w4 = { legal_name: 'Wendy Wages', address: '5 Elm St', city: 'Pasadena', state: 'CA', zip: '91101', fed_filing_status: 'married',
+    ca_filing_status: 'married', ca_allowances: '1', certify: '1', signed_name: 'Wendy Wages' };
+  res = await admin.post(`/staff/${wendy}/withholding`, { ...w4, ssn: '123-45-678' }, `/staff/${wendy}/withholding`);
+  assert.equal(res.status, 400);
+  assert.match(res.text, /9 digits/);
+  res = await admin.post(`/staff/${wendy}/withholding`, { ...w4, ssn: '123-45-6789' }, `/staff/${wendy}/withholding`);
+  assert.equal(res.status, 302);
+  const profile = await db.get('SELECT * FROM withholding_profiles WHERE employee_id = ?', wendy);
+  assert.equal(profile.ssn_last4, '6789');
+  assert.ok(!profile.ssn_encrypted.includes('123456789'), 'the number is stored encrypted');
+  assert.ok(profile.entered_by, 'typed in by the office');
+  assert.match((await admin.get(`/staff/${wendy}`)).text, /Federal: married filing jointly · California: married, 1 allowance/);
+
+  // The pay run: overtime and taxes for Wendy; straight time and no taxes for Carl.
+  res = await admin.post('/pay', { period_start: '2025-03-02', period_end: '2025-03-15' });
+  const run = Number(res.location.split('/').pop());
+  const lineOf = (runId, id) => db.get('SELECT * FROM pay_run_items WHERE pay_run_id = ? AND employee_id = ?', runId, id);
+  let c = await lineOf(run, carl);
+  assert.deepEqual([c.tax_form, c.regular_hours, c.overtime_hours, c.overtime_multiplier, c.gross_pay, c.net_pay], ['1099', 50, 0, 1, 2000, 2000]);
+  let w = await lineOf(run, wendy);
+  assert.deepEqual([w.regular_hours, w.overtime_hours, w.gross_pay], [40, 10, 1375]);
+  const expected = payrollTaxes({ wages: 1375, periods: 26, profile, tables: tablesFor(year), employer: { uiRate: 0.034, ettRate: 0.001, futaCreditReduction: 0.015 } });
+  assert.ok(expected.fed_income_tax > 0 && expected.ca_income_tax > 0);
+  for (const key of [...EMPLOYEE_TAXES, 'employer_social_security', 'employer_medicare', 'futa', 'ca_ui', 'ca_ett']) assert.equal(w[key], expected[key], key);
+  assert.equal(w.net_pay, Math.round((1375 - sumOf(expected, EMPLOYEE_TAXES)) * 100) / 100);
+  assert.equal(w.sick_accrued, 1.67, '1 hour for every 30 worked');
+
+  // Paid sick leave can't be more than she has; then sick leave and a deduction she agreed to.
+  await admin.post(`/pay/${run}/items/${w.id}`, { sick_hours: '8', back: 'line' }, `/pay/${run}/items/${w.id}`);
+  assert.match((await admin.get(`/pay/${run}/items/${w.id}`)).text, /Only 1.67 hours of paid sick leave can be paid now/);
+  await admin.post(`/pay/${run}/items/${w.id}`, { sick_hours: '1.5', deduction: '20', deduction_note: 'Uniform', back: 'line' }, `/pay/${run}/items/${w.id}`);
+  w = await lineOf(run, wendy);
+  assert.deepEqual([w.sick_hours, w.sick_pay, w.sick_balance, w.gross_pay, w.deduction], [1.5, 37.5, 0.17, 1412.5, 20]);
+  assert.equal(w.net_pay, Math.round((1412.5 - sumOf(w, EMPLOYEE_TAXES) - 20) * 100) / 100);
+  await admin.post(`/pay/${run}/items/${c.id}`, { sick_hours: '2' }, `/pay/${run}`);
+  assert.equal((await lineOf(run, carl)).sick_hours, 0, 'paid sick leave is for W-2 employees');
+  await admin.post(`/pay/${run}/recalculate`, {}, `/pay/${run}`);
+  w = await lineOf(run, wendy);
+  assert.deepEqual([w.sick_hours, w.deduction, w.deduction_note], [1.5, 20, 'Uniform'], 'recalculating keeps them');
+
+  // The IRS told Carl's payer to backup withhold: 24%.
+  const { encrypt } = require('../src/secureData');
+  await db.run(
+    `INSERT INTO tax_profiles (employee_id, legal_name, tax_classification, address, city, state, zip, tin_type, tin_encrypted, tin_last4, backup_withholding, signed_name, signed_at)
+     VALUES (?, 'Carl Contract', 'individual', '9 Oak St', 'Los Angeles', 'CA', '90012', 'SSN', ?, '4321', 1, 'Carl Contract', ?)`,
+    carl, await encrypt('987654321'), time.nowStr()
+  );
+  await admin.post(`/pay/${run}/recalculate`, {}, `/pay/${run}`);
+  c = await lineOf(run, carl);
+  assert.deepEqual([c.fed_income_tax, c.net_pay], [480, 1520]);
+  const page = await admin.get(`/pay/${run}`);
+  assert.match(page.text, /Withheld from pay/);
+  assert.match(page.text, /Company taxes/);
+
+  res = await admin.post(`/pay/${run}/finalize`, { paid_on: time.todayStr() }, `/pay/${run}`);
+  assert.equal((await db.get('SELECT status FROM pay_runs WHERE id = ?', run)).status, 'finalized');
+  w = await lineOf(run, wendy);
+  c = await lineOf(run, carl);
+
+  // Her pay stub has what California requires.
+  const stub = await admin.get(`/pay/${run}/payslips/${w.id}`);
+  assert.match(stub.text, /Test Security LLC/);
+  assert.match(stub.text, /100 Main St/);
+  assert.match(stub.text, /SSN ending 6789/);
+  assert.doesNotMatch(stub.text, /123-45-6789/);
+  assert.match(stub.text, /California SDI/);
+  assert.match(stub.text, /Paid sick leave available: 0\.17 hours/);
+  assert.match(stub.text, /Deduction: Uniform/);
+  assert.match(stub.text, /Year to date/);
+  const statement = await admin.get(`/pay/${run}/payslips/${c.id}`);
+  assert.match(statement.text, /Payment statement \(independent contractor\)/);
+  assert.match(statement.text, /Federal backup withholding \(24%\)/);
+  assert.match((await admin.raw('GET', `/pay/${run}/export.csv`)).text, /Carl Contract,.*,1099,0,0,480,0,0,0,0,0,0,,1520/);
+
+  // Sick leave carries over to the next pay run.
+  await addWeek(wendy, '2025-03-17', 6);
+  res = await admin.post('/pay', { period_start: '2025-03-16', period_end: '2025-03-29' });
+  const next = Number(res.location.split('/').pop());
+  assert.deepEqual([(await lineOf(next, wendy)).sick_accrued, (await lineOf(next, wendy)).sick_balance], [1, 1.17]);
+  await admin.post(`/pay/${next}/delete`, {}, `/pay/${next}`);
+
+  // Her pay goes on a W-2, not a 1099; Carl's 1099 shows the backup withholding in box 4.
+  assert.doesNotMatch((await admin.get(`/tax?year=${year}`)).text, /Wendy Wages/);
+  res = await admin.post('/tax/forms', { year, employee_id: carl }, `/tax?year=${year}`);
+  const form = await db.get('SELECT * FROM tax_forms WHERE employee_id = ?', carl);
+  assert.deepEqual([form.box1, form.box4], [2000, 480]);
+
+  // An officer paid as a W-2 employee fills in their own W-4 and DE 4.
+  res = await admin.post('/users', { name: 'Wes Worker', email: 'wes@example.com', role: 'officer', employee_id: 'new', password: 'steady night shifts 42', confirm: 'steady night shifts 42', active: '1' });
+  assert.equal(res.status, 302);
+  const wes = (await db.get("SELECT employee_id FROM users WHERE email = 'wes@example.com'")).employee_id;
+  await db.run("UPDATE employees SET tax_form = 'W-2' WHERE id = ?", wes);
+  const worker = makeClient();
+  await signIn(worker, 'wes@example.com', 'steady night shifts 42');
+  assert.match((await worker.get('/my/schedule')).text, /Fill in your W-4 and DE 4/);
+  assert.match((await worker.get('/my/pay')).text, /fill in your W-4 and DE 4/);
+  assert.match((await worker.get('/my/tax')).text, /Your W-4 and DE 4[\s\S]*Fill in now/);
+  const mine = { legal_name: 'Wes Worker', address: '7 Pine St', city: 'Glendale', state: 'CA', zip: '91203', ssn: '234-56-7890', fed_filing_status: 'single',
+    fed_extra: '10', ca_filing_status: 'single', ca_allowances: '1', certify: '1', signed_name: 'Wes Worker' };
+  res = await worker.post('/my/tax/w4', { ...mine, signed_name: '' }, '/my/tax/w4');
+  assert.equal(res.status, 400);
+  res = await worker.post('/my/tax/w4', mine, '/my/tax/w4');
+  assert.equal(res.status, 302);
+  const own = await db.get('SELECT * FROM withholding_profiles WHERE employee_id = ?', wes);
+  assert.deepEqual([own.fed_extra, own.ca_allowances, own.entered_by, own.ssn_last4], [10, 1, null, '7890']);
+  assert.match((await worker.get('/my/tax')).text, /Federal: single · California: single, 1 allowance/);
+  assert.doesNotMatch((await worker.get('/my/pay')).text, /fill in your W-4 and DE 4/);
+  // Only admins see or change anyone's tax details.
+  assert.notEqual((await worker.get(`/staff/${wes}/withholding`)).status, 200);
+});
+
 test('every main page loads', async () => {
   for (const url of ['/', '/schedule', '/timesheets?status=all', '/pay', `/pay/${ids.payRun}`, '/staff', `/staff/${ids.employee}`,
     '/clients', `/clients/${ids.client}`, '/contracts', '/training', '/training/records', '/training/sessions',
     '/training/courses', '/training/sessions/new', '/training/records/new', '/schedule/conflicts', `/schedule/${ids.shift}/cover`,
-    '/timesheets/submissions', '/tax', '/tax/filing', '/users', '/settings', '/activity', '/account', '/incidents', '/incidents?view=all']) {
+    '/timesheets/submissions', '/tax', '/tax/filing', '/users', '/settings', '/activity', '/account', '/incidents', '/incidents?view=all', '/pay/taxes']) {
     const res = await admin.get(url);
     assert.equal(res.status, 200, url);
   }

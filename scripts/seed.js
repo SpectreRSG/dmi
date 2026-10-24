@@ -30,6 +30,7 @@ async function seed(db) {
   const time = require('../src/time');
   const { hashPassword } = require('../src/auth');
   const { calculatePayLine, overtimeRules } = require('../src/services/payroll');
+  const paycheck = require('../src/services/paycheck');
   const { getSettings, saveSettings } = require('../src/settings');
 
   // The Demo Client that comes with the database doesn't count.
@@ -93,6 +94,7 @@ async function seed(db) {
         last_name,
         position,
         employment_type,
+        tax_form: position === 'Manager' ? 'W-2' : '1099', // the manager is an employee; guards are 1099 contractors
         hourly_rate,
         license_expiry,
         license_number: `SL-${40213 + i * 137}`,
@@ -104,7 +106,7 @@ async function seed(db) {
       });
       guards.push({ id, first_name, last_name });
     }
-    const hannah = await insert('employees', { first_name: 'Hannah', last_name: 'Lee', position: 'Administrator', employment_type: 'Part-time', hourly_rate: 28, license_required: 0, start_date: day(-400), email: 'hannah.lee@example.com' });
+    const hannah = await insert('employees', { first_name: 'Hannah', last_name: 'Lee', position: 'Administrator', employment_type: 'Part-time', tax_form: 'W-2', hourly_rate: 28, license_required: 0, start_date: day(-400), email: 'hannah.lee@example.com' });
     await insert('training_records', { employee_id: hannah, course_id: course.induction, completed_on: day(-395), provider: 'In-house' });
     await insert('training_records', { employee_id: hannah, course_id: course.fire, completed_on: day(-180), expires_on: time.addMonths(day(-180), 24), provider: 'In-house' });
     await insert('employees', { first_name: 'Mark', last_name: 'Davies', position: 'Unarmed Security Officer', employment_type: 'Casual', hourly_rate: 29, status: 'inactive', start_date: day(-800), end_date: day(-120), license_number: 'SL-39001', license_expiry: day(-30) });
@@ -247,10 +249,13 @@ async function seed(db) {
     const paid = await tx.all('SELECT * FROM time_entries WHERE pay_run_id = ? ORDER BY employee_id, start_at', payRun);
     const byEmployee = new Map();
     for (const e of paid) byEmployee.set(e.employee_id, [...(byEmployee.get(e.employee_id) || []), e]);
+    const run = await tx.get('SELECT * FROM pay_runs WHERE id = ?', payRun);
     for (const [employeeId, entries] of byEmployee) {
-      const { hourly_rate } = await tx.get('SELECT hourly_rate FROM employees WHERE id = ?', employeeId);
-      const line = calculatePayLine({ entries, hourlyRate: hourly_rate, rules: overtimeRules(settings) });
-      await insert('pay_run_items', { pay_run_id: payRun, employee_id: employeeId, ...line });
+      const employee = await tx.get('SELECT id, hourly_rate, tax_form, start_date FROM employees WHERE id = ?', employeeId);
+      const rules = employee.tax_form === 'W-2' ? overtimeRules(settings) : paycheck.STRAIGHT_TIME;
+      const hours = calculatePayLine({ entries, hourlyRate: employee.hourly_rate, rules });
+      const line = await paycheck.completeLine(tx, { run, employee, hours, settings });
+      await paycheck.insertLine(tx, { pay_run_id: payRun, employee_id: employeeId, ...line });
     }
 
     await tx.run('INSERT INTO activity_log (user_id, action) VALUES (?, ?)', adminId, 'Loaded demo data');

@@ -1,0 +1,18 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/my/tax">← Tax forms</a></p>
+    <h1>W-4 and DE 4</h1>
+    <p class="page-sub">The same questions as IRS Form W-4 and California Form DE 4. <%= settings.company_name %> uses your answers to work out how much tax to take out of each paycheck. You can change them any time; the next pay run uses the new answers.</p>
+  </div>
+</div>
+<%- include('../partials/form-error') %>
+<form method="post" action="/my/tax/w4" class="card form-card narrow" autocomplete="off">
+  <%- include('../partials/csrf') %>
+  <%- include('../partials/withholding-form', { office: false }) %>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Sign and save</button>
+    <a class="btn btn-ghost" href="/my/tax">Cancel</a>
+  </div>
+</form>
+<%- include('../partials/bottom') %>

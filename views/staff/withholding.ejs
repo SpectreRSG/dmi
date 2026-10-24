@@ -1,0 +1,18 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/staff/<%= employee.id %>">← <%= employee.first_name %> <%= employee.last_name %></a></p>
+    <h1>W-4 and DE 4 for <%= employee.first_name %> <%= employee.last_name %></h1>
+    <p class="page-sub">Type in the answers from the paper Forms W-4 and DE 4 they signed, and keep the paper forms. They can also fill these in themselves under Tax forms in their account.</p>
+  </div>
+</div>
+<%- include('../partials/form-error') %>
+<form method="post" action="/staff/<%= employee.id %>/withholding" class="card form-card narrow" autocomplete="off">
+  <%- include('../partials/csrf') %>
+  <%- include('../partials/withholding-form', { office: true }) %>
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Save</button>
+    <a class="btn btn-ghost" href="/staff/<%= employee.id %>">Cancel</a>
+  </div>
+</form>
+<%- include('../partials/bottom') %>

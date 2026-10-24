@@ -71,7 +71,7 @@ async function completeLine(tx, { run, employee, hours, inputs = {}, settings })
 
   const leave = w2
     ? await sickLeaveFor(tx, { employee, run, hoursWorked, wanted: inputs.sick_hours, ytd })
-    : { used: 0, earnedNow: 0, balance: 0 };
+    : { used: 0, earnedNow: 0, balance: 0, limit: null };
   const sickPay = round2(leave.used * hours.hourly_rate);
   const adjustment = round2(Number(inputs.adjustment) || 0);
   const gross = round2(hours.regular_pay + hours.overtime_pay + hours.double_time_pay + sickPay + adjustment);
@@ -94,6 +94,7 @@ async function completeLine(tx, { run, employee, hours, inputs = {}, settings })
     sick_pay: sickPay,
     sick_accrued: leave.earnedNow,
     sick_balance: leave.balance,
+    sick_limit: leave.limit, // (not saved) the most sick leave that could be used, and why
     gross_pay: gross,
     ...taxes,
     deduction,

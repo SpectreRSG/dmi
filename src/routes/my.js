@@ -8,6 +8,8 @@ const time = require('../time');
 const { homeFor } = require('../auth');
 const { entryHours, round2, calculatePayLine, overtimeRules } = require('../services/payroll');
 const { recordFinishedShifts } = require('../services/hoursFromSchedule');
+const { STRAIGHT_TIME } = require('../services/paycheck');
+const { payslipData } = require('../services/payslip');
 const { findPayLine, payLineTimesheet, timesheetFileName } = require('../services/payTimesheet');
 const openShifts = require('../services/openShifts');
 const notify = require('../services/notify');
@@ -60,6 +62,9 @@ async function setupSteps(employeeId) {
   if (!me.emergency_contact_name || !me.emergency_contact_phone) steps.push({ label: 'Add an emergency contact', href: '/my/details' });
   if (me.tax_form === '1099' && !(await db.get('SELECT 1 FROM tax_profiles WHERE employee_id = ?', employeeId))) {
     steps.push({ label: 'Fill in your W-9 (for your 1099)', href: '/my/tax/w9' });
+  }
+  if (me.tax_form === 'W-2' && !(await db.get('SELECT 1 FROM withholding_profiles WHERE employee_id = ?', employeeId))) {
+    steps.push({ label: 'Fill in your W-4 and DE 4 (for tax withholding)', href: '/my/tax/w4' });
   }
   return steps;
 }
@@ -215,7 +220,7 @@ router.get('/schedule', async (req, res) => {
 
 router.get('/pay', officerOnly, async (req, res) => {
   await recordFinishedShifts();
-  const [recorded, paid, sent, taxProfile, taxForms] = await Promise.all([
+  const [recorded, paid, sent, taxProfile, taxForms, w4] = await Promise.all([
     // Hours not paid yet (not in a finalized pay run).
     db.all(
       `SELECT t.*, si.name AS site_name FROM time_entries t
@@ -237,6 +242,7 @@ router.get('/pay', officerOnly, async (req, res) => {
     ),
     db.get('SELECT 1 FROM tax_profiles WHERE employee_id = ?', req.me.id),
     db.get("SELECT COUNT(*)::int AS n FROM tax_forms WHERE employee_id = ? AND status = 'issued' AND released = 1", req.me.id),
+    db.get('SELECT 1 FROM withholding_profiles WHERE employee_id = ?', req.me.id),
   ]);
   for (const entry of recorded) entry.hours = round2(entryHours(entry));
   const approved = recorded.filter((e) => e.status === 'approved');
@@ -251,7 +257,9 @@ router.get('/pay', officerOnly, async (req, res) => {
       req.me.id, time.startOfWeek(firstDay), firstDay
     )
     : [];
-  const estimate = calculatePayLine({ entries: approved, earlier, hourlyRate: req.me.hourly_rate, rules: overtimeRules(settings) });
+  // Overtime is for W-2 employees; 1099 contractors get their rate for every hour.
+  const rules = req.me.tax_form === 'W-2' ? overtimeRules(settings) : STRAIGHT_TIME;
+  const estimate = calculatePayLine({ entries: approved, earlier, hourlyRate: req.me.hourly_rate, rules });
   res.render('my/pay', {
     title: 'My pay',
     recorded,
@@ -261,6 +269,8 @@ router.get('/pay', officerOnly, async (req, res) => {
     paid,
     sent,
     needsW9: req.me.tax_form === '1099' && !taxProfile,
+    needsW4: req.me.tax_form === 'W-2' && !w4,
+    sickBalance: paid.find((p) => p.tax_form === 'W-2')?.sick_balance ?? 0,
     taxFormsReady: taxForms.n,
   });
 });
@@ -276,14 +286,12 @@ async function myPayLine(req, res, next) {
 router.get('/pay/:id', officerOnly, myPayLine, async (req, res) => {
   const run = await db.get('SELECT * FROM pay_runs WHERE id = ?', req.line.pay_run_id);
   const item = { ...req.line, position: req.me.position };
-  const entries = await db.all(
-    `SELECT t.*, si.name AS site_name FROM time_entries t LEFT JOIN sites si ON si.id = t.site_id
-     WHERE t.pay_run_id = ? AND t.employee_id = ? ORDER BY t.start_at`,
-    run.id,
-    req.me.id
-  );
-  for (const entry of entries) entry.hours = round2(entryHours(entry));
-  res.render('pay/payslip', { title: 'Payslip', run, item, entries, back: '/my/pay', timesheetHref: `/my/pay/${item.id}/timesheet.pdf` });
+  res.render('pay/payslip', {
+    title: 'Pay stub',
+    ...(await payslipData(run, item, res.locals.settings)),
+    back: '/my/pay',
+    timesheetHref: `/my/pay/${item.id}/timesheet.pdf`,
+  });
 });
 
 // Their DMI timesheet for that pay period: opens in the browser; ?download=1 saves it.

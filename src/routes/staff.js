@@ -6,6 +6,7 @@ const { isValidDate, todayStr, addDays, startOfWeek } = require('../time');
 const { entryHours, round2 } = require('../services/payroll');
 const { complianceFor, complianceForEmployee } = require('../services/compliance');
 const availability = require('../services/availability');
+const withholding = require('../services/withholdingProfile');
 
 const router = express.Router();
 numericIdParam(router);
@@ -158,12 +159,15 @@ router.get('/:id', async (req, res) => {
   const taxProfile = res.locals.isAdmin
     ? await db.get('SELECT tin_type, tin_last4, signed_at, electronic_consent, backup_withholding FROM tax_profiles WHERE employee_id = ?', employee.id)
     : null;
+  const w4 = res.locals.isAdmin ? await withholding.findProfile(employee.id) : null;
 
   res.render('staff/show', {
     title: employeeName(employee),
     employee,
     account,
     taxProfile,
+    w4,
+    w4Summary: w4 ? withholding.summary(w4) : '',
     compliance,
     upcomingShifts,
     said,
@@ -193,6 +197,34 @@ router.post('/:id', async (req, res) => {
   await logActivity(req, `Updated staff member ${employeeName(values)}`);
   req.flash('success', 'Changes saved.');
   res.redirect(`/staff/${existing.id}`);
+});
+
+// A W-2 employee's W-4 and DE 4, typed in from the paper forms they signed
+// (admins only, like pay).
+function adminOnly(req, res, next) {
+  if (req.user.role === 'admin') return next();
+  return res.status(403).render('error', { title: 'Admins only', message: 'Only admins can see or change tax details.' });
+}
+
+function renderWithholding(res, employee, values, error, status = 200) {
+  res.status(status).render('staff/withholding', { title: `W-4 and DE 4 – ${employeeName(employee)}`, employee, values, error, ...withholding.formLocals() });
+}
+
+router.get('/:id/withholding', adminOnly, async (req, res) => {
+  const employee = await findEmployee(req.params.id);
+  if (!employee) return notFound(res, 'staff member');
+  renderWithholding(res, employee, await withholding.formValues(employee), null);
+});
+
+router.post('/:id/withholding', adminOnly, async (req, res) => {
+  const employee = await findEmployee(req.params.id);
+  if (!employee) return notFound(res, 'staff member');
+  const { values, error } = await withholding.readForm(req.body, employee.id);
+  if (error) return renderWithholding(res, employee, values, error, 400);
+  await withholding.saveProfile(employee.id, values, { ip: req.ip, enteredBy: req.user.id });
+  await logActivity(req, `Entered the W-4 and DE 4 for ${employeeName(employee)} from their signed paper forms`);
+  req.flash('success', 'W-4 and DE 4 saved. The next pay run uses them.');
+  res.redirect(`/staff/${employee.id}`);
 });
 
 // An officer whose phone can't get notifications (e.g. an old iPhone): let

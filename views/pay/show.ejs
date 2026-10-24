@@ -6,7 +6,7 @@
     <p class="page-sub">
       Created <%= fmtDateTime(run.created_at) %><%= run.created_by_name ? ` by ${run.created_by_name}` : '' %>
       <% if (run.finalized_at) { %> · Finalized <%= fmtDateTime(run.finalized_at) %><% } %>
-      <% if (run.paid_on) { %> · Paid <%= fmtDate(run.paid_on) %><% } %>
+      <% if (run.status === 'finalized' && run.paid_on) { %> · Paid <%= fmtDate(run.paid_on) %><% } %>
       <% if (run.notes) { %> · <%= run.notes %><% } %>
     </p>
   </div>
@@ -19,7 +19,7 @@
       </form>
       <form method="post" action="/pay/<%= run.id %>/finalize" class="inline-form" data-confirm="Finalize this pay run? The hours in it will be locked and can't be changed afterwards.">
         <%- include('../partials/csrf') %>
-        <label class="inline">Pay date <input type="date" name="paid_on" value="<%= todayStr() %>" required></label>
+        <label class="inline">Pay date <input type="date" name="paid_on" value="<%= payDate %>" required></label>
         <button type="submit" class="btn btn-primary">Finalize</button>
       </form>
     <% } %>
@@ -27,6 +27,11 @@
 </div>
 
 <% if (run.status === 'draft') { %>
+  <% if (problems.length) { %>
+    <div class="flash flash-warning"><strong>Before this can be finalized:</strong>
+      <ul class="plain-list"><% for (const p of problems) { %><li><%= p %></li><% } %></ul>
+      <a href="/pay/taxes">Tax rates</a> · <a href="/settings">Settings</a></div>
+  <% } %>
   <% if (pendingCount) { %>
     <div class="flash flash-warning"><%= pendingCount %> timesheet entr<%= pendingCount === 1 ? 'y' : 'ies' %> in this period <%= pendingCount === 1 ? 'is' : 'are' %> still waiting for approval and <strong>not included</strong>.
       <a href="/timesheets?status=pending&from=<%= run.period_start %>&to=<%= run.period_end %>">Review them</a>, then press Recalculate.</div>
@@ -37,6 +42,13 @@
   <% if (approvedNotIncluded) { %>
     <div class="flash flash-info"><%= approvedNotIncluded %> more approved entr<%= approvedNotIncluded === 1 ? 'y has' : 'ies have' %> been added since this was calculated. Press <strong>Recalculate</strong> to include them.</div>
   <% } %>
+  <% if (noW4.length) { %>
+    <div class="flash flash-info">No W-4 and DE 4 yet for <%= noW4.map((i) => `${i.first_name} ${i.last_name}`).join(', ') %>, so their taxes are worked out as the rules say for that: single with no adjustments (federal) and single with no allowances (California).
+      They can fill them in under Tax forms, or <a href="/staff/<%= noW4[0].employee_id %>/withholding">enter their paper forms</a>.</div>
+  <% } %>
+  <% if (noW9.length) { %>
+    <div class="flash flash-info">No W-9 yet for 1099 contractor<%= noW9.length === 1 ? '' : 's' %> <%= noW9.map((i) => `${i.first_name} ${i.last_name}`).join(', ') %>. Get it before paying them: without their tax ID number, the IRS requires 24% backup withholding.</div>
+  <% } %>
 <% } %>
 
 <div class="stats">
@@ -46,6 +58,7 @@
   <% const dt = totals.double_time_hours > 0; %>
   <% if (dt) { %><div class="stat"><span class="stat-label">Double time hours</span><span class="stat-value"><%= fmtHours(totals.double_time_hours) %></span></div><% } %>
   <div class="stat"><span class="stat-label">Total gross pay</span><span class="stat-value"><%= money(totals.gross_pay) %></span></div>
+  <div class="stat"><span class="stat-label">Total net pay</span><span class="stat-value"><%= money(totals.net_pay) %></span></div>
 </div>
 
 <div class="card">
@@ -57,20 +70,24 @@
         <thead>
           <tr>
             <th>Staff member</th><th class="num">Regular hrs</th><th class="num">Overtime hrs</th><% if (dt) { %><th class="num">Double time hrs</th><% } %><th class="num">Rate</th>
-            <th class="num">Regular pay</th><th class="num">Overtime pay</th><% if (dt) { %><th class="num">Double time pay</th><% } %><th>Adjustment</th><th class="num">Gross pay</th><th></th>
+            <th>Adjustment</th><th class="num">Gross pay</th><th class="num">Taxes &amp; deductions</th><th class="num">Net pay</th>
           </tr>
         </thead>
         <tbody>
           <% for (const i of items) { %>
+            <% const off = round2(i.gross_pay - i.net_pay); %>
             <tr>
-              <td><a href="/staff/<%= i.employee_id %>"><%= i.first_name %> <%= i.last_name %></a><br><span class="muted small"><%= i.position || '' %></span></td>
+              <td>
+                <a href="/staff/<%= i.employee_id %>"><%= i.first_name %> <%= i.last_name %></a> <%- badge(i.tax_form, i.tax_form === 'W-2' ? 'blue' : 'gray') %><br><span class="muted small"><%= i.position || '' %></span>
+                <div class="line-links small">
+                  <a href="/pay/<%= run.id %>/items/<%= i.id %>"><%= run.status === 'draft' && i.tax_form === 'W-2' ? 'Details & sick leave' : 'Details' %></a>
+                  · <a href="/pay/<%= run.id %>/payslips/<%= i.id %>">Pay stub</a><% if (run.status === 'finalized') { %> · <a href="/pay/<%= run.id %>/items/<%= i.id %>/timesheet.pdf" target="_blank" rel="noopener">Timesheet</a><% } %>
+                </div>
+              </td>
               <td class="num"><%= fmtHours(i.regular_hours) %></td>
-              <td class="num"><%= fmtHours(i.overtime_hours) %></td>
-              <% if (dt) { %><td class="num"><%= fmtHours(i.double_time_hours) %></td><% } %>
+              <td class="num"><%= fmtHours(i.overtime_hours) %><% if (i.overtime_hours) { %><br><span class="muted small">at <%= i.overtime_multiplier %>×</span><% } %></td>
+              <% if (dt) { %><td class="num"><%= fmtHours(i.double_time_hours) %><% if (i.double_time_hours) { %><br><span class="muted small">at 2×</span><% } %></td><% } %>
               <td class="num"><%= money(i.hourly_rate) %></td>
-              <td class="num"><%= money(i.regular_pay) %></td>
-              <td class="num"><%= money(i.overtime_pay) %><% if (i.overtime_hours) { %><br><span class="muted small">at <%= i.overtime_multiplier %>×</span><% } %></td>
-              <% if (dt) { %><td class="num"><%= money(i.double_time_pay) %><% if (i.double_time_hours) { %><br><span class="muted small">at 2×</span><% } %></td><% } %>
               <td>
                 <% if (run.status === 'draft') { %>
                   <form method="post" action="/pay/<%= run.id %>/items/<%= i.id %>" class="adjust-form">
@@ -82,9 +99,11 @@
                 <% } else if (i.adjustment) { %>
                   <%= money(i.adjustment) %><% if (i.adjustment_note) { %><br><span class="muted small"><%= i.adjustment_note %></span><% } %>
                 <% } else { %>—<% } %>
+                <% if (i.sick_hours) { %><br><span class="muted small">Sick leave <%= fmtHours(i.sick_hours) %> h: <%= money(i.sick_pay) %></span><% } %>
               </td>
-              <td class="num"><strong><%= money(i.gross_pay) %></strong></td>
-              <td class="actions"><a href="/pay/<%= run.id %>/payslips/<%= i.id %>">Payslip</a><% if (run.status === 'finalized') { %><br><a href="/pay/<%= run.id %>/items/<%= i.id %>/timesheet.pdf" target="_blank" rel="noopener">Timesheet</a><% } %></td>
+              <td class="num"><%= money(i.gross_pay) %></td>
+              <td class="num"><%= off ? money(off) : '—' %><% if (i.deduction) { %><br><span class="muted small">incl. <%= money(i.deduction) %> deduction</span><% } %></td>
+              <td class="num"><strong><%= money(i.net_pay) %></strong></td>
             </tr>
           <% } %>
         </tbody>
@@ -94,17 +113,48 @@
             <td class="num"><strong><%= fmtHours(totals.regular_hours) %></strong></td>
             <td class="num"><strong><%= fmtHours(totals.overtime_hours) %></strong></td>
             <% if (dt) { %><td class="num"><strong><%= fmtHours(totals.double_time_hours) %></strong></td><% } %>
-            <td colspan="<%= dt ? 4 : 3 %>"></td>
+            <td></td>
             <td><strong><%= money(totals.adjustment) %></strong></td>
             <td class="num"><strong><%= money(totals.gross_pay) %></strong></td>
-            <td></td>
+            <td class="num"><strong><%= money(round2(totals.gross_pay - totals.net_pay)) %></strong></td>
+            <td class="num"><strong><%= money(totals.net_pay) %></strong></td>
           </tr>
         </tfoot>
       </table>
     </div>
   <% } %>
 </div>
-<p class="hint">Gross pay is before tax and other deductions. Give the spreadsheet to your accountant or payroll provider to handle tax.</p>
+
+<% if (hasW2 || totals.fed_income_tax) { %>
+  <div class="grid-2">
+    <section class="card card-pad">
+      <h2>Withheld from pay</h2>
+      <p class="muted small">Taken out of people's pay. The company pays these to the IRS and the EDD.</p>
+      <dl class="dl">
+        <dt>Federal income tax<%= hasW2 ? '' : ' (backup withholding)' %></dt><dd><%= money(totals.fed_income_tax) %></dd>
+        <dt>Social Security (6.2%)</dt><dd><%= money(totals.social_security) %></dd>
+        <dt>Medicare (1.45%)</dt><dd><%= money(totals.medicare) %></dd>
+        <% if (totals.additional_medicare) { %><dt>Additional Medicare (0.9%)</dt><dd><%= money(totals.additional_medicare) %></dd><% } %>
+        <dt>California income tax</dt><dd><%= money(totals.ca_income_tax) %></dd>
+        <dt>California SDI</dt><dd><%= money(totals.ca_sdi) %></dd>
+        <dt><strong>Total</strong></dt><dd><strong><%= money(totals.withheld) %></strong></dd>
+      </dl>
+    </section>
+    <section class="card card-pad">
+      <h2>Company taxes</h2>
+      <p class="muted small">Paid by the company on top of pay. Not taken from anyone's pay.</p>
+      <dl class="dl">
+        <dt>Social Security (6.2%)</dt><dd><%= money(totals.employer_social_security) %></dd>
+        <dt>Medicare (1.45%)</dt><dd><%= money(totals.employer_medicare) %></dd>
+        <dt>Federal unemployment (FUTA)</dt><dd><%= money(totals.futa) %></dd>
+        <dt>California UI</dt><dd><%= money(totals.ca_ui) %></dd>
+        <dt>California ETT</dt><dd><%= money(totals.ca_ett) %></dd>
+        <dt><strong>Total</strong></dt><dd><strong><%= money(totals.employer) %></strong></dd>
+      </dl>
+    </section>
+  </div>
+<% } %>
+<p class="hint">W-2 employees: taxes use the pay date's tax year (<a href="/pay/taxes">tax rates</a>) and each person's W-4 and DE 4. 1099 contractors are paid their full amount (no taxes taken out) unless the IRS told us to backup withhold.</p>
 
 <% if (run.status === 'draft') { %>
   <details class="danger-zone">

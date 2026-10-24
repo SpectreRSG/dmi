@@ -1,0 +1,111 @@
+<%- include('../partials/top') %>
+<%
+  const pct = (rate) => `${Math.round(rate * 100000) / 1000}%`;
+  const FEDERAL_NAMES = { single: 'Single or Married filing separately', married: 'Married filing jointly', head: 'Head of household' };
+  const CA_NAMES = { single: 'Single, or married with two or more incomes', married: 'Married (one income)', head: 'Unmarried head of household' };
+  // Thresholds in whole dollars (a few are half dollars), tax amounts to the cent.
+  const dollars = (n) => money(n).replace(/\.00$/, '');
+  const scheduleTable = (rows) => `<div class="table-wrap"><table class="table compact"><thead><tr><th class="num">Over</th><th class="num">But not over</th><th class="num">Tax is</th><th class="num">Plus</th></tr></thead><tbody>${
+    rows.map((r) => `<tr><td class="num">${dollars(r.from)}</td><td class="num">${r.to === null ? '—' : dollars(r.to)}</td><td class="num">${money(r.base)}</td><td class="num">${pct(r.rate)}</td></tr>`).join('')
+  }</tbody></table></div>`;
+  const f = tables.federal; const c = tables.california;
+%>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/pay">← Pay</a></p>
+    <h1>Tax rates for <%= year %> <%- confirmed ? badge('Checked', 'green') : badge('Not checked yet', 'amber') %></h1>
+    <p class="page-sub">What DMI uses to work out W-2 paychecks with a pay date in <%= year %>. Amounts are for a whole year; each paycheck is worked out for <%= frequency.periods %> paydays a year (<%= frequency.label.toLowerCase() %>, see <a href="/settings">Settings</a>).</p>
+  </div>
+  <% if (years.length > 1) { %>
+    <div class="page-actions"><% for (const y of years) { %><a class="btn <%= y === year ? 'btn-primary' : '' %>" href="/pay/taxes?year=<%= y %>"><%= y %></a><% } %></div>
+  <% } %>
+</div>
+
+<section class="card card-pad">
+  <h2>Check these once a year</h2>
+  <p>Before the first payday of <%= year %>, compare this page with <strong>IRS Publication 15-T (<%= year %>)</strong> (the "Percentage Method Tables for Automated Payroll Systems") and the EDD's <strong>California Withholding Schedules for <%= year %></strong> (Method B). Your accountant can do it in a few minutes. Pay runs with W-2 employees can be finalized once it's done.</p>
+  <% if (confirmed) { %>
+    <p><%- badge('Checked', 'green') %> Someone confirmed these were checked. The activity log shows who and when.</p>
+  <% } else { %>
+    <form method="post" action="/pay/taxes/confirm">
+      <%- include('../partials/csrf') %>
+      <input type="hidden" name="year" value="<%= year %>">
+      <label class="check"><input type="checkbox" name="checked" value="1"> I (or our accountant) checked these <%= year %> rates against the IRS and EDD publications, and they match.</label>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Confirm the <%= year %> rates</button></div>
+    </form>
+  <% } %>
+</section>
+
+<div class="grid-2">
+  <section class="card card-pad">
+    <h2>Social Security and Medicare</h2>
+    <dl class="dl">
+      <dt>Social Security</dt><dd><%= pct(tables.fica.socialSecurityRate) %> from the employee and <%= pct(tables.fica.socialSecurityRate) %> from the company, on the first <%= money(tables.fica.socialSecurityWageBase) %> of the year</dd>
+      <dt>Medicare</dt><dd><%= pct(tables.fica.medicareRate) %> each, no limit</dd>
+      <dt>Additional Medicare</dt><dd><%= pct(tables.fica.additionalMedicareRate) %> from the employee on wages over <%= money(tables.fica.additionalMedicareThreshold) %> in the year</dd>
+    </dl>
+    <p class="hint">Source: <%= tables.fica.source %>.</p>
+  </section>
+  <section class="card card-pad">
+    <h2>Unemployment and disability</h2>
+    <dl class="dl">
+      <dt>California SDI</dt><dd><%= pct(c.sdiRate) %> from the employee, all wages</dd>
+      <dt>Federal unemployment (FUTA)</dt><dd><%= pct(tables.futa.rate) %> plus the <%= settings.futa_credit_reduction %>% credit reduction (Settings), company only, first <%= money(tables.futa.wageBase) %></dd>
+      <dt>California UI</dt><dd><%= settings.ca_ui_rate %>% (your rate, in Settings), company only, first <%= money(c.uiWageBase) %></dd>
+      <dt>California ETT</dt><dd><%= settings.ca_ett_rate %>% (Settings), company only, first <%= money(c.uiWageBase) %></dd>
+    </dl>
+    <p class="hint">Sources: <%= tables.futa.source %>; <%= c.source %>.</p>
+  </section>
+</div>
+
+<section class="card card-pad">
+  <h2>Federal income tax withholding (Pub 15-T, Worksheet 1A)</h2>
+  <dl class="dl">
+    <dt>Line 1g amount</dt><dd><%= money(f.worksheetAdjustment.married) %> married filing jointly, <%= money(f.worksheetAdjustment.single) %> otherwise (when the W-4 Step 2 box isn't checked)</dd>
+    <dt>W-4 Step 3 credits</dt><dd><%= money(f.childCredit) %> for each child under 17, <%= money(f.otherDependentCredit) %> for each other dependent</dd>
+    <dt>Backup withholding (1099)</dt><dd><%= pct(f.backupWithholdingRate) %></dd>
+  </dl>
+  <p class="hint">Each row: the tax is the "Tax is" amount plus the percentage of the amount over the "Over" figure (Pub 15-T columns A to E).</p>
+  <% for (const status of ['married', 'single', 'head']) { %>
+    <div class="grid-2">
+      <div><h3><%= FEDERAL_NAMES[status] %>: standard</h3><%- scheduleTable(federalRows[status].standard) %></div>
+      <div><h3><%= FEDERAL_NAMES[status] %>: Step 2 box checked</h3><%- scheduleTable(federalRows[status].stepTwo) %></div>
+    </div>
+  <% } %>
+  <p class="hint">Source: <%= f.source %>.</p>
+</section>
+
+<section class="card card-pad">
+  <h2>California income tax withholding (Method B, annual)</h2>
+  <table class="table compact">
+    <thead><tr><th></th><th class="num">Single</th><th class="num">Married, 0 or 1 allowance</th><th class="num">Married, 2 or more</th><th class="num">Head of household</th></tr></thead>
+    <tbody>
+      <tr><td>Table 1: no withholding up to</td><td class="num"><%= money(c.lowIncomeExemption.single) %></td><td class="num"><%= money(c.lowIncomeExemption.marriedLow) %></td><td class="num"><%= money(c.lowIncomeExemption.marriedHigh) %></td><td class="num"><%= money(c.lowIncomeExemption.head) %></td></tr>
+      <tr><td>Table 3: standard deduction</td><td class="num"><%= money(c.standardDeduction.single) %></td><td class="num"><%= money(c.standardDeduction.marriedLow) %></td><td class="num"><%= money(c.standardDeduction.marriedHigh) %></td><td class="num"><%= money(c.standardDeduction.head) %></td></tr>
+    </tbody>
+  </table>
+  <dl class="dl">
+    <dt>Table 2: estimated deductions</dt><dd><%= money(c.estimatedDeductionPerAllowance) %> for each DE 4 line 1b allowance</dd>
+    <dt>Table 4: exemption allowance credit</dt><dd><%= money(c.exemptionCreditPerAllowance) %> for each regular allowance (DE 4 line 1a)</dd>
+  </dl>
+  <h3>Table 5: tax rates</h3>
+  <p class="hint">The rates are the same for everyone; where they start depends on the filing status. On income over the "Over" figure, the tax is the "Tax is" amount plus the rate on the amount over it.</p>
+  <div class="table-wrap">
+    <table class="table compact">
+      <thead>
+        <tr><th class="num">Rate</th><% for (const status of ['single', 'married', 'head']) { %><th class="num" colspan="2"><%= CA_NAMES[status] %></th><% } %></tr>
+        <tr><th></th><% for (let i = 0; i < 3; i += 1) { %><th class="num">Over</th><th class="num">Tax is</th><% } %></tr>
+      </thead>
+      <tbody>
+        <% californiaRows.single.forEach((row, i) => { %>
+          <tr>
+            <td class="num"><strong><%= pct(row.rate) %></strong></td>
+            <% for (const status of ['single', 'married', 'head']) { const r = californiaRows[status][i]; %><td class="num"><%= dollars(r.from) %></td><td class="num"><%= money(r.base) %></td><% } %>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <p class="hint">Source: <%= c.source %>.</p>
+</section>
+<%- include('../partials/bottom') %>

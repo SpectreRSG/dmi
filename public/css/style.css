@@ -1239,3 +1239,16 @@ section.card + section.card, .card + section.card { margin-top: 16px; }
   .ir-fields > * { flex-basis: 100%; }
   .ir-answers-grid, .ir-decisions { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Payroll: the tax rates page and pay line details */
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1000px) { .grid-3 { grid-template-columns: minmax(0, 1fr); } }
+.card-pad h3 { font-size: 13.5px; margin: 16px 0 6px; }
+.card-pad h2.spaced { margin-top: 20px; }
+.card-pad .table.compact { margin-top: 8px; }
+.card-pad .grid-2 { margin-bottom: 0; }
+.grid-2 > section.card + section.card { margin-top: 0; }
+/* In the pay run table: amount and Save on one line, the reason under them. */
+.table .adjust-form { flex-wrap: wrap; width: 190px; }
+.table .adjust-form input[name='adjustment_note'] { order: 3; width: 100%; }
+.line-links { margin-top: 4px; }

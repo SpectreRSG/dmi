@@ -4,7 +4,10 @@
     <h1>Pay</h1>
     <p class="page-sub">Turn approved hours into pay, one period at a time.</p>
   </div>
-  <div class="page-actions"><a class="btn btn-primary" href="/pay/new"><%- icon('plus') %> New pay run</a></div>
+  <div class="page-actions">
+    <a class="btn" href="/pay/taxes">Tax rates</a>
+    <a class="btn btn-primary" href="/pay/new"><%- icon('plus') %> New pay run</a>
+  </div>
 </div>
 
 <% if (approvedUnpaid) { %>
@@ -15,14 +18,14 @@
   <% if (!runs.length) { %>
     <div class="empty">
       <p>No pay runs yet.</p>
-      <p class="muted">A pay run collects all <strong>approved</strong> hours between two dates and works out everyone's pay, including overtime.
+      <p class="muted">A pay run collects all <strong>approved</strong> hours between two dates and works out everyone's pay: overtime, then taxes and paid sick leave for W-2 employees.
         <%= overtimeSummary(settings) %></p>
       <p><a class="btn btn-primary" href="/pay/new">Create your first pay run</a></p>
     </div>
   <% } else { %>
     <div class="table-wrap">
       <table class="table">
-        <thead><tr><th>Period</th><th>Status</th><th class="num">People</th><th class="num">Hours</th><th class="num">Gross pay</th><th></th></tr></thead>
+        <thead><tr><th>Period</th><th>Status</th><th class="num">People</th><th class="num">Hours</th><th class="num">Gross pay</th><th class="num">Net pay</th><th></th></tr></thead>
         <tbody>
           <% for (const r of runs) { %>
             <tr>
@@ -31,6 +34,7 @@
               <td class="num"><%= r.people %></td>
               <td class="num"><%= fmtHours(r.hours_total) %></td>
               <td class="num"><%= money(r.gross_total) %></td>
+              <td class="num"><%= money(r.net_total) %></td>
               <td class="actions"><a href="/pay/<%= r.id %>">Open</a></td>
             </tr>
           <% } %>

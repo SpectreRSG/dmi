@@ -54,6 +54,10 @@
       <% } %>
       <% if (locals.isAdmin) { %>
         <dt>Paid as</dt><dd><%= employee.tax_form === 'W-2' ? 'W-2 employee' : '1099 independent contractor' %></dd>
+        <% if (employee.tax_form === 'W-2') { %>
+          <dt>W-4 and DE 4</dt><dd><% if (w4) { %><%= w4Summary %> · SSN …<%= w4.ssn_last4 %> · signed <%= fmtDate(w4.signed_at) %><%= w4.entered_by ? ' (entered from paper)' : '' %><% } else { %><span class="muted">Not filled in yet: taxes are worked out as single, with no adjustments.</span><% } %>
+            <a class="btn btn-sm btn-ghost" href="/staff/<%= employee.id %>/withholding"><%= w4 ? 'Change from paper forms' : 'Enter from paper forms' %></a></dd>
+        <% } %>
         <% if (employee.tax_form !== 'W-2') { %>
           <dt>W-9 details</dt><dd><% if (taxProfile) { %>On file (<%= taxProfile.tin_type %> …<%= taxProfile.tin_last4 %>), signed <%= fmtDate(taxProfile.signed_at) %> · gets 1099 <%= taxProfile.electronic_consent ? 'online' : 'on paper' %><%= taxProfile.backup_withholding ? ' · subject to backup withholding' : '' %><% } else { %><span class="muted">Not filled in yet (they do it under Tax forms in their account)</span><% } %></dd>
         <% } %>

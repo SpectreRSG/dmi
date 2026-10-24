@@ -6,6 +6,7 @@ const { clean, notFound, numericIdParam, logActivity, employeeName } = require('
 const time = require('../time');
 const tax = require('../services/tax1099');
 const { buildForm1099Pdf } = require('../services/form1099Pdf');
+const withholding = require('../services/withholdingProfile');
 
 const router = express.Router();
 numericIdParam(router);
@@ -15,6 +16,11 @@ function findProfile(employeeId) {
 }
 
 router.get('/', async (req, res) => {
+  // W-2 employees: their W-4 and DE 4 (for tax withholding).
+  if (req.me.tax_form === 'W-2') {
+    const w4 = await withholding.findProfile(req.me.id);
+    return res.render('my/tax-w2', { title: 'Tax forms', w4, summary: w4 ? withholding.summary(w4) : '' });
+  }
   const [profile, forms] = await Promise.all([
     findProfile(req.me.id),
     db.all("SELECT * FROM tax_forms WHERE employee_id = ? AND status = 'issued' AND released = 1 ORDER BY tax_year DESC", req.me.id),
@@ -103,6 +109,24 @@ router.post('/w9', async (req, res) => {
   }
   await logActivity(req, `${employeeName(req.me)} ${existing ? 'updated' : 'filled in'} their W-9 details`);
   req.flash('success', 'Thanks! Your W-9 details are saved.');
+  res.redirect('/my/tax');
+});
+
+// ---- W-4 and DE 4 (W-2 employees) ------------------------------------------------
+
+function renderW4(res, values, error, status = 200) {
+  res.status(status).render('my/w4', { title: 'W-4 and DE 4', values, error, ...withholding.formLocals() });
+}
+
+router.get('/w4', async (req, res) => renderW4(res, await withholding.formValues(req.me), null));
+
+router.post('/w4', async (req, res) => {
+  const existing = await withholding.findProfile(req.me.id);
+  const { values, error } = await withholding.readForm(req.body, req.me.id);
+  if (error) return renderW4(res, values, error, 400);
+  await withholding.saveProfile(req.me.id, values, { ip: req.ip });
+  await logActivity(req, `${employeeName(req.me)} ${existing ? 'updated' : 'filled in'} their W-4 and DE 4`);
+  req.flash('success', 'Thanks! Your W-4 and DE 4 are saved. The next pay run uses them.');
   res.redirect('/my/tax');
 });
 

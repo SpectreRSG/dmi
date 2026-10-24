@@ -1,0 +1,31 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Tax forms</h1>
+    <p class="page-sub">As an employee of <%= settings.company_name %>, taxes are taken out of each paycheck, and you get a Form W-2 each January.</p>
+  </div>
+</div>
+
+<section class="card card-pad">
+  <div class="card-title-row">
+    <h2>Your W-4 and DE 4</h2>
+    <a class="btn btn-sm <%= w4 ? '' : 'btn-primary' %>" href="/my/tax/w4"><%= w4 ? 'Update' : 'Fill in now' %></a>
+  </div>
+  <% if (!w4) { %>
+    <p>These tell us how much federal and California income tax to take out of your pay. It takes about five minutes. Until you fill them in, the rules say we must withhold as if you were single with no adjustments, which may take out more than you need.</p>
+  <% } else { %>
+    <dl class="dl">
+      <dt>Name</dt><dd><%= w4.legal_name %></dd>
+      <dt>Withholding</dt><dd><%= summary %></dd>
+      <dt>Social Security number</dt><dd>***-**-<%= w4.ssn_last4 %></dd>
+      <dt>Signed</dt><dd><%= w4.signed_name %>, <%= fmtDateTime(w4.signed_at) %><%= w4.entered_by ? ' (entered by the office from your paper forms)' : '' %></dd>
+    </dl>
+    <p class="hint">Life changed (married, a new baby, a second job)? Update them, and the next pay run uses the new answers.</p>
+  <% } %>
+</section>
+
+<section class="card card-pad">
+  <h2>Your pay stubs</h2>
+  <p>Every pay stub, with the taxes taken out and your paid sick leave, is under <a href="/my/pay">My pay</a>.</p>
+</section>
+<%- include('../partials/bottom') %>

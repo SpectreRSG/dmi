@@ -3,18 +3,24 @@
 // How it works:
 // 1. Create a pay run for a period (e.g. 1st-14th). It starts as a "draft".
 // 2. The app finds every APPROVED timesheet entry in that period and works out
-//    regular hours, overtime and gross pay for each person.
-// 3. Add any adjustments (bonus, allowance, deduction) and check the numbers.
+//    each person's pay: overtime for W-2 employees (1099 contractors get their
+//    rate for every hour), then taxes and paid sick leave for W-2 employees.
+// 3. Add any adjustments (bonus), sick leave taken or deductions, and check the numbers.
 // 4. "Finalize" it. The hours are then locked so they can never be paid twice.
 const express = require('express');
 const db = require('../db');
 const { toNumber, notFound, numericIdParam, logActivity, employeeName } = require('../helpers');
 const time = require('../time');
-const { calculatePayLine, overtimeRules, entryHours, round2 } = require('../services/payroll');
+const { calculatePayLine, overtimeRules, round2 } = require('../services/payroll');
 const { recordFinishedShifts } = require('../services/hoursFromSchedule');
 const { findPayLine, payLineTimesheet, timesheetFileName } = require('../services/payTimesheet');
 const { sendUpload } = require('../uploads');
 const { notifyEmployees } = require('../services/notify');
+const paycheck = require('../services/paycheck');
+const { payslipData } = require('../services/payslip');
+const { TABLES, PAY_FREQUENCIES, tablesFor, tableYears } = require('../services/taxTables');
+const { federalTableRows, californiaTableRows, EMPLOYEE_TAXES, EMPLOYER_TAXES, sumOf } = require('../services/withholding');
+const { saveSettings } = require('../settings');
 
 const router = express.Router();
 numericIdParam(router);
@@ -29,30 +35,35 @@ function findRun(id) {
 
 function runItems(runId) {
   return db.all(
-    `SELECT i.*, e.first_name, e.last_name, e.position, e.email
+    `SELECT i.*, e.first_name, e.last_name, e.position, e.email, e.start_date,
+       (wp.employee_id IS NOT NULL) AS has_w4, (tp.employee_id IS NOT NULL) AS has_w9
      FROM pay_run_items i JOIN employees e ON e.id = i.employee_id
+     LEFT JOIN withholding_profiles wp ON wp.employee_id = i.employee_id
+     LEFT JOIN tax_profiles tp ON tp.employee_id = i.employee_id
      WHERE i.pay_run_id = ? ORDER BY e.last_name, e.first_name`,
     runId
   );
 }
 
+const SUMMED = ['regular_hours', 'overtime_hours', 'double_time_hours', 'sick_hours', 'adjustment', 'gross_pay', 'deduction', 'net_pay',
+  ...EMPLOYEE_TAXES, ...EMPLOYER_TAXES];
+
 function totalsOf(items) {
-  return {
-    regular_hours: round2(items.reduce((s, i) => s + i.regular_hours, 0)),
-    overtime_hours: round2(items.reduce((s, i) => s + i.overtime_hours, 0)),
-    double_time_hours: round2(items.reduce((s, i) => s + i.double_time_hours, 0)),
-    adjustment: round2(items.reduce((s, i) => s + i.adjustment, 0)),
-    gross_pay: round2(items.reduce((s, i) => s + i.gross_pay, 0)),
-  };
+  const totals = Object.fromEntries(SUMMED.map((f) => [f, round2(items.reduce((s, i) => s + (Number(i[f]) || 0), 0))]));
+  totals.withheld = sumOf(totals, EMPLOYEE_TAXES);
+  totals.employer = sumOf(totals, EMPLOYER_TAXES);
+  return totals;
 }
+
+// What the office typed in on a pay line, kept when the run is recalculated.
+const INPUT_FIELDS = ['adjustment', 'adjustment_note', 'sick_hours', 'deduction', 'deduction_note'];
 
 // (Re)builds a draft pay run from the approved hours in its period.
 async function recalculate(run, settings) {
   await recordFinishedShifts(); // shifts that just ended count too
   await db.transaction(async (tx) => {
-    // Keep any adjustments already typed in.
     const previous = new Map(
-      (await tx.all('SELECT employee_id, adjustment, adjustment_note FROM pay_run_items WHERE pay_run_id = ?', run.id)).map(
+      (await tx.all(`SELECT employee_id, ${INPUT_FIELDS.join(', ')} FROM pay_run_items WHERE pay_run_id = ?`, run.id)).map(
         (row) => [row.employee_id, row]
       )
     );
@@ -82,22 +93,15 @@ async function recalculate(run, settings) {
     );
 
     for (const [employeeId, list] of byEmployee) {
-      const old = previous.get(employeeId);
-      const { hourly_rate } = await tx.get('SELECT hourly_rate FROM employees WHERE id = ?', employeeId);
-      const line = calculatePayLine({
+      const employee = await tx.get('SELECT id, hourly_rate, tax_form, start_date FROM employees WHERE id = ?', employeeId);
+      const hours = calculatePayLine({
         entries: list,
         earlier: earlier.filter((e) => e.employee_id === employeeId),
-        hourlyRate: hourly_rate,
-        rules: overtimeRules(settings),
-        adjustment: old?.adjustment || 0,
+        hourlyRate: employee.hourly_rate,
+        rules: employee.tax_form === 'W-2' ? overtimeRules(settings) : paycheck.STRAIGHT_TIME,
       });
-      await tx.run(
-        `INSERT INTO pay_run_items (pay_run_id, employee_id, regular_hours, overtime_hours, double_time_hours, hourly_rate,
-           overtime_multiplier, regular_pay, overtime_pay, double_time_pay, adjustment, adjustment_note, gross_pay)
-         VALUES (@pay_run_id, @employee_id, @regular_hours, @overtime_hours, @double_time_hours, @hourly_rate,
-           @overtime_multiplier, @regular_pay, @overtime_pay, @double_time_pay, @adjustment, @adjustment_note, @gross_pay)`,
-        { pay_run_id: run.id, employee_id: employeeId, adjustment_note: old?.adjustment_note ?? null, ...line }
-      );
+      const line = await paycheck.completeLine(tx, { run, employee, hours, inputs: previous.get(employeeId) || {}, settings });
+      await paycheck.insertLine(tx, { pay_run_id: run.id, employee_id: employeeId, ...line });
       await tx.run('UPDATE time_entries SET pay_run_id = ? WHERE id = ANY(?::int[])', run.id, list.map((e) => e.id));
     }
   });
@@ -128,13 +132,48 @@ function csvCell(value) {
   return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
+// ---- Tax rates ---------------------------------------------------------------------
+
+// The rates and tables DMI uses for a year, laid out like the publications, so
+// they can be checked once a year before the first payday.
+router.get('/taxes', (req, res) => {
+  const years = tableYears();
+  const thisYear = Number(time.todayStr().slice(0, 4));
+  const year = years.includes(Number(req.query.year)) ? Number(req.query.year) : (years.includes(thisYear) ? thisYear : years.at(-1));
+  const tables = TABLES[year];
+  const statuses = ['single', 'married', 'head'];
+  res.render('pay/taxes', {
+    title: `Tax rates for ${year}`,
+    year,
+    years,
+    tables,
+    federalRows: Object.fromEntries(statuses.map((s) => [s, { standard: federalTableRows(tables, s, false), stepTwo: federalTableRows(tables, s, true) }])),
+    californiaRows: Object.fromEntries(statuses.map((s) => [s, californiaTableRows(tables, s)])),
+    frequency: PAY_FREQUENCIES[res.locals.settings.pay_frequency],
+    confirmed: res.locals.settings.tax_tables_confirmed === String(year),
+  });
+});
+
+router.post('/taxes/confirm', async (req, res) => {
+  const year = Number(req.body.year);
+  if (!tablesFor(year)) return notFound(res, 'tax year');
+  if (!req.body.checked) {
+    req.flash('error', 'Tick the box to say the rates were checked.');
+    return res.redirect(`/pay/taxes?year=${year}`);
+  }
+  await saveSettings({ tax_tables_confirmed: String(year) });
+  await logActivity(req, `Confirmed the ${year} payroll tax rates were checked against the IRS and EDD publications`);
+  req.flash('success', `Thanks. The ${year} tax rates are confirmed, so pay runs with W-2 employees can be finalized.`);
+  res.redirect(`/pay/taxes?year=${year}`);
+});
+
 // ---- Pages ------------------------------------------------------------------------
 
 router.get('/', async (req, res) => {
   await recordFinishedShifts();
   const [runs, unpaid] = await Promise.all([
     db.all(
-      `SELECT p.*, COUNT(i.id)::int AS people, COALESCE(SUM(i.gross_pay), 0) AS gross_total,
+      `SELECT p.*, COUNT(i.id)::int AS people, COALESCE(SUM(i.gross_pay), 0) AS gross_total, COALESCE(SUM(i.net_pay), 0) AS net_total,
          COALESCE(SUM(i.regular_hours + i.overtime_hours + i.double_time_hours), 0) AS hours_total
        FROM pay_runs p LEFT JOIN pay_run_items i ON i.pay_run_id = p.id
        GROUP BY p.id ORDER BY p.period_end DESC`
@@ -194,15 +233,21 @@ router.get('/:id', async (req, res) => {
     db.get("SELECT COUNT(*)::int AS n FROM time_entries WHERE pay_run_id = ? AND status != 'approved'", run.id),
   ]);
   const missing = Object.fromEntries(notIncluded.map((r) => [r.status, r.n]));
+  const draft = run.status === 'draft';
 
   res.render('pay/show', {
     title: `Pay run ${time.fmtDate(run.period_start)} – ${time.fmtDate(run.period_end)}`,
     run,
     items,
     totals: totalsOf(items),
+    hasW2: items.some((i) => i.tax_form === 'W-2'),
+    payDate: paycheck.payDateOf(run),
     pendingCount: missing.pending || 0,
     approvedNotIncluded: missing.approved || 0,
     changedCount: changed.n,
+    problems: draft ? paycheck.finalizeProblems({ run, items, settings: res.locals.settings }) : [],
+    noW4: draft ? items.filter((i) => i.tax_form === 'W-2' && !i.has_w4) : [],
+    noW9: draft ? items.filter((i) => i.tax_form === '1099' && !i.has_w9) : [],
   });
 });
 
@@ -212,8 +257,25 @@ router.post('/:id/recalculate', async (req, res) => {
   if (!draftOnly(req, res, run)) return;
   await recalculate(run, res.locals.settings);
   await logActivity(req, `Recalculated pay run #${run.id}`);
-  req.flash('success', 'Pay run recalculated using the latest approved hours, pay rates and overtime settings.');
+  req.flash('success', 'Pay run recalculated using the latest approved hours, pay rates, overtime settings and tax details.');
   res.redirect(`/pay/${run.id}`);
+});
+
+// One person's pay line in detail: how gross became net, and (in a draft) the
+// adjustment, paid sick leave and deduction to change.
+router.get('/:id/items/:itemId', async (req, res) => {
+  const run = await findRun(req.params.id);
+  if (!run) return notFound(res, 'pay run');
+  const item = (await runItems(run.id)).find((i) => i.id === Number(req.params.itemId));
+  if (!item) return notFound(res, 'pay line');
+  let sickLimit = null;
+  if (run.status === 'draft' && item.tax_form === 'W-2') {
+    // What could be used if the office entered more (the line itself already has it applied).
+    const employee = await db.get('SELECT id, hourly_rate, tax_form, start_date FROM employees WHERE id = ?', item.employee_id);
+    const line = await paycheck.completeLine(db, { run, employee, hours: item, inputs: { ...item, sick_hours: 1e6 }, settings: res.locals.settings });
+    sickLimit = line.sick_limit;
+  }
+  res.render('pay/line', { title: `Pay – ${employeeName(item)}`, run, item, sickLimit, payDate: paycheck.payDateOf(run) });
 });
 
 router.post('/:id/items/:itemId', async (req, res) => {
@@ -222,47 +284,69 @@ router.post('/:id/items/:itemId', async (req, res) => {
   if (!draftOnly(req, res, run)) return;
   const item = await db.get('SELECT * FROM pay_run_items WHERE id = ? AND pay_run_id = ?', req.params.itemId, run.id);
   if (!item) return notFound(res, 'pay line');
-  const adjustment = toNumber(req.body.adjustment, 0);
-  if (Number.isNaN(adjustment)) {
-    req.flash('error', 'The adjustment must be a number, e.g. 50 or -20.');
-    return res.redirect(`/pay/${run.id}`);
+  const back = req.body.back === 'line' ? `/pay/${run.id}/items/${item.id}` : `/pay/${run.id}`;
+
+  // Only the fields on the form that was sent change; the rest stay as they are.
+  const inputs = {};
+  for (const field of INPUT_FIELDS) {
+    if (req.body[field] === undefined) inputs[field] = item[field];
+    else if (field.endsWith('_note')) inputs[field] = String(req.body[field]).trim().slice(0, 120) || null;
+    else inputs[field] = toNumber(req.body[field], 0);
   }
-  const note = String(req.body.adjustment_note || '').trim() || null;
-  await db.run(
-    'UPDATE pay_run_items SET adjustment = ?, adjustment_note = ?, gross_pay = ? WHERE id = ?',
-    round2(adjustment),
-    note,
-    round2(item.regular_pay + item.overtime_pay + item.double_time_pay + adjustment),
-    item.id
-  );
-  await logActivity(req, `Set adjustment of ${adjustment} on pay run #${run.id}`);
-  req.flash('success', 'Adjustment saved.');
-  res.redirect(`/pay/${run.id}`);
+  let error = null;
+  if (Number.isNaN(inputs.adjustment)) error = 'The adjustment must be a number, e.g. 50 or -20.';
+  else if (Number.isNaN(inputs.sick_hours) || inputs.sick_hours < 0) error = 'Sick leave is a number of hours, like 8.';
+  else if (Number.isNaN(inputs.deduction) || inputs.deduction < 0) error = 'The deduction must be an amount of 0 or more, like 25.';
+  if (!error) {
+    error = await db.transaction(async (tx) => {
+      const employee = await tx.get('SELECT id, hourly_rate, tax_form, start_date FROM employees WHERE id = ?', item.employee_id);
+      if (employee.tax_form !== item.tax_form) return 'They are now paid as a different kind of worker (W-2 or 1099). Press Recalculate first.';
+      const line = await paycheck.completeLine(tx, { run, employee, hours: item, inputs, settings: res.locals.settings });
+      if (inputs.sick_hours > 0 && item.tax_form !== 'W-2') return 'Paid sick leave is for W-2 employees.';
+      if (line.sick_hours < inputs.sick_hours) return `Only ${line.sick_hours} hours of paid sick leave can be paid now. ${line.sick_limit.reason}`;
+      if (line.net_pay < 0) return 'The deduction is more than the pay left after taxes.';
+      await paycheck.updateLine(tx, item.id, line);
+      return null;
+    });
+  }
+  if (error) {
+    req.flash('error', error);
+    return res.redirect(back);
+  }
+  const changes = INPUT_FIELDS.filter((f) => !f.endsWith('_note') && inputs[f] !== item[f]).map((f) => `${f.replace('_', ' ')} ${inputs[f]}`);
+  await logActivity(req, `Changed a pay line on pay run #${run.id}${changes.length ? ` (${changes.join(', ')})` : ''}`);
+  req.flash('success', 'Saved. Taxes and net pay are updated.');
+  res.redirect(back);
 });
 
 router.post('/:id/finalize', async (req, res) => {
   const run = await findRun(req.params.id);
   if (!run) return notFound(res, 'pay run');
   if (!draftOnly(req, res, run)) return;
-  // The day the money goes out (1099s count pay by the year it was paid).
+  // The day the money goes out: it decides the tax year (and 1099s count pay by it).
   const paidOn = time.isValidDate(req.body.paid_on) ? req.body.paid_on : time.todayStr();
+  await db.run('UPDATE pay_runs SET paid_on = ? WHERE id = ?', paidOn, run.id);
   // Recalculate first, so hours rejected or edited since the draft was made are never paid by mistake.
-  await recalculate(run, res.locals.settings);
+  await recalculate({ ...run, paid_on: paidOn }, res.locals.settings);
+  const problems = paycheck.finalizeProblems({ run: { ...run, paid_on: paidOn }, items: await runItems(run.id), settings: res.locals.settings });
+  if (problems.length) {
+    req.flash('error', `Not finalized yet: ${problems.join(' ')}`);
+    return res.redirect(`/pay/${run.id}`);
+  }
   await db.run(
-    "UPDATE pay_runs SET status = 'finalized', finalized_at = app_now(), finalized_by = ?, paid_on = ? WHERE id = ?",
+    "UPDATE pay_runs SET status = 'finalized', finalized_at = app_now(), finalized_by = ? WHERE id = ?",
     req.user.id,
-    paidOn,
     run.id
   );
   await logActivity(req, `Finalized pay run #${run.id} (${run.period_start} to ${run.period_end})`);
   const paid = await db.all('SELECT employee_id FROM pay_run_items WHERE pay_run_id = ?', run.id);
   await notifyEmployees(paid.map((p) => p.employee_id), {
     title: 'Pay day',
-    body: `Your payslip and timesheet for ${time.fmtDate(run.period_start)} – ${time.fmtDate(run.period_end)} are ready.`,
+    body: `Your pay stub and timesheet for ${time.fmtDate(run.period_start)} – ${time.fmtDate(run.period_end)} are ready.`,
     url: '/my/pay',
     tag: `pay-${run.id}`,
   });
-  req.flash('success', 'Pay run finalized using the latest approved hours. Those hours are now locked, and each officer can see their payslip and DMI timesheet under My pay.');
+  req.flash('success', 'Pay run finalized using the latest approved hours. Those hours are now locked, and each officer can see their pay stub and DMI timesheet under My pay.');
   res.redirect(`/pay/${run.id}`);
 });
 
@@ -276,17 +360,23 @@ router.post('/:id/delete', async (req, res) => {
   res.redirect('/pay');
 });
 
-// Download as a spreadsheet (CSV) – handy for your accountant or payroll provider.
+// Download as a spreadsheet (CSV) – handy for your accountant.
 router.get('/:id/export.csv', async (req, res) => {
   const run = await findRun(req.params.id);
   if (!run) return notFound(res, 'pay run');
   const header = [
     'Employee', 'Position', 'Regular hours', 'Overtime hours', 'Double time hours', 'Hourly rate', 'Overtime multiplier',
     'Regular pay', 'Overtime pay', 'Double time pay', 'Adjustment', 'Adjustment note', 'Gross pay',
+    'Paid as', 'Sick leave hours', 'Sick leave pay', 'Federal income tax', 'Social Security', 'Medicare', 'Additional Medicare',
+    'California income tax', 'California SDI', 'Deduction', 'Deduction note', 'Net pay',
+    'Employer Social Security', 'Employer Medicare', 'FUTA', 'California UI', 'California ETT',
   ];
   const rows = (await runItems(run.id)).map((i) => [
     employeeName(i), i.position, i.regular_hours, i.overtime_hours, i.double_time_hours, i.hourly_rate, i.overtime_multiplier,
     i.regular_pay, i.overtime_pay, i.double_time_pay, i.adjustment, i.adjustment_note, i.gross_pay,
+    i.tax_form, i.sick_hours, i.sick_pay, i.fed_income_tax, i.social_security, i.medicare, i.additional_medicare,
+    i.ca_income_tax, i.ca_sdi, i.deduction, i.deduction_note, i.net_pay,
+    i.employer_social_security, i.employer_medicare, i.futa, i.ca_ui, i.ca_ett,
   ]);
   const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
   res.attachment(`pay-run-${run.period_start}-to-${run.period_end}.csv`);
@@ -305,20 +395,13 @@ router.get('/:id/items/:itemId/timesheet.pdf', async (req, res) => {
   await sendUpload(res, await payLineTimesheet(line), timesheetFileName(line), { inline: !req.query.download });
 });
 
-// A printable payslip for one person.
+// A printable pay stub for one person.
 router.get('/:id/payslips/:itemId', async (req, res) => {
   const run = await findRun(req.params.id);
   if (!run) return notFound(res, 'pay run');
   const item = (await runItems(run.id)).find((i) => i.id === Number(req.params.itemId));
   if (!item) return notFound(res, 'payslip');
-  const entries = await db.all(
-    `SELECT t.*, si.name AS site_name FROM time_entries t LEFT JOIN sites si ON si.id = t.site_id
-     WHERE t.pay_run_id = ? AND t.employee_id = ? ORDER BY t.start_at`,
-    run.id,
-    item.employee_id
-  );
-  for (const entry of entries) entry.hours = round2(entryHours(entry));
-  res.render('pay/payslip', { title: `Payslip – ${employeeName(item)}`, run, item, entries });
+  res.render('pay/payslip', { title: `Pay stub – ${employeeName(item)}`, ...(await payslipData(run, item, res.locals.settings)) });
 });
 
 module.exports = router;

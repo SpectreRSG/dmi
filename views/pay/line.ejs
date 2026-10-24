@@ -1,0 +1,82 @@
+<%- include('../partials/top') %>
+<% const w2 = item.tax_form === 'W-2'; const draft = run.status === 'draft'; %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/pay/<%= run.id %>">← Pay run <%= fmtDate(run.period_start) %> – <%= fmtDate(run.period_end) %></a></p>
+    <h1><%= item.first_name %> <%= item.last_name %> <%- badge(w2 ? 'W-2 employee' : '1099 contractor', w2 ? 'blue' : 'gray') %></h1>
+    <p class="page-sub">Pay date <%= fmtDate(payDate) %><%= draft ? ' (planned)' : '' %> · <a href="/pay/<%= run.id %>/payslips/<%= item.id %>">Pay stub</a></p>
+  </div>
+</div>
+
+<div class="grid-2">
+  <section class="card card-pad">
+    <h2>From gross to net</h2>
+    <table class="table compact">
+      <tbody>
+        <tr><td>Regular: <%= fmtHours(item.regular_hours) %> h × <%= money(item.hourly_rate) %></td><td class="num"><%= money(item.regular_pay) %></td></tr>
+        <% if (item.overtime_hours) { %><tr><td>Overtime: <%= fmtHours(item.overtime_hours) %> h × <%= money(item.hourly_rate * item.overtime_multiplier) %></td><td class="num"><%= money(item.overtime_pay) %></td></tr><% } %>
+        <% if (item.double_time_hours) { %><tr><td>Double time: <%= fmtHours(item.double_time_hours) %> h × <%= money(item.hourly_rate * 2) %></td><td class="num"><%= money(item.double_time_pay) %></td></tr><% } %>
+        <% if (item.sick_hours) { %><tr><td>Paid sick leave: <%= fmtHours(item.sick_hours) %> h × <%= money(item.hourly_rate) %></td><td class="num"><%= money(item.sick_pay) %></td></tr><% } %>
+        <% if (item.adjustment) { %><tr><td>Adjustment<%= item.adjustment_note ? `: ${item.adjustment_note}` : '' %></td><td class="num"><%= money(item.adjustment) %></td></tr><% } %>
+        <tr><td><strong>Gross pay</strong></td><td class="num"><strong><%= money(item.gross_pay) %></strong></td></tr>
+        <% if (w2) { %>
+          <tr><td>Federal income tax</td><td class="num">−<%= money(item.fed_income_tax) %></td></tr>
+          <tr><td>Social Security</td><td class="num">−<%= money(item.social_security) %></td></tr>
+          <tr><td>Medicare</td><td class="num">−<%= money(item.medicare) %></td></tr>
+          <% if (item.additional_medicare) { %><tr><td>Additional Medicare</td><td class="num">−<%= money(item.additional_medicare) %></td></tr><% } %>
+          <tr><td>California income tax</td><td class="num">−<%= money(item.ca_income_tax) %></td></tr>
+          <tr><td>California SDI</td><td class="num">−<%= money(item.ca_sdi) %></td></tr>
+        <% } else if (item.fed_income_tax) { %>
+          <tr><td>Federal backup withholding (24%)</td><td class="num">−<%= money(item.fed_income_tax) %></td></tr>
+        <% } %>
+        <% if (item.deduction) { %><tr><td>Deduction<%= item.deduction_note ? `: ${item.deduction_note}` : '' %></td><td class="num">−<%= money(item.deduction) %></td></tr><% } %>
+      </tbody>
+      <tfoot><tr><td><strong>Net pay</strong></td><td class="num"><strong><%= money(item.net_pay) %></strong></td></tr></tfoot>
+    </table>
+    <% if (!w2) { %><p class="hint">Independent contractor: overtime rules and payroll taxes don't apply. They pay their own taxes, and get a 1099-NEC.</p><% } %>
+  </section>
+
+  <% if (w2) { %>
+    <section class="card card-pad">
+      <h2>Company taxes on this pay</h2>
+      <table class="table compact">
+        <tbody>
+          <tr><td>Social Security</td><td class="num"><%= money(item.employer_social_security) %></td></tr>
+          <tr><td>Medicare</td><td class="num"><%= money(item.employer_medicare) %></td></tr>
+          <tr><td>Federal unemployment (FUTA)</td><td class="num"><%= money(item.futa) %></td></tr>
+          <tr><td>California UI</td><td class="num"><%= money(item.ca_ui) %></td></tr>
+          <tr><td>California ETT</td><td class="num"><%= money(item.ca_ett) %></td></tr>
+        </tbody>
+      </table>
+      <h2 class="spaced">Paid sick leave</h2>
+      <dl class="dl compact">
+        <dt>Earned this pay run</dt><dd><%= fmtHours(item.sick_accrued) %> h <span class="muted small">(1 for every 30 worked)</span></dd>
+        <dt>Used this pay run</dt><dd><%= fmtHours(item.sick_hours) %> h</dd>
+        <dt>Available afterwards</dt><dd><strong><%= fmtHours(item.sick_balance) %> h</strong></dd>
+      </dl>
+      <% if (!item.has_w4) { %><p class="hint">No W-4 and DE 4 on file yet: taxes are worked out as single, with no adjustments or allowances. <a href="/staff/<%= item.employee_id %>/withholding">Enter their forms</a>.</p><% } %>
+    </section>
+  <% } %>
+</div>
+
+<% if (draft) { %>
+  <form method="post" action="/pay/<%= run.id %>/items/<%= item.id %>" class="card form-card narrow">
+    <%- include('../partials/csrf') %>
+    <input type="hidden" name="back" value="line">
+    <h2>Change this pay line</h2>
+    <div class="form-grid">
+      <label>Adjustment ($) <input type="number" step="0.01" name="adjustment" value="<%= item.adjustment || '' %>" placeholder="0.00"><span class="hint">Added to pay before taxes, e.g. a bonus. Use a minus to correct pay that was too high.</span></label>
+      <label>Reason <input name="adjustment_note" value="<%= item.adjustment_note || '' %>" maxlength="120" placeholder="e.g. bonus"></label>
+      <% if (w2) { %>
+        <label class="field-full">Paid sick leave taken (hours)
+          <input type="number" step="0.25" min="0" name="sick_hours" value="<%= item.sick_hours || '' %>" placeholder="0">
+          <span class="hint">Paid at <%= money(item.hourly_rate) %> an hour. <%= sickLimit ? sickLimit.reason : '' %></span>
+        </label>
+      <% } %>
+      <label>Deduction after taxes ($) <input type="number" step="0.01" min="0" name="deduction" value="<%= item.deduction || '' %>" placeholder="0.00"><span class="hint">Only with the person's written OK (California Labor Code 224), e.g. paying back an advance.</span></label>
+      <label>Reason <input name="deduction_note" value="<%= item.deduction_note || '' %>" maxlength="120" placeholder="e.g. advance repayment"></label>
+    </div>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Save</button></div>
+  </form>
+<% } %>
+<%- include('../partials/bottom') %>

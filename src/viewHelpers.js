@@ -1,6 +1,7 @@
 // Functions the page templates (views/*.ejs) can use, e.g. <%= fmtDate(x) %>.
 const { escapeXML } = require('ejs');
 const time = require('./time');
+const { round2 } = require('./services/payroll');
 const { expiryStatus } = require('./services/compliance');
 
 // Simple line icons (24x24). Used like <%- icon('calendar') %>.
@@ -151,6 +152,8 @@ function contractBadge(contract, warningDays) {
 
 module.exports = {
   ...time,
+  round2,
+  escapeXML, // for HTML built inside a template (<%- … %>)
   icon,
   NAV,
   ADMIN_NAV,

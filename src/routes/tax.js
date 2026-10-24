@@ -76,10 +76,11 @@ router.get('/', async (req, res) => {
 async function freshNumbers(employee, year, settings) {
   const profile = await db.get('SELECT * FROM tax_profiles WHERE employee_id = ?', employee.id);
   if (!profile) return { error: `${employeeName(employee)} hasn't filled in their W-9 details yet (they do it under Tax forms in their account).` };
-  if (tax.payerMissing(settings)) return { error: 'Fill in the company\'s 1099 details in Settings first.' };
-  const paid = (await tax.paymentsForYear(year)).get(employee.id)?.total || 0;
+  if (tax.payerMissing(settings)) return { error: 'Fill in the company tax details in Settings first.' };
+  const payments = (await tax.paymentsForYear(year)).get(employee.id);
   return {
-    box1: paid,
+    box1: payments?.total || 0,
+    box4: payments?.withheld || 0, // backup withholding
     payer: tax.payerFromSettings(settings),
     recipient: tax.recipientFromProfile(profile, employee),
     box6: [settings.payer_state, settings.payer_state_id].filter(Boolean).join(' '),
@@ -101,9 +102,9 @@ router.post('/forms', async (req, res) => {
     return res.redirect(back);
   }
   const id = await db.insert(
-    `INSERT INTO tax_forms (employee_id, tax_year, box1, box6, box7, payer, recipient, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    employee.id, year, fresh.box1, fresh.box6 || null, fresh.box6 ? fresh.box1 : 0, JSON.stringify(fresh.payer), JSON.stringify(fresh.recipient), req.user.id
+    `INSERT INTO tax_forms (employee_id, tax_year, box1, box4, box6, box7, payer, recipient, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    employee.id, year, fresh.box1, fresh.box4, fresh.box6 || null, fresh.box6 ? fresh.box1 : 0, JSON.stringify(fresh.payer), JSON.stringify(fresh.recipient), req.user.id
   );
   await logActivity(req, `Started a ${year} 1099-NEC for ${employeeName(employee)}`);
   res.redirect(`/tax/forms/${id}`);
@@ -164,8 +165,8 @@ router.post('/forms/:id/refresh', async (req, res) => {
     return res.redirect(back);
   }
   await db.run(
-    'UPDATE tax_forms SET box1 = ?, payer = ?, recipient = ? WHERE id = ?',
-    fresh.box1, JSON.stringify(fresh.payer), JSON.stringify(fresh.recipient), form.id
+    'UPDATE tax_forms SET box1 = ?, box4 = ?, payer = ?, recipient = ? WHERE id = ?',
+    fresh.box1, fresh.box4, JSON.stringify(fresh.payer), JSON.stringify(fresh.recipient), form.id
   );
   req.flash('success', 'Updated from the latest pay runs, W-9 details and company settings.');
   res.redirect(back);
