@@ -15,7 +15,7 @@
       <dt>Social Security number</dt><dd><%= ssn || 'Not on file: enter their W-4 and DE 4 first' %></dd>
       <dt>Address</dt><dd><%= w4 ? `${w4.address}, ${w4.city}, ${w4.state} ${w4.zip}` : (employee.address || '—') %></dd>
       <% if (employee.w2_since) { %>
-        <dt>Became an employee</dt><dd><%= fmtDate(employee.w2_since) %> <span class="muted small">(was a contractor: this is their start date for the report)</span></dd>
+        <dt>Became an employee</dt><dd><%= fmtDate(employee.w2_since) %> <span class="muted small">(was a contractor: this is their start date for the report. Not right? Change "Employee since" when you <a href="/staff/<%= employee.id %>/edit">edit their record</a>.)</span></dd>
       <% } else { %>
         <dt>Start date</dt><dd><%= employee.start_date ? fmtDate(employee.start_date) : 'Not set: add it on the staff record' %></dd>
       <% } %>

@@ -2,7 +2,7 @@
 const express = require('express');
 const db = require('../db');
 const { clean, toNumber, notFound, numericIdParam, logActivity, isInUseError, employeeName } = require('../helpers');
-const { isValidDate, todayStr, addDays, startOfWeek } = require('../time');
+const { isValidDate, todayStr, addDays, startOfWeek, fmtDate } = require('../time');
 const { entryHours, round2 } = require('../services/payroll');
 const { complianceFor, complianceForEmployee } = require('../services/compliance');
 const availability = require('../services/availability');
@@ -40,19 +40,35 @@ function readForm(req, existing) {
 
   let error = null;
   // Only admins can see or change pay.
+  let sinceInput;
   if (req.user.role === 'admin') {
     const pay = employment.readPayFields(req.body, existing || {});
     Object.assign(v, pay.values);
     error = pay.error;
+    if (req.body.w2_since !== undefined) sinceInput = String(req.body.w2_since).trim();
   } else {
     for (const f of PAY_FIELDS) v[f] = existing ? existing[f] : NEW_PERSON_PAY[f];
   }
   if (!v.first_name || !v.last_name) error = 'First name and last name are required.';
   else if (v.position && !POSITIONS.includes(v.position) && v.position !== existing?.position) error = 'Choose a position from the list.';
-  else if (['start_date', 'end_date', 'license_expiry'].some((f) => v[f] && !isValidDate(v[f]))) {
+  else if (['start_date', 'end_date', 'license_expiry'].some((f) => v[f] && !isValidDate(v[f])) || (sinceInput && !isValidDate(sinceInput))) {
     error = 'Please use the date pickers for dates.';
   }
-  return { values: v, error };
+  return { values: v, error, sinceInput };
+}
+
+// The day someone became a W-2 employee, when that isn't their start date (it
+// decides the new hire report and the sick leave waiting period). Changing
+// someone from Contractor makes it today, unless the form gives a date; an
+// admin can correct it, or clear it if they were an employee from their start
+// date. `input`: the form's date ('' = cleared), or undefined if not on the form.
+function employeeSince(existing, values, input) {
+  if (values.tax_form !== 'W-2') return null;
+  let since;
+  if (!existing) since = input || null;
+  else if (existing.tax_form !== 'W-2') since = input || todayStr();
+  else since = input === undefined ? existing.w2_since || null : input || null;
+  return since && values.start_date && since <= values.start_date ? null : since;
 }
 
 function renderForm(res, employee, error, status = 200) {
@@ -128,9 +144,10 @@ router.get('/new', (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-  const { values, error } = readForm(req);
-  if (error) return renderForm(res, values, error, 400);
-  const columns = [...FIELDS, ...PAY_FIELDS];
+  const { values, error, sinceInput } = readForm(req);
+  if (error) return renderForm(res, { ...values, w2_since: sinceInput }, error, 400);
+  values.w2_since = employeeSince(null, values, sinceInput);
+  const columns = [...FIELDS, ...PAY_FIELDS, 'w2_since'];
   const id = await db.insert(
     `INSERT INTO employees (${columns.join(', ')}) VALUES (${columns.map((f) => `@${f}`).join(', ')})`,
     values
@@ -238,16 +255,17 @@ router.get('/:id/edit', async (req, res) => {
 router.post('/:id', async (req, res) => {
   const existing = await findEmployee(req.params.id);
   if (!existing) return notFound(res, 'staff member');
-  const { values, error } = readForm(req, existing);
-  if (error) return renderForm(res, { ...values, id: existing.id }, error, 400);
+  const { values, error, sinceInput } = readForm(req, existing);
+  if (error) return renderForm(res, { ...values, w2_since: sinceInput ?? existing.w2_since, id: existing.id }, error, 400);
   const change = employment.payChange(existing, values);
   const columns = [...FIELDS, ...PAY_FIELDS];
-  // A contractor who becomes an employee is a new hire from today (new hire
-  // report, sick leave waiting period); going back to contractor ends that.
+  // A contractor who becomes an employee is a new hire (new hire report, sick
+  // leave waiting period); going back to contractor ends that.
+  values.w2_since = employeeSince(existing, values, sinceInput);
+  if (values.w2_since !== (existing.w2_since || null)) columns.push('w2_since');
   if (existing.tax_form !== values.tax_form) {
-    values.w2_since = values.tax_form === 'W-2' ? todayStr() : null;
     values.new_hire_reported_on = null;
-    columns.push('w2_since', 'new_hire_reported_on');
+    columns.push('new_hire_reported_on');
   }
   await db.run(`UPDATE employees SET ${columns.map((f) => `${f} = @${f}`).join(', ')} WHERE id = @id`, {
     ...values,
@@ -260,7 +278,7 @@ router.post('/:id', async (req, res) => {
     await logActivity(req, `Changed how ${employeeName(values)} is paid: ${values.employment_type}${was}`);
     req.flash('success', `Saved. ${employeeName(values)} is now ${values.employment_type}${was}: ${employment.describe(employee, res.locals.settings).join(' ')}`);
     if (values.tax_form === 'W-2' && existing.tax_form !== 'W-2') {
-      req.flash('info', 'They are an employee from today: report them as a new hire (DE 34) within 20 days, and they need to fill in a W-4 and DE 4 (they see it when they sign in). Pay runs from now on use the new rules; press Recalculate on any draft.');
+      req.flash('info', `They are an employee from ${values.w2_since ? fmtDate(values.w2_since) : 'their start date'} ("Employee since" on their record: change it if that's not right, for example if they were really an employee all along).${values.w2_since ? ' Report them to the EDD as a new hire (DE 34) within 20 days.' : ''} They need to fill in a W-4 and DE 4 (they see it when they sign in). Pay runs from now on use the new rules; press Recalculate on any draft.`);
     } else if (existing.tax_form === 'W-2' && values.tax_form !== 'W-2') {
       req.flash('info', 'They are paid as a contractor from now on: taxes stop, and they need a W-9 on file. Their W-2 pay so far this year still goes on a W-2 in January. Press Recalculate on any draft pay run.');
     } else {

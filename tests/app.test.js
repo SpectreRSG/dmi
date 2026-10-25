@@ -2627,6 +2627,25 @@ test('employment types: a change switches pay and taxes; salaried pay; meal and 
   assert.match((await admin.get(`/pay/${run}/payslips/${salLine.id}`)).text, /Salary \(exempt\)/);
   assert.match((await admin.raw('GET', `/pay/${run}/export.csv`)).text, /Sal Aried,,Salary \(exempt\),0,0,0,/);
 
+  // Remy was really an employee all along: clearing "Employee since" ends the new hire report.
+  const remyForm = { first_name: 'Remy', last_name: 'Role', status: 'active', employment_type: 'Part Time Regular', hourly_rate: '30', annual_salary: '31200', weekly_hours: '24', start_date: '2024-02-05' };
+  res = await admin.post(`/staff/${remy}`, { ...remyForm, w2_since: '25/10/2026' }, `/staff/${remy}/edit`);
+  assert.equal(res.status, 400);
+  assert.match(res.text, /Please use the date pickers/);
+  res = await admin.post(`/staff/${remy}`, { ...remyForm, weekly_hours: '40' }, `/staff/${remy}/edit`);
+  assert.match(res.text, new RegExp(`name="w2_since" value="${time.todayStr()}"`), 'a mistake elsewhere on the form keeps the date');
+  await admin.post(`/staff/${remy}`, { ...remyForm, w2_since: '' });
+  assert.equal((await person(remy)).w2_since, null);
+  assert.doesNotMatch((await admin.get('/')).text, /New hire report \(DE 34\) for Remy Role/);
+  await admin.post(`/staff/${remy}`, { ...remyForm, w2_since: '2024-01-15' });
+  assert.equal((await person(remy)).w2_since, null, 'before their start date means since their start date');
+  const lastWeek = time.addDays(time.todayStr(), -7);
+  await admin.post(`/staff/${remy}`, { ...remyForm, w2_since: lastWeek });
+  assert.equal((await person(remy)).w2_since, lastWeek);
+  assert.match((await admin.get('/')).text, new RegExp(`New hire report \\(DE 34\\) for Remy Role is due ${time.fmtDate(time.addDays(lastWeek, 20))}`));
+  await admin.post(`/staff/${remy}`, remyForm);
+  assert.equal((await person(remy)).w2_since, lastWeek, 'left alone when the form has no date field');
+
   // Back to contractor: taxes and break rules stop.
   await admin.post(`/staff/${remy}`, { first_name: 'Remy', last_name: 'Role', status: 'active', employment_type: 'Contractor', hourly_rate: '30', start_date: '2024-02-05' });
   r = await person(remy);

@@ -242,7 +242,9 @@ sites' details. So keep its password private, and deactivate it when you're not 
   of their start date (e-Services for Business). The dashboard lists who's due, admins get a
   reminder 5 days before, and **Report details** on the staff page has everything to type in (full
   SSN, behind a fresh two-step code); then mark it as reported. Someone moving from Contractor to an
-  employee type counts as a new hire from the day the type was changed (DMI uses that day).
+  employee type counts as a new hire from the day the type was changed: DMI puts that day in
+  **Employee since** on their record. If they were really an employee all along (DMI just had them
+  as a contractor), clear it, and their start date counts instead.
 - **Paid sick leave (W-2 employees, California):** 1 hour earned for every 30 worked, earning stops
   while 80 hours are banked, up to 40 hours used a year, usable from the 90th day of employment
   (start date on the staff record, or the day a contractor became an employee).

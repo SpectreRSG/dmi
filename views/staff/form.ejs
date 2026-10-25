@@ -79,6 +79,10 @@
         <input type="checkbox" name="overtime_exempt" value="1" <%= employee.overtime_exempt ? 'checked' : '' %>>
         <span>Exempt from overtime and break rules <span class="hint">Only for managers and office staff whose main duties qualify, with a salary of at least <%= money(exemptMinimum) %> a year. Guards are not exempt. Ask your accountant or lawyer if unsure.</span></span>
       </label>
+      <label data-show-for="<%= employeeTypes %>">Employee since
+        <input type="date" name="w2_since" value="<%= employee.w2_since || '' %>">
+        <span class="hint">Only if it isn't their start date: the day a contractor became an employee. DMI fills in today when you change someone from Contractor. If they were really an employee all along, clear it. It decides the new hire report (DE 34) and when paid sick leave can be used.</span>
+      </label>
       <label data-show-for="<%= employeeTypes %>">On-duty meal agreement signed
         <input type="date" name="meal_agreement_on" value="<%= employee.meal_agreement_on || '' %>">
         <span class="hint">Only where the job means they can't leave their post to eat: they eat at the post, paid. Leave empty if they take normal 30-minute unpaid meal breaks. They can cancel it in writing at any time.</span>
