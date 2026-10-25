@@ -49,7 +49,7 @@ const NAV = [
   { href: '/my/schedule', label: 'My schedule', icon: 'calendar', roles: ['officer'] },
   { href: '/my/schedule', label: 'Schedule', icon: 'calendar', roles: ['client'] },
   { href: '/my/availability', label: 'My availability', icon: 'clock', roles: ['officer'] },
-  { href: '/my/incidents', label: 'Incident reports', icon: 'alert', roles: ['officer'] },
+  { href: '/my/incidents', label: 'Incident reports', icon: 'alert', roles: ['officer', 'manager', 'client'] },
   { href: '/my/requests', label: 'Shift requests', icon: 'plus', roles: ['client'] },
   { href: '/my/pay', label: 'My pay', icon: 'money', roles: ['officer'], also: ['/my/tax'] },
   { href: '/my/details', label: 'My details', icon: 'user', roles: ['officer'] },

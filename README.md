@@ -12,7 +12,7 @@ A private website for running the business side of a security company:
 | **Call-outs & open shifts** | An officer who can't make a shift presses **I can't make it** (or the office notes it). The shift is offered to the officers who are free, rested, licensed and trained: regulars at that site first, everyone else 10 minutes later. The first to claim it gets it. The office is only told if nobody has claimed it after 30 minutes (15 when the shift is close). |
 | **App notifications** | Free alerts on phones and computers, like a text message, with no texting company or phone numbers. Officers hear about open shifts, changes to their shifts and pay day, get a **reminder 24 hours and again 2 hours before each shift**, and a **"time cards are due"** reminder 2 days before each pay period ends. The office hears about call-outs, shifts nobody has claimed, and when time cards are due. Each person turns them on once per device. |
 | **Officer & client accounts** | Anyone can sign up at `/register`; while they wait, the page walks them through adding DMI to their phone's Home Screen and turning on notifications, and they're notified when an admin approves them and gives them a role. **Officers** must have notifications on before they can use their pages (incident reports always work). They see their shifts on a monthly calendar, their pay (pay stubs and their DMI timesheet for each pay day) and their 1099, and keep their contact details up to date. They fill in their W-9 (1099 contractors) or W-4 and DE 4 (W-2 employees) once at the start; there are no timesheets to fill in. **Clients** see the monthly schedule for their sites. Neither ever sees pay rates or other people's details. |
-| **Incident reports** | Use of force and incident reports, with the same questions as the California PPO incident record. An officer fills one in on their phone (it starts from their shift), adds photos, and signs it by typing their legal name. Admins are notified, see the reporting deadlines that may apply (guard notice, BSIS, local police), fill in the review, and approve it or ask for more; the officer answers with a dated supplement. A sent report can't be changed, prints on the model PDF form, and is kept 5 years after the incident (longer on legal hold). Admins only; managers don't see them. |
+| **Incident reports** | Use of force and incident reports, with the same questions as the California PPO incident record. **Everyone with an account can write one**: officers (it starts from their shift), clients (for their own sites), managers and admins. They fill it in on their phone, add photos, and sign it by typing their legal name. Admins are notified, see the reporting deadlines that may apply (guard notice, BSIS, local police), fill in the review, and approve it or ask for more; the writer answers with a dated supplement. A sent report can't be changed, prints on the model PDF form, and is kept 5 years after the incident (longer on legal hold). Only admins review them; everyone else sees only their own. |
 | **Sign-in security** | Two-step sign-in (an authenticator app code) or a passkey (Face ID, Touch ID, screen lock), backup codes, remembered devices, and signing out everywhere. |
 | **1099 forms** | Works out what each contractor was paid in a year (from finalized pay runs), makes Form 1099-NEC (Copy B and 2 for the officer, C and 1 for the company), shares it in the officer's account if they agreed, and gives you a filing summary for sending Copy A to the IRS. Admins only. |
 | **Timesheets** | Hours actually worked. When a shift ends, its hours are recorded and approved from the schedule by themselves. You only fix the exceptions (edit the shift or the hours), or type in hours that weren't on the schedule and approve them. |
@@ -117,17 +117,19 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
    timesheet** (filled in from their hours, with your name and the date after "APPROVED BY") under
    **My pay** in their account. You can open the same timesheets from the pay run.
 9. **Keep an eye on the dashboard** for expiring licenses, training and contracts.
-10. **Incident reports (use of force and other incidents):** an officer opens **Incident reports**
-    on their phone, starts a report from their shift (the site, address and their details fill
-    themselves in), answers what applies, adds photos, then signs it by typing their full legal name
-    and sends it. Every admin gets a notification (titled "Firearm discharge" if a gun was fired),
+10. **Incident reports (use of force and other incidents):** anyone with an account can write one.
+    An officer opens **Incident reports** on their phone and starts a report from their shift (the
+    site, address and their details fill themselves in); a client picks one of their own sites (they
+    aren't asked the questions about working as a guard); managers use **Incident reports** in their
+    menu, and admins press **Write a report** on the review page. They answer what applies, add
+    photos, then sign it by typing their full legal name and send it. Every admin gets a notification (titled "Firearm discharge" if a gun was fired),
     and the dashboard shows it. Open **Incident reports**, read it, and:
     - see **Reporting that may be required**: the California deadlines worked out from what was
       ticked (the guard's 24-hour notice, BSIS within 7 business days, local police within 7 days).
       It's a reminder of what to check, not legal advice.
     - fill in the **Review** (page 7 of the form: who files what, by when, and what was filed), and
       press **Save review**. You can come back to it.
-    - press **Approve**, or **Send to the officer** with a question. They answer with a dated
+    - press **Approve**, or **Send** a question to whoever wrote it. They answer with a dated
       **supplement**; it comes back to you to review.
     - press **PDF** for the report on the official-looking form (the same form you gave us), with
       extra pages for long answers, supplements, files and history.
@@ -147,11 +149,11 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
 
 ### Who can do what?
 
-- **Admin**: everything, including pay, pay rates, user accounts, settings and incident reports.
-- **Manager**: schedule, timesheets, staff, clients, contracts and training. Managers never see pay, pay rates, tax details or incident reports.
+- **Admin**: everything, including pay, pay rates, user accounts, settings and reviewing incident reports.
+- **Manager**: schedule, timesheets, staff, clients, contracts and training, and writing their own incident reports. Managers never see pay, pay rates, tax details or other people's incident reports.
 - **Officer**: their own monthly schedule (including "I can't make it" and claiming open shifts), their availability, their pay (pay stubs and DMI timesheets), their contact details, their W-9 and 1099s (contractors) or W-4 and DE 4 (employees), and **Incident reports** (writing their own, and seeing the ones they sent). Nothing else.
-- **Client** (site representative): the monthly schedule for their own sites, with guards shown as "first name + last initial", and **Shift requests** to ask for officers (once, or repeating), with a **History** of every request and who covered each date.
-- **Waiting for approval**: someone who signed up but hasn't been given a role yet. They see nothing.
+- **Client** (site representative): the monthly schedule for their own sites, with guards shown as "first name + last initial", and **Shift requests** to ask for officers (once, or repeating), with a **History** of every request and who covered each date, and **Incident reports** for their own sites (writing their own, and seeing the ones they sent).
+- **Waiting for approval**: someone who signed up but hasn't been given a role yet. They see nothing, and can't write incident reports until they're approved.
 
 A **test officer account** (`test.officer@example.com`, staff record "Test Officer") is created
 automatically with the database, for trying the officer pages. Its password was given to the site
@@ -361,7 +363,7 @@ src/
                      sending, deadlines, the 5-year keep date, and the filled-in PDF
   routes/            one file per area: staff, schedule, timesheets, pay, contracts, training, tax…
                      (my.js and myTax.js are the officers' and clients' own pages; incidents.js
-                     has both the officers' /my/incidents and the admins' /incidents)
+                     has both /my/incidents, where everyone writes their own, and the admins' /incidents)
 views/               the HTML templates, one folder per area
 public/              CSS, browser JavaScript, the logo (img/) and app icons (icons/), and the old
                      stand-alone timesheet page (timesheet/)
@@ -516,4 +518,3 @@ spreadsheets as you go, and ask for help setting up regular database snapshots.
 - Retire the stand-alone /timesheet/ page
 - Client invoicing (bill rates per site)
 - Email reminders for expiring licenses and unfilled shifts
-- Clients reporting incidents at their sites (officers' incident reports are done)

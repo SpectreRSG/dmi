@@ -1,6 +1,7 @@
 <%# The questions of one section (or group), as form fields. Names match the boxes on the PDF form. %>
 <% for (const f of fields) { %>
-  <% if (f.type === 'heading') { %>
+  <% if (f.staffOnly && locals.notStaff) { %>
+  <% } else if (f.type === 'heading') { %>
     <h3 class="ir-heading"><%= f.label %></h3>
   <% } else if (f.type === 'check') { %>
     <label class="check ir-check"><input type="checkbox" name="<%= f.name %>" value="1" <%= values[f.name] ? 'checked' : '' %>> <%= f.label %></label>

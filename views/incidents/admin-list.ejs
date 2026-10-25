@@ -2,7 +2,11 @@
 <div class="page-head">
   <div>
     <h1>Incident reports</h1>
-    <p class="page-sub">Use of force and incident reports officers have sent. Review each one, record what was reported where, and approve it or ask the officer for more information. Reports are kept for 5 years after the incident.</p>
+    <p class="page-sub">Use of force and incident reports sent by officers, clients and the office. Review each one, record what was reported where, and approve it or ask whoever wrote it for more information. Reports are kept for 5 years after the incident.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/my/incidents">Your own reports</a>
+    <a class="btn btn-primary" href="/my/incidents/new"><%- icon('plus') %> Write a report</a>
   </div>
 </div>
 <nav class="tabs" aria-label="Which reports">
@@ -12,7 +16,7 @@
 </nav>
 <form class="filters" method="get" action="/incidents">
   <input type="hidden" name="view" value="<%= view %>">
-  <input type="search" name="q" value="<%= q %>" placeholder="Report number, officer or site" aria-label="Search">
+  <input type="search" name="q" value="<%= q %>" placeholder="Report number, name or site" aria-label="Search">
   <button class="btn" type="submit">Search</button>
 </form>
 <div class="card">
@@ -27,7 +31,7 @@
             <tr>
               <td data-label="Report"><a href="/incidents/<%= r.id %>"><strong><%= r.number %></strong></a></td>
               <td class="nowrap" data-label="Incident"><%= r.incident_date ? `${fmtDay(r.incident_date)} ${r.incident_date.slice(0, 4)}` : '—' %><% if (r.data.site_client) { %><div class="muted small"><%= r.data.site_client %></div><% } %></td>
-              <td data-label="Officer"><%= r.first_name %> <%= r.last_name %></td>
+              <td data-label="Written by"><%= r.reporter %><% if (r.reporter_role && r.reporter_role !== 'officer') { %> <span class="muted small">(<%= ROLE_NAMES[r.reporter_role] || r.reporter_role %>)</span><% } %></td>
               <td data-label="What"><%= typesText(r) %></td>
               <td data-label="Status"><%- badge(STATUS_LABELS[r.status], { submitted: 'blue', info_requested: 'amber', approved: 'green' }[r.status]) %><% if (r.legal_hold) { %> <%- badge('Legal hold', 'red') %><% } %></td>
               <td data-label="Reporting" class="small"><% if (r.deadlines.length && r.status !== 'approved') { %>Check by <%= r.deadlines.map((d) => d.dueText).sort()[0] %><% } else { %><span class="muted">—</span><% } %></td>

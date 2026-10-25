@@ -6,12 +6,12 @@
     <p class="page-sub">
       <%- badge(STATUS_LABELS[report.status], { submitted: 'blue', info_requested: 'amber', approved: 'green' }[report.status]) %>
       <% if (report.legal_hold) { %><%- badge('Legal hold', 'red') %><% } %>
-      <%= typesText(report) %> · by <a href="/staff/<%= report.employee_id %>"><%= report.first_name %> <%= report.last_name %></a> · sent <%= fmtDateTime(report.submitted_at) %>
+      <%= typesText(report) %> · by <% if (report.employee_id) { %><a href="/staff/<%= report.employee_id %>"><%= reporter %></a><% } else { %><%= reporter %><% } %><% if (report.reporter_role && report.reporter_role !== 'officer') { %> (<%= ROLE_NAMES[report.reporter_role] || report.reporter_role %>)<% } %> · sent <%= fmtDateTime(report.submitted_at) %>
     </p>
   </div>
   <div class="page-actions"><a class="btn" href="/incidents/<%= report.id %>/pdf" target="_blank" rel="noopener"><%- icon('file') %> PDF (the filled-in form)</a></div>
 </div>
-<p class="muted small">Kept until <strong><%= fmtDate(report.retain_until) %></strong> (<%= 5 %> years after the incident)<%= report.legal_hold ? ', and longer while on legal hold' : '' %>. The officer's account can't be changed; they add dated supplements.</p>
+<p class="muted small">Kept until <strong><%= fmtDate(report.retain_until) %></strong> (<%= 5 %> years after the incident)<%= report.legal_hold ? ', and longer while on legal hold' : '' %>. Their account can't be changed; they add dated supplements.</p>
 
 <% if (deadlines.length) { %>
   <section class="card card-pad ir-deadlines">
@@ -65,9 +65,9 @@
     </form>
     <form method="post" action="/incidents/<%= report.id %>/request-info" class="stack">
       <%- include('../partials/csrf') %>
-      <label>Ask the officer for more information
+      <label>Ask <%= reporter %> for more information
         <textarea name="note" rows="3" maxlength="2000" required placeholder="e.g. What did the person say just before you took hold of their arm?"></textarea></label>
-      <div><button type="submit" class="btn">Send to the officer</button></div>
+      <div><button type="submit" class="btn">Send to <%= reporter.split(' ')[0] %></button></div>
     </form>
   </div>
   <h3 class="ir-heading">Keeping the record</h3>

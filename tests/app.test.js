@@ -1747,7 +1747,7 @@ test('incident reports: an officer fills one in and signs it; only admins review
   assert.equal((await owen.get(`/incidents/${id}`)).location, '/my');
   const client = makeClient();
   await signIn(client, 'carla@example.com', 'client password 1');
-  assert.equal((await client.get('/my/incidents')).status, 403);
+  assert.equal((await client.get(`/my/incidents/${id}`)).status, 404, "a client can write reports, but not see other people's");
   assert.equal((await client.get(`/incidents/${id}`)).location, '/my');
 
   // The admins' list, the dashboard, and the report with its deadlines.
@@ -1762,7 +1762,7 @@ test('incident reports: an officer fills one in and signs it; only admins review
   assert.match(page.text, /Firearm discharged/);
   assert.match(page.text, /BPC 7583\.4/);
   assert.match(page.text, /gate\.jpg/);
-  assert.match(page.text, /About the officer/);
+  assert.match(page.text, /About the person reporting/);
   const deadlines = ir.deadlines(report);
   assert.deepEqual(deadlines.map((d) => d.duty), [0, 1, 2]);
   assert.equal(deadlines[2].due, time.addDays(yesterday, 7));
@@ -1851,6 +1851,83 @@ test('incident reports: an officer fills one in and signs it; only admins review
   await officer.post(`/my/incidents/${draftId}/delete`, {}, `/my/incidents/${draftId}`);
   assert.equal(await ir.find(draftId), undefined);
   assert.match((await officer.get('/my/incidents')).text, /Incident reports/);
+});
+
+test('incident reports: clients, managers and admins write them too; accounts waiting for approval cannot', async () => {
+  const notify = require('../src/services/notify');
+  const ir = require('../src/services/incidentReports');
+  const sent = [];
+  notify.setSender(async (subscription, payload) => sent.push({ to: subscription.endpoint.split('/').pop(), ...JSON.parse(payload) }));
+  const to = (who) => sent.filter((m) => m.to === who);
+  const yesterday = time.addDays(time.todayStr(), -1);
+  const answers = { type_complaint: '1', incident_date: yesterday, incident_start: '14:05', guard_narrative: 'A man shouted at the front desk staff and kicked the door twice.' };
+  const otherClient = await db.insert("INSERT INTO clients (name) VALUES ('Elsewhere Co')");
+  const otherSite = await db.insert("INSERT INTO sites (client_id, name) VALUES (?, 'Elsewhere lobby')", otherClient);
+
+  // A client (site rep): only their own sites, no questions about working as a guard.
+  const client = makeClient();
+  await signIn(client, 'carla@example.com', 'client password 1');
+  await addDevice(client, 'carla');
+  assert.match((await client.get('/my/schedule')).text, /href="\/my\/incidents"/, 'in their menu');
+  let page = await client.get('/my/incidents/new');
+  assert.equal(page.status, 200);
+  assert.match(page.text, new RegExp(`<option value="${ids.site}" selected>`), "their own site, picked for them");
+  assert.doesNotMatch(page.text, /Elsewhere lobby/);
+  let res = await client.post('/my/incidents', { site_id: String(otherSite) }, '/my/incidents/new');
+  assert.equal((await ir.find(Number(res.location.split('/').pop()))).site_id, null, "not another client's site");
+  res = await client.post('/my/incidents', { site_id: String(ids.site) }, '/my/incidents/new');
+  const id = Number(res.location.split('/').pop());
+  let report = await ir.find(id);
+  assert.deepEqual([report.employee_id, report.site_id, report.reporter_name, report.reporter_role, report.data.guard_name], [null, ids.site, 'Carla Client', 'client', 'Carla Client']);
+  assert.equal(report.data.guard_employer, undefined, "the employer is DMI's, not the client's");
+  page = await client.get(`/my/incidents/${id}`);
+  assert.match(page.text, /id="incident-form"/);
+  assert.doesNotMatch(page.text, /BSIS guard registration number/);
+  res = await client.post(`/my/incidents/${id}`, { ...answers, guard_name: 'Carla Client', action: 'submit', attest: '1', signature: 'Carla Client' }, `/my/incidents/${id}`);
+  assert.equal(res.status, 302);
+  report = await ir.find(id);
+  assert.equal(report.status, 'submitted');
+  assert.match(to('alex').at(-1).title, /from Carla C\./);
+
+  // The office reviews it like any other, and the client hears back.
+  page = await admin.get('/incidents');
+  assert.match(page.text, new RegExp(`${report.number}[\\s\\S]*Carla Client <span class="muted small">\\(Client\\)`));
+  page = await admin.get(`/incidents/${id}`);
+  assert.match(page.text, /by Carla Client \(Client\)/);
+  assert.match(page.text, /Ask Carla Client for more information/);
+  await admin.post(`/incidents/${id}/request-info`, { note: 'Was anyone hurt?' }, `/incidents/${id}`);
+  assert.match(to('carla').at(-1).title, /More information needed/);
+  await client.post(`/my/incidents/${id}/supplement`, { note: 'Nobody was hurt.' }, `/my/incidents/${id}`);
+  await admin.post(`/incidents/${id}/approve`, {}, `/incidents/${id}`);
+  assert.match(to('carla').at(-1).title, /approved/);
+  assert.equal((await client.raw('GET', `/my/incidents/${id}/pdf`)).status, 200);
+
+  // A manager (no staff record): their menu has it, and the guard questions are there.
+  const manager = makeClient();
+  await signIn(manager, 'morgan@example.com', 'another long password');
+  assert.match((await manager.get('/')).text, /href="\/my\/incidents"/);
+  res = await manager.post('/my/incidents', {}, '/my/incidents/new');
+  const managerDraft = Number(res.location.split('/').pop());
+  report = await ir.find(managerDraft);
+  assert.deepEqual([report.employee_id, report.reporter_role, report.data.guard_name], [null, 'manager', 'Morgan Manager']);
+  assert.match((await manager.get(`/my/incidents/${managerDraft}`)).text, /BSIS guard registration number/);
+  assert.equal((await client.get(`/my/incidents/${managerDraft}`)).status, 404);
+  await manager.post(`/my/incidents/${managerDraft}/delete`, {}, `/my/incidents/${managerDraft}`);
+
+  // An admin writes one from the review page.
+  assert.match((await admin.get('/incidents')).text, /href="\/my\/incidents\/new"/);
+  res = await admin.post('/my/incidents', { site_id: String(otherSite) }, '/my/incidents/new');
+  const adminDraft = Number(res.location.split('/').pop());
+  assert.equal((await ir.find(adminDraft)).site_id, otherSite, 'the office can pick any site');
+  assert.match((await admin.get('/my/incidents')).text, /Your incident reports/);
+  await admin.post(`/my/incidents/${adminDraft}/delete`, {}, `/my/incidents/${adminDraft}`);
+
+  // Not before the office approves the account.
+  const newcomer = makeClient();
+  await newcomer.post('/register', { requested_role: 'client', name: 'Nora Newcomer', email: 'nora@example.com', password: 'brand new account 9', confirm: 'brand new account 9' }, '/register');
+  assert.equal((await newcomer.get('/my/incidents')).status, 403);
+  assert.equal((await newcomer.post('/my/incidents', {})).status, 403);
+  await db.run("DELETE FROM incident_reports WHERE status = 'draft' AND created_by = (SELECT id FROM users WHERE email = 'carla@example.com')");
 });
 
 test('reminders: officers hear about each shift 24 hours and 2 hours before, and everyone hears when time cards are due', async (t) => {

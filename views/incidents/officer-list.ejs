@@ -1,7 +1,8 @@
 <%- include('../partials/top') %>
 <div class="page-head">
   <div>
-    <h1>Incident reports</h1>
+    <% if (currentUser.role === 'admin') { %><p class="page-sub"><a href="/incidents">← All reports (to review)</a></p><% } %>
+    <h1><%= title %></h1>
     <p class="page-sub">After any use of force, a firearm drawn or fired, a restraint or detention, an injury, a complaint, property damage or a police report, write it up here as soon as you safely can. It goes to the office for review.</p>
   </div>
   <div class="page-actions"><a class="btn btn-primary" href="/my/incidents/new"><%- icon('plus') %> Start a report</a></div>

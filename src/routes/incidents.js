@@ -1,16 +1,26 @@
-// Use of force and incident reports: the officer's pages (/my/incidents) and
-// the admins' (/incidents). See services/incidentReports.js for how they work.
+// Use of force and incident reports: writing them (/my/incidents, for every
+// account: officers, clients, managers and admins) and reviewing them (the
+// admins' /incidents). See services/incidentReports.js for how they work.
 const express = require('express');
 const db = require('../db');
 const time = require('../time');
 const ir = require('../services/incidentReports');
-const { notifyAdmins, notifyEmployees } = require('../services/notify');
+const { notifyAdmins, notifyEmployees, notifyUsers } = require('../services/notify');
 const { saveUpload, sendUpload, deleteUpload, UploadError } = require('../uploads');
 const { logActivity, notFound, numericIdParam } = require('../helpers');
 
-const SHIFTS_BACK_DAYS = 3; // a report can start from any of the officer's shifts in the last 3 days
+const SHIFTS_BACK_DAYS = 3; // a report can start from any of the writer's shifts in the last 3 days
+const WRITERS = ['officer', 'client', 'manager', 'admin']; // everyone but accounts still waiting for approval
 
-const shortName = (r) => `${r.first_name} ${r.last_name.charAt(0)}.`;
+const shortName = (r) => {
+  const [first, ...rest] = ir.reporterOf(r).split(' ');
+  return rest.length ? `${first} ${rest.at(-1).charAt(0)}.` : first;
+};
+
+// Tells the person who wrote a report (their account, or failing that the staff record's).
+function notifyWriter(report, message) {
+  return report.created_by ? notifyUsers([report.created_by], message) : notifyEmployees([report.employee_id], message);
+}
 const typesText = (r) => ir.typeLabels(r.data || {}).join(', ') || 'Incident';
 const ATTEST = 'I have reviewed this account. It distinguishes my observations from information supplied by others and identifies estimates or information I do not know. If I later identify an error or additional information, I will submit a dated supplement that preserves this original account.';
 
@@ -51,30 +61,43 @@ async function sendPdf(req, res, report) {
   res.send(pdf);
 }
 
-// ---- The officer's pages -----------------------------------------------------------------
+// ---- Writing reports (everyone) ----------------------------------------------------------
 
 const officer = express.Router();
 numericIdParam(officer);
 
+// `req.me`: the writer's staff record, if they have one (officers always do;
+// admins and managers might; clients never).
 officer.use(async (req, res, next) => {
-  const me = req.user.role === 'officer' && req.user.employee_id
-    ? await db.get('SELECT * FROM employees WHERE id = ?', req.user.employee_id)
-    : null;
-  if (!me) {
+  if (!WRITERS.includes(req.user.role)) {
+    return res.status(403).render('error', { title: 'Not yet', message: 'You can write incident reports once the office has approved your account.' });
+  }
+  const me = req.user.employee_id ? await db.get('SELECT * FROM employees WHERE id = ?', req.user.employee_id) : null;
+  if (req.user.role === 'officer' && !me) {
     return res.status(403).render('error', {
       title: 'Not set up yet',
-      message: req.user.role === 'officer'
-        ? "Your account isn't linked to your staff record yet. Please ask the office to finish setting it up."
-        : 'Incident reports are written by officers.',
+      message: "Your account isn't linked to your staff record yet. Please ask the office to finish setting it up.",
     });
   }
   req.me = me;
+  res.locals.notStaff = req.user.role === 'client'; // clients aren't asked the questions about working as a guard
   next();
 });
 
+// The sites someone can report from: a client's own, or all of them.
+function siteChoices(user) {
+  const own = user.role === 'client';
+  return db.all(
+    `SELECT si.id, si.name, si.address, c.name AS client_name FROM sites si JOIN clients c ON c.id = si.client_id
+     WHERE si.active = 1 ${own ? 'AND si.client_id = ?' : ''} ORDER BY c.name, si.name`,
+    ...(own ? [user.client_id || 0] : [])
+  );
+}
+
+// A report this person wrote (or, for older ones, one written from their staff record).
 async function ownReport(req, res) {
   const report = await ir.find(Number(req.params.id));
-  if (!report || report.employee_id !== req.me.id) {
+  if (!report || !(report.created_by === req.user.id || (req.me && report.employee_id === req.me.id))) {
     notFound(res, 'report');
     return null;
   }
@@ -84,30 +107,32 @@ async function ownReport(req, res) {
 officer.get('/', async (req, res) => {
   const reports = await db.all(
     `SELECT r.*, si.name AS site_name FROM incident_reports r LEFT JOIN sites si ON si.id = r.site_id
-     WHERE r.employee_id = ? ORDER BY (r.status = 'draft') DESC, r.created_at DESC, r.id DESC`,
-    req.me.id
+     WHERE r.created_by = ? OR r.employee_id = ? ORDER BY (r.status = 'draft') DESC, r.created_at DESC, r.id DESC`,
+    req.user.id, req.me?.id || 0
   );
-  res.render('incidents/officer-list', { title: 'Incident reports', reports, typesText, STATUS_LABELS: ir.STATUS_LABELS });
+  res.render('incidents/officer-list', { title: req.user.role === 'admin' ? 'Your incident reports' : 'Incident reports', reports, typesText, STATUS_LABELS: ir.STATUS_LABELS });
 });
 
 // Starting a report: which shift was it on?
 officer.get('/new', async (req, res) => {
   const now = time.nowStr();
   const [shifts, sites] = await Promise.all([
-    db.all(
-      `SELECT s.*, si.name AS site_name, c.name AS client_name FROM shifts s
-       JOIN sites si ON si.id = s.site_id JOIN clients c ON c.id = si.client_id
-       WHERE s.employee_id = ? AND s.status != 'cancelled' AND s.start_at <= ? AND s.end_at >= ?
-       ORDER BY s.start_at DESC`,
-      req.me.id, now, `${time.addDays(time.todayStr(), -SHIFTS_BACK_DAYS)}T00:00`
-    ),
-    db.all('SELECT si.id, si.name, c.name AS client_name FROM sites si JOIN clients c ON c.id = si.client_id WHERE si.active = 1 ORDER BY c.name, si.name'),
+    req.me
+      ? db.all(
+        `SELECT s.*, si.name AS site_name, c.name AS client_name FROM shifts s
+         JOIN sites si ON si.id = s.site_id JOIN clients c ON c.id = si.client_id
+         WHERE s.employee_id = ? AND s.status != 'cancelled' AND s.start_at <= ? AND s.end_at >= ?
+         ORDER BY s.start_at DESC`,
+        req.me.id, now, `${time.addDays(time.todayStr(), -SHIFTS_BACK_DAYS)}T00:00`
+      )
+      : [],
+    siteChoices(req.user),
   ]);
   res.render('incidents/officer-new', { title: 'New incident report', shifts, sites });
 });
 
 officer.post('/', async (req, res) => {
-  const shift = req.body.shift_id
+  const shift = req.body.shift_id && req.me
     ? await db.get(
       `SELECT s.*, si.name AS site_name FROM shifts s JOIN sites si ON si.id = s.site_id
        WHERE s.id = ? AND s.employee_id = ? AND s.status != 'cancelled'`,
@@ -115,9 +140,10 @@ officer.post('/', async (req, res) => {
     )
     : null;
   const siteId = shift?.site_id || Number(req.body.site_id) || null;
-  const site = siteId
+  let site = siteId
     ? await db.get('SELECT si.*, c.name AS client_name FROM sites si JOIN clients c ON c.id = si.client_id WHERE si.id = ?', siteId)
     : null;
+  if (site && !shift && req.user.role === 'client' && site.client_id !== req.user.client_id) site = null; // only their own sites
   const id = await ir.create({ employee: req.me, user: req.user, shift, site, settings: res.locals.settings });
   res.redirect(`/my/incidents/${id}`);
 });
@@ -255,7 +281,7 @@ officer.get('/:id/pdf', async (req, res) => {
   await sendPdf(req, res, report);
 });
 
-// ---- The admins' pages ---------------------------------------------------------------
+// ---- Reviewing reports (admins) ------------------------------------------------------
 
 const admin = express.Router();
 numericIdParam(admin);
@@ -274,18 +300,21 @@ admin.get('/', async (req, res) => {
   const params = view === 'expired' ? [time.todayStr()] : [];
   let where = VIEWS[view].where;
   if (q) {
-    where += " AND (r.number ILIKE ? OR e.first_name || ' ' || e.last_name ILIKE ? OR COALESCE(r.data->>'site_client', '') ILIKE ?)";
+    where += " AND (r.number ILIKE ? OR COALESCE(e.first_name || ' ' || e.last_name, r.reporter_name) ILIKE ? OR COALESCE(r.data->>'site_client', '') ILIKE ?)";
     params.push(`%${q}%`, `%${q}%`, `%${q}%`);
   }
   const [reports, counts] = await Promise.all([
     db.all(
-      `SELECT r.*, e.first_name, e.last_name FROM incident_reports r JOIN employees e ON e.id = r.employee_id
+      `SELECT r.*, e.first_name, e.last_name FROM incident_reports r LEFT JOIN employees e ON e.id = r.employee_id
        WHERE ${where} ORDER BY r.incident_date DESC NULLS LAST, r.id DESC LIMIT 200`,
       ...params
     ),
     db.all("SELECT status, COUNT(*)::int AS n FROM incident_reports WHERE status <> 'draft' GROUP BY status"),
   ]);
-  for (const r of reports) r.deadlines = ir.deadlines(r);
+  for (const r of reports) {
+    r.deadlines = ir.deadlines(r);
+    r.reporter = ir.reporterOf(r);
+  }
   res.render('incidents/admin-list', {
     title: 'Incident reports',
     reports,
@@ -319,6 +348,7 @@ admin.get('/:id', async (req, res) => {
     sections: ir.present(ir.SECTIONS, report.data, { forAdmin: true }),
     deadlines: ir.deadlines(report),
     deleteProblem: ir.deleteProblem(report),
+    reporter: ir.reporterOf(report),
     REVIEW_SECTIONS: ir.REVIEW_SECTIONS,
     DUTIES: ir.DUTIES,
     STATUS_LABELS: ir.STATUS_LABELS,
@@ -357,13 +387,13 @@ admin.post('/:id/request-info', async (req, res) => {
     await ir.addEvent(tx, report.id, req.user, 'info_requested', note);
   });
   await logActivity(req, `Asked for more information on incident report ${report.number}`);
-  await notifyEmployees([report.employee_id], {
+  await notifyWriter(report, {
     title: `More information needed: report ${report.number}`,
     body: `${note.slice(0, 140)}${note.length > 140 ? '…' : ''} Tap to add a supplement.`,
     url: `/my/incidents/${report.id}`,
     tag: `incident-${report.id}`,
   });
-  req.flash('success', 'Sent to the officer. They add their answer as a supplement, and it comes back here for review.');
+  req.flash('success', `Sent to ${ir.reporterOf(report)}. They add their answer as a supplement, and it comes back here for review.`);
   res.redirect(`/incidents/${report.id}`);
 });
 
@@ -376,13 +406,13 @@ admin.post('/:id/approve', async (req, res) => {
     await ir.addEvent(tx, report.id, req.user, 'approved', note);
   });
   await logActivity(req, `Approved incident report ${report.number}`);
-  await notifyEmployees([report.employee_id], {
+  await notifyWriter(report, {
     title: `Report ${report.number} approved`,
     body: 'The office has reviewed and approved your incident report. Nothing more to do.',
     url: `/my/incidents/${report.id}`,
     tag: `incident-${report.id}`,
   });
-  req.flash('success', `Report ${report.number} approved. The officer has been told. It's kept until ${time.fmtDate(report.retain_until)}.`);
+  req.flash('success', `Report ${report.number} approved. ${ir.reporterOf(report)} has been told. It's kept until ${time.fmtDate(report.retain_until)}.`);
   res.redirect(`/incidents/${report.id}`);
 });
 

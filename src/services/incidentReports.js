@@ -82,21 +82,22 @@ const SECTIONS = [
   {
     id: 'you',
     title: 'About you',
-    adminTitle: 'About the officer',
-    help: "Filled in from your staff record and shift where we could. Check it, and fill in the rest. Only the admins see these details.",
+    adminTitle: 'About the person reporting',
+    help: "Filled in from your account, staff record and shift where we could. Check it, and fill in the rest. Only the admins see these details.",
+    // `staffOnly`: about working as a guard for DMI, so not asked of clients.
     fields: [
       text('guard_name', 'Full legal name', { required: true }),
       text('guard_address', 'Home mailing address'),
       text('guard_dob', 'Date of birth', { input: 'date' }),
-      text('guard_registration', 'BSIS guard registration number'),
-      text('guard_firearm_permit', 'Firearms permit number / status'),
-      text('guard_baton_permit', 'Baton permit number, if you have one'),
-      text('guard_employer', 'Employer legal name and PPO license number'),
-      text('guard_employer_address', 'Employer business address / phone'),
-      text('guard_shift', 'Shift / time on duty'),
-      text('guard_client_post', 'Client and post orders / contract reference'),
-      text('guard_uniform', 'Uniform / identification you wore'),
-      text('guard_camera', 'Body-worn camera ID and whether it was recording'),
+      text('guard_registration', 'BSIS guard registration number', { staffOnly: true }),
+      text('guard_firearm_permit', 'Firearms permit number / status', { staffOnly: true }),
+      text('guard_baton_permit', 'Baton permit number, if you have one', { staffOnly: true }),
+      text('guard_employer', 'Employer legal name and PPO license number', { staffOnly: true }),
+      text('guard_employer_address', 'Employer business address / phone', { staffOnly: true }),
+      text('guard_shift', 'Shift / time on duty', { staffOnly: true }),
+      text('guard_client_post', 'Client and post orders / contract reference', { staffOnly: true }),
+      text('guard_uniform', 'Uniform / identification you wore', { staffOnly: true }),
+      text('guard_camera', 'Body-worn camera ID and whether it was recording', { staffOnly: true }),
     ],
   },
   {
@@ -232,7 +233,7 @@ const SECTIONS = [
   {
     id: 'account',
     title: 'Your account',
-    adminTitle: "The officer's account",
+    adminTitle: 'Their account',
     help: "In your own words, in the order it happened (\"I saw…\", \"I said…\"). Say what you saw yourself, what others told you, what's a guess, and what you don't know. Include what happened before and after any force, even facts that don't support how you saw it.",
     fields: [
       long('guard_narrative', 'What happened', { required: true, big: true, max: 20000 }),
@@ -403,8 +404,14 @@ function nextNumber(id, date) {
   return `IR-${date.slice(0, 4)}-${String(id).padStart(4, '0')}`;
 }
 
-// What we can fill in for the officer: their staff record, the shift, the company.
-function prefill({ employee, shift, site, settings }) {
+// Who wrote a report, for lists and notifications.
+const reporterOf = (r) => (r.first_name ? `${r.first_name} ${r.last_name}` : r.reporter_name || 'Unknown');
+
+// What we can fill in for the person reporting: their staff record (if they
+// have one) or account, the shift, the company (for DMI staff, not clients).
+function prefill({ employee, user, shift, site, settings }) {
+  const name = employee ? `${employee.first_name} ${employee.last_name}` : user.name;
+  const staff = user.role !== 'client';
   const placeName = site ? `${site.name}${site.client_name ? ` (${site.client_name})` : ''}` : '';
   const employer = [settings.payer_name || settings.company_name, settings.ppo_license && `PPO license ${settings.ppo_license}`].filter(Boolean).join(', ');
   const cityLine = [settings.payer_city, [settings.payer_state, settings.payer_zip].filter(Boolean).join(' ')].filter(Boolean).join(', ');
@@ -413,23 +420,26 @@ function prefill({ employee, shift, site, settings }) {
     incident_date: shift ? shift.start_at.slice(0, 10) : time.todayStr(),
     site_client: placeName,
     street_address: site?.address || '',
-    reported_by: `${employee.first_name} ${employee.last_name}`,
-    guard_name: `${employee.first_name} ${employee.last_name}`,
-    guard_address: employee.address || '',
-    guard_registration: employee.license_number || '',
-    guard_employer: employer,
-    guard_employer_address: employerAddress,
+    reported_by: name,
+    guard_name: name,
+    guard_address: employee?.address || '',
+    guard_registration: employee?.license_number || '',
+    guard_employer: staff ? employer : '',
+    guard_employer_address: staff ? employerAddress : '',
     guard_shift: shift ? `${time.fmtDay(shift.start_at)} ${shift.start_at.slice(0, 4)}, ${time.fmtRange(shift.start_at, shift.end_at)}` : '',
-    guard_client_post: placeName,
+    guard_client_post: staff ? placeName : '',
   };
   return Object.fromEntries(Object.entries(data).filter(([, v]) => v));
 }
 
+// `employee`: the writer's staff record, or null (clients, office staff without one).
 async function create({ employee, user, shift, site, settings }) {
   return db.transaction(async (tx) => {
     const id = await tx.insert(
-      'INSERT INTO incident_reports (employee_id, created_by, shift_id, site_id, data, updated_ms) VALUES (?, ?, ?, ?, ?, ?)',
-      employee.id, user.id, shift?.id || null, site?.id || null, JSON.stringify(prefill({ employee, shift, site, settings })), Date.now()
+      `INSERT INTO incident_reports (employee_id, created_by, reporter_name, reporter_role, shift_id, site_id, data, updated_ms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      employee?.id || null, user.id, employee ? `${employee.first_name} ${employee.last_name}` : user.name, user.role,
+      shift?.id || null, site?.id || null, JSON.stringify(prefill({ employee, user, shift, site, settings })), Date.now()
     );
     await tx.run('UPDATE incident_reports SET number = ? WHERE id = ?', nextNumber(id, time.todayStr()), id);
     return id;
@@ -439,7 +449,7 @@ async function create({ employee, user, shift, site, settings }) {
 function find(id) {
   return db.get(
     `SELECT r.*, e.first_name, e.last_name, si.name AS site_name, c.name AS client_name, a.name AS approved_by_name
-     FROM incident_reports r JOIN employees e ON e.id = r.employee_id
+     FROM incident_reports r LEFT JOIN employees e ON e.id = r.employee_id
      LEFT JOIN sites si ON si.id = r.site_id LEFT JOIN clients c ON c.id = si.client_id
      LEFT JOIN users a ON a.id = r.approved_by WHERE r.id = ?`,
     id
@@ -719,5 +729,5 @@ const EVENT_LABELS = {
 module.exports = {
   RETAIN_YEARS, STATUS_LABELS, SECTIONS, REVIEW_SECTIONS, DUTIES, FIREARM_TICKS, OFFICER_BOXES, REVIEW_BOXES, LABELS, EVENT_LABELS,
   readAnswers, present, typeLabels, firearmDischarge, prefill, create, find, saveDraft, submitProblem, submit, addEvent, eventsFor, filesFor,
-  deadlines, deleteProblem, fmtStamp, pdfFor, addBusinessDays, retainUntilFor,
+  deadlines, deleteProblem, fmtStamp, pdfFor, addBusinessDays, retainUntilFor, reporterOf,
 };
