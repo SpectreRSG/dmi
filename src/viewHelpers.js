@@ -58,6 +58,7 @@ const NAV = [
 const ADMIN_NAV = [
   { href: '/users', label: 'User accounts', icon: 'key' },
   { href: '/tax', label: '1099 forms', icon: 'file' },
+  { href: '/w2', label: 'W-2 forms', icon: 'file' },
   { href: '/settings', label: 'Settings', icon: 'sliders' },
   { href: '/activity', label: 'Activity log', icon: 'list' },
 ];

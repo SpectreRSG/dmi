@@ -25,6 +25,48 @@
 </section>
 
 <section class="card card-pad">
+  <h2>How you get your W-2</h2>
+  <% if (!w4) { %>
+    <p class="muted">Fill in your W-4 and DE 4 first.</p>
+  <% } else if (w4.electronic_consent) { %>
+    <p><%- badge('Online', 'green') %> You agreed on <%= fmtDateTime(w4.consent_at) %> to get your W-2 here instead of on paper.</p>
+    <form method="post" action="/my/tax/w2-consent" data-confirm="Switch to getting your W-2 on paper?">
+      <%- include('../partials/csrf') %>
+      <input type="hidden" name="agree" value="0">
+      <button type="submit" class="btn btn-sm">Switch to paper</button>
+    </form>
+  <% } else { %>
+    <p><%- badge('On paper', 'gray') %> The office will give or mail you a paper copy. You can choose to get it online here instead:</p>
+    <form method="post" action="/my/tax/w2-consent" class="consent-box">
+      <%- include('../partials/csrf') %>
+      <input type="hidden" name="agree" value="1">
+      <ul class="plain-list small">
+        <li>If you agree, your Form W-2 will be put in this account instead of being given to you on paper. If you don't agree, you'll get it on paper.</li>
+        <li>This covers every W-2 from <%= settings.company_name %>, until you change your mind.</li>
+        <li>You can still ask the office for a paper copy at any time, even after agreeing.</li>
+        <li>You can stop at any time with the "Switch to paper" button here, or by telling the office in writing. We'll confirm the change.</li>
+        <li>Online copies stop if you no longer work for <%= settings.company_name %> or your account is closed; you'll get paper instead. Your W-2 stays available here until at least October 15 of the following year.</li>
+        <li>The office will tell you when your W-2 is ready. Keep your contact details up to date so they can reach you.</li>
+        <li>You need a phone or computer with a web browser and a PDF viewer (almost all have one), and a way to save or print the file.</li>
+      </ul>
+      <label class="check"><input type="checkbox" name="understand" value="1"> I have read this and agree to get my W-2 online.</label>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Get my W-2 online</button></div>
+    </form>
+  <% } %>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Your W-2s</h2></div>
+  <% if (!w2s.length) { %>
+    <p class="empty">None here yet. Your W-2 for each year is ready by January 31 of the next year.</p>
+  <% } else { %>
+    <ul class="list">
+      <% for (const f of w2s) { %><li><span>Form W-2 for <%= f.tax_year %></span><a class="btn btn-sm" href="/my/tax/w2/<%= f.id %>">Download</a></li><% } %>
+    </ul>
+  <% } %>
+</section>
+
+<section class="card card-pad">
   <h2>Your pay stubs</h2>
   <p>Every pay stub, with the taxes taken out and your paid sick leave, is under <a href="/my/pay">My pay</a>.</p>
 </section>

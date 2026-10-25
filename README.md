@@ -212,8 +212,16 @@ sites' details. So keep its password private, and deactivate it when you're not 
 - **Tax reports (Pay → Tax reports):** the numbers for **Form 941** and the EDD's **DE 9** and
   **DE 9C** each quarter, and **Form 940** each year, by line number, ready to type in. The DE 9C
   download has full Social Security numbers, so it asks for a fresh two-step code.
-- **Not done by the app yet:** moving money (direct deposit) and year-end W-2s. Until those are
-  added, the office or accountant does them from the pay runs.
+- **W-2 forms (W-2 forms, in the admin menu):** each January, make a W-2 for everyone paid as a W-2
+  employee (from finalized pay by pay date: wages, federal tax, Social Security, Medicare, California
+  SDI in box 14, state wages and tax), check it, and **Mark as issued**. The employee's copies (B, C
+  and 2) show only the last 4 of the SSN; the company's copy (D) and the **filing summary** show the
+  full number and ask for a fresh two-step code. File with Social Security online through **W-2
+  Online** (Business Services Online), which makes the W-3; the summary has every box to type in.
+  Employees who agree (under Tax forms) download their W-2 in their account once you share it. A
+  mistake after issuing needs a Form W-2c (not in DMI).
+- **Not done by the app yet:** moving money (direct deposit). Until it's added, the office pays
+  people from the pay run as it does today.
 - Once a pay run is **finalized**, its hours are locked so nobody can be paid twice.
 - Times are entered as 24-hour clock. If a shift's end time is earlier than its start time
   (22:00 → 06:00), it finishes the next day.
@@ -273,6 +281,8 @@ src/
     payslip.js       what a pay stub shows, with year-to-date totals
     taxDeposits.js   payroll tax payments: what's owed, due dates, what's paid, reminders
     taxReports.js    the numbers for Forms 941 and 940, and the EDD's DE 9 and DE 9C
+    w2.js            year-end W-2s: the boxes from the year's pay, details, W-3 totals
+    formW2Pdf.js     draws Form W-2 (Copies B, C, 2 and D)
     businessDays.js  federal holidays and business days, for due dates
     withholdingProfile.js  W-4 and DE 4 answers: the form, checks, saving (SSN encrypted)
     compliance.js    "is this guard licensed and trained?"

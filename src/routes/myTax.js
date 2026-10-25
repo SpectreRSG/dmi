@@ -17,9 +17,12 @@ function findProfile(employeeId) {
 
 router.get('/', async (req, res) => {
   // W-2 employees: their W-4 and DE 4 (for tax withholding).
-  if (req.me.tax_form === 'W-2') {
-    const w4 = await withholding.findProfile(req.me.id);
-    return res.render('my/tax-w2', { title: 'Tax forms', w4, summary: w4 ? withholding.summary(w4) : '' });
+  if (req.me.tax_form === 'W-2' || (await db.get('SELECT 1 FROM w2_forms WHERE employee_id = ? LIMIT 1', req.me.id))) {
+    const [w4, w2s] = await Promise.all([
+      withholding.findProfile(req.me.id),
+      db.all("SELECT * FROM w2_forms WHERE employee_id = ? AND status = 'issued' AND released = 1 ORDER BY tax_year DESC", req.me.id),
+    ]);
+    return res.render('my/tax-w2', { title: 'Tax forms', w4, w2s, summary: w4 ? withholding.summary(w4) : '' });
   }
   const [profile, forms] = await Promise.all([
     findProfile(req.me.id),
@@ -128,6 +131,41 @@ router.post('/w4', async (req, res) => {
   await logActivity(req, `${employeeName(req.me)} ${existing ? 'updated' : 'filled in'} their W-4 and DE 4`);
   req.flash('success', 'Thanks! Your W-4 and DE 4 are saved. The next pay run uses them.');
   res.redirect('/my/tax');
+});
+
+// Getting the W-2 online instead of on paper (stored with their W-4).
+router.post('/w2-consent', async (req, res) => {
+  const w4 = await withholding.findProfile(req.me.id);
+  if (!w4) {
+    req.flash('error', 'Fill in your W-4 and DE 4 first.');
+    return res.redirect('/my/tax');
+  }
+  const agree = req.body.agree === '1';
+  if (agree && !req.body.understand) {
+    req.flash('error', 'Please tick the box to show you have read how getting your W-2 online works.');
+    return res.redirect('/my/tax');
+  }
+  await db.run('UPDATE withholding_profiles SET electronic_consent = ?, consent_at = app_now() WHERE employee_id = ?', agree ? 1 : 0, req.me.id);
+  if (!agree) await db.run('UPDATE w2_forms SET released = 0 WHERE employee_id = ?', req.me.id);
+  await logActivity(req, `${employeeName(req.me)} ${agree ? 'agreed to get' : 'stopped getting'} their W-2 online`);
+  req.flash('success', agree ? "Done. You'll be able to download your W-2 here when it's ready." : "Done. You'll get your W-2 on paper.");
+  res.redirect('/my/tax');
+});
+
+router.get('/w2/:id', async (req, res) => {
+  const form = await db.get(
+    `SELECT f.*, e.first_name, e.last_name FROM w2_forms f JOIN employees e ON e.id = f.employee_id
+     JOIN withholding_profiles wp ON wp.employee_id = f.employee_id
+     WHERE f.id = ? AND f.employee_id = ? AND f.status = 'issued' AND f.released = 1 AND wp.electronic_consent = 1`,
+    req.params.id,
+    req.me.id
+  );
+  if (!form) return notFound(res, 'W-2');
+  const { pdfFor, pdfName } = require('./w2');
+  const pdf = await pdfFor(form, false);
+  await logActivity(req, `${employeeName(req.me)} downloaded their ${form.tax_year} W-2`);
+  res.attachment(pdfName(form, false));
+  res.type('application/pdf').send(pdf);
 });
 
 // ---- Getting the 1099 online ---------------------------------------------------

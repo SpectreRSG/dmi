@@ -1,0 +1,56 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/w2?year=<%= year %>">← W-2 forms <%= year %></a></p>
+    <h1>W-2 filing summary <%= year %></h1>
+    <p class="page-sub">Everything to type into Social Security's <strong>W-2 Online</strong> (Business Services Online) by January 31, <%= year + 1 %>. It has full Social Security numbers: don't print it or leave it open.</p>
+  </div>
+</div>
+<% if (!forms.length) { %>
+  <div class="card"><p class="empty">No issued W-2s for <%= year %> yet. Issue them first under W-2 forms.</p></div>
+<% } else { %>
+  <section class="card card-pad">
+    <h2>The employer (once)</h2>
+    <dl class="dl">
+      <dt>Name</dt><dd><%= employer.name %></dd>
+      <dt>EIN</dt><dd><%= employer.ein %></dd>
+      <dt>Address</dt><dd><%= employer.address %>, <%= employer.city %>, <%= employer.state %> <%= employer.zip %></dd>
+      <dt>Kind of employer</dt><dd>None apply (a private business) · Kind of payer: 941</dd>
+    </dl>
+  </section>
+  <div class="card">
+    <div class="table-wrap">
+      <table class="table compact">
+        <thead><tr><th>Employee</th><th>SSN</th><th>Address</th><th class="num">1</th><th class="num">2</th><th class="num">3</th><th class="num">4</th><th class="num">5</th><th class="num">6</th><th>14</th><th>15</th><th class="num">16</th><th class="num">17</th></tr></thead>
+        <tbody>
+          <% for (const f of forms) { %>
+            <tr>
+              <td><%= f.employee.name %><br><span class="muted small">Control no. <%= f.employee.number %></span></td>
+              <td class="nowrap"><%= f.fullSsn %></td>
+              <td><%= f.employee.address %>, <%= f.employee.city %>, <%= f.employee.state %> <%= f.employee.zip %></td>
+              <td class="num"><%= money(f.boxes.box1) %></td>
+              <td class="num"><%= money(f.boxes.box2) %></td>
+              <td class="num"><%= money(f.boxes.box3) %></td>
+              <td class="num"><%= money(f.boxes.box4) %></td>
+              <td class="num"><%= money(f.boxes.box5) %></td>
+              <td class="num"><%= money(f.boxes.box6) %></td>
+              <td class="nowrap"><%= (f.boxes.box14 || []).map((l) => `${l.label} ${money(l.amount)}`).join(', ') %></td>
+              <td class="nowrap"><%= f.boxes.box15 %> <%= f.boxes.box15_id %></td>
+              <td class="num"><%= money(f.boxes.box16) %></td>
+              <td class="num"><%= money(f.boxes.box17) %></td>
+            </tr>
+          <% } %>
+        </tbody>
+        <tfoot>
+          <tr><td><strong>W-3 totals (<%= totals.count %>)</strong></td><td></td><td></td>
+            <td class="num"><strong><%= money(totals.box1) %></strong></td><td class="num"><strong><%= money(totals.box2) %></strong></td>
+            <td class="num"><strong><%= money(totals.box3) %></strong></td><td class="num"><strong><%= money(totals.box4) %></strong></td>
+            <td class="num"><strong><%= money(totals.box5) %></strong></td><td class="num"><strong><%= money(totals.box6) %></strong></td>
+            <td></td><td></td><td class="num"><strong><%= money(totals.box16) %></strong></td><td class="num"><strong><%= money(totals.box17) %></strong></td></tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+  <p class="hint">W-2 Online checks the totals and makes the W-3 for you. Keep the confirmation (the "WFID") it gives you.</p>
+<% } %>
+<%- include('../partials/bottom') %>

@@ -1,0 +1,70 @@
+<%- include('../partials/top') %>
+<% const b = form.boxes; const draft = form.status === 'draft'; %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/w2?year=<%= form.tax_year %>">← W-2 forms <%= form.tax_year %></a></p>
+    <h1>W-2 <%= form.tax_year %>: <%= form.first_name %> <%= form.last_name %> <%- draft ? badge('Draft', 'amber') : badge('Issued', 'green') %></h1>
+    <p class="page-sub"><% if (form.issued_at) { %>Issued <%= fmtDateTime(form.issued_at) %> · <% } %>Made <%= fmtDateTime(form.created_at) %></p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/w2/forms/<%= form.id %>/pdf">Employee copies (B, C, 2)</a>
+    <a class="btn" href="/w2/forms/<%= form.id %>/pdf?copy=employer">Company copy (D)</a>
+  </div>
+</div>
+
+<% if (draft && changed) { %>
+  <div class="flash flash-warning">The finalized pay for <%= form.tax_year %> has changed since this draft was made. Press <strong>Update from pay runs</strong>.</div>
+<% } %>
+
+<div class="grid-2">
+  <section class="card card-pad">
+    <h2>Boxes</h2>
+    <table class="table compact report-table">
+      <tbody>
+        <tr><td>a</td><td>Employee's Social Security number</td><td class="num"><%= maskedSsn %></td></tr>
+        <tr><td>1</td><td>Wages, tips, other compensation</td><td class="num"><%= money(b.box1) %></td></tr>
+        <tr><td>2</td><td>Federal income tax withheld</td><td class="num"><%= money(b.box2) %></td></tr>
+        <tr><td>3</td><td>Social Security wages</td><td class="num"><%= money(b.box3) %></td></tr>
+        <tr><td>4</td><td>Social Security tax withheld</td><td class="num"><%= money(b.box4) %></td></tr>
+        <tr><td>5</td><td>Medicare wages and tips</td><td class="num"><%= money(b.box5) %></td></tr>
+        <tr><td>6</td><td>Medicare tax withheld</td><td class="num"><%= money(b.box6) %></td></tr>
+        <% for (const line of b.box14 || []) { %><tr><td>14</td><td>Other: <%= line.label %> (California SDI)</td><td class="num"><%= money(line.amount) %></td></tr><% } %>
+        <tr><td>15</td><td>State, employer's state ID number</td><td class="num"><%= b.box15 %> <%= b.box15_id %></td></tr>
+        <tr><td>16</td><td>State wages</td><td class="num"><%= money(b.box16) %></td></tr>
+        <tr><td>17</td><td>State income tax</td><td class="num"><%= money(b.box17) %></td></tr>
+      </tbody>
+    </table>
+  </section>
+  <section class="card card-pad">
+    <h2>Details on the form</h2>
+    <dl class="dl">
+      <dt>Employer (c)</dt><dd><%= form.employer.name %><br><%= form.employer.address %>, <%= form.employer.city %>, <%= form.employer.state %> <%= form.employer.zip %></dd>
+      <dt>EIN (b)</dt><dd><%= form.employer.ein %></dd>
+      <dt>Employee (e, f)</dt><dd><%= form.employee.name %><br><%= form.employee.address %>, <%= form.employee.city %>, <%= form.employee.state %> <%= form.employee.zip %></dd>
+      <dt>Control number (d)</dt><dd><%= form.employee.number %></dd>
+      <dt>Gets it</dt><dd><%= form.electronic_consent ? 'Online (agreed)' : 'On paper' %><%= form.released ? ' · shared in their account' : '' %></dd>
+    </dl>
+    <p class="hint">Boxes 7–13 and 18–20 are empty: DMI has no tips, benefits, retirement plans or local taxes. If any apply, tell whoever looks after DMI before issuing.</p>
+  </section>
+</div>
+
+<section class="card card-pad">
+  <h2>Next steps</h2>
+  <div class="btn-row">
+    <% if (draft) { %>
+      <form method="post" action="/w2/forms/<%= form.id %>/refresh" class="inline-form"><%- include('../partials/csrf') %><button type="submit" class="btn">Update from pay runs</button></form>
+      <form method="post" action="/w2/forms/<%= form.id %>/issue" class="inline-form" data-confirm="Issue this W-2? It can't be changed afterwards (a mistake then needs a Form W-2c)."><%- include('../partials/csrf') %><button type="submit" class="btn btn-primary">Mark as issued</button></form>
+      <form method="post" action="/w2/forms/<%= form.id %>/delete" class="inline-form" data-confirm="Delete this draft W-2?"><%- include('../partials/csrf') %><button type="submit" class="btn btn-ghost">Delete draft</button></form>
+    <% } else if (form.electronic_consent) { %>
+      <form method="post" action="/w2/forms/<%= form.id %>/release" class="inline-form">
+        <%- include('../partials/csrf') %>
+        <input type="hidden" name="release" value="<%= form.released ? '0' : '1' %>">
+        <button type="submit" class="btn <%= form.released ? '' : 'btn-primary' %>"><%= form.released ? 'Stop sharing online' : 'Share in their account' %></button>
+      </form>
+    <% } else { %>
+      <p class="muted">Print the employee copies and give or mail them by January 31. (They haven't agreed to get their W-2 online.)</p>
+    <% } %>
+  </div>
+  <% if (!draft) { %><p class="hint">Found a mistake after issuing? It needs a corrected Form W-2c, filed with Social Security and given to the employee: ask your accountant.</p><% } %>
+</section>
+<%- include('../partials/bottom') %>

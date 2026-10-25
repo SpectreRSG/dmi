@@ -2258,11 +2258,103 @@ test('tax payments and reports: what is owed and when, recording payments, remin
   assert.equal(annual.line7, Math.round(futa.wages * 100) / 100);
 });
 
+test('W-2 forms: made from the year of pay, issued, the PDFs, the filing summary, and shared online only with consent', async () => {
+  const year = Number(time.todayStr().slice(0, 4));
+  const wendy = (await db.get("SELECT id FROM employees WHERE first_name = 'Wendy'")).id;
+  const tina = (await db.get("SELECT id FROM employees WHERE first_name = 'Tina'")).id;
+  const flash = async () => (await admin.get(`/w2?year=${year}`)).text;
+  // The company's California account number goes in box 15, so it's needed first.
+  await admin.post('/w2/forms', { year, employee_id: wendy }, `/w2?year=${year}`);
+  assert.match(await flash(), /Fill in the company tax details in Settings first/);
+  const current = await require('../src/settings').getSettings();
+  await admin.post('/settings', { ...current, payer_state_id: '123-4567-8', payer_phone: '(213) 555-0100' }, '/settings');
+  // No W-4, no Social Security number, no W-2.
+  await admin.post('/w2/forms', { year, employee_id: tina }, `/w2?year=${year}`);
+  assert.match(await flash(), /Tina Taxes has no W-4 on file/);
+
+  let res = await admin.post('/w2/forms', { year, employee_id: wendy }, `/w2?year=${year}`);
+  assert.equal(res.status, 302);
+  const formId = Number(res.location.split('/').pop());
+  const form = await db.get('SELECT * FROM w2_forms WHERE id = ?', formId);
+  const pay = await db.get(
+    `SELECT SUM(i.gross_pay) AS wages, SUM(i.fed_income_tax) AS fed, SUM(i.ca_income_tax) AS ca, SUM(i.ca_sdi) AS sdi
+     FROM pay_run_items i JOIN pay_runs p ON p.id = i.pay_run_id
+     WHERE i.employee_id = ? AND p.status = 'finalized' AND i.tax_form = 'W-2' AND substr(p.paid_on, 1, 4) = ?`, wendy, String(year)
+  );
+  const r2 = (n) => Math.round(n * 100) / 100;
+  assert.deepEqual([form.boxes.box1, form.boxes.box2, form.boxes.box16, form.boxes.box17], [r2(pay.wages), r2(pay.fed), r2(pay.wages), r2(pay.ca)]);
+  assert.deepEqual(form.boxes.box14, [{ label: 'CASDI', amount: r2(pay.sdi) }]);
+  assert.equal(form.boxes.box15_id, '123-4567-8');
+  assert.equal(form.employee.ssn_last4, '6789');
+  assert.ok(!JSON.stringify(form.employee).includes('123456789'), 'the number stays encrypted');
+  let page = await admin.get(`/w2/forms/${formId}`);
+  assert.match(page.text, /XXX-XX-6789/);
+  assert.doesNotMatch(page.text, /123-45-6789/);
+
+  // Issued: final. The employee's copies, the company's copy and the summary.
+  await admin.post(`/w2/forms/${formId}/issue`, {}, `/w2/forms/${formId}`);
+  assert.equal((await db.get('SELECT status FROM w2_forms WHERE id = ?', formId)).status, 'issued');
+  res = await admin.post(`/w2/forms/${formId}/delete`, {}, `/w2/forms/${formId}`);
+  assert.ok(await db.get('SELECT 1 FROM w2_forms WHERE id = ?', formId), 'issued W-2s are kept');
+  res = await admin.get(`/w2/forms/${formId}/pdf`);
+  assert.ok(res.text.startsWith('%PDF'));
+  assert.match(res.headers.get('content-disposition'), new RegExp(`W-2_${year}_Wages_Wendy_Copy_B_C_2\\.pdf`));
+  const withCode = async (url) => {
+    let r = await admin.get(url);
+    if (r.status === 302 && /^\/account\/confirm/.test(r.location)) {
+      await admin.post('/account/confirm', { code: await codeFor('alex@example.com'), next: '/w2' }, '/account/confirm?next=/w2');
+      r = await admin.get(url);
+    }
+    return r;
+  };
+  res = await withCode(`/w2/forms/${formId}/pdf?copy=employer`);
+  assert.match(res.headers.get('content-disposition'), /_Copy_D\.pdf/);
+  res = await withCode(`/w2/summary?year=${year}`);
+  assert.match(res.text, /123-45-6789/);
+  assert.match(res.text, /W-3 totals \(1\)/);
+  assert.match((await admin.get('/activity')).text, /Opened the \d{4} W-2 filing summary/);
+  // Not shared online: Wendy never agreed (and has no account).
+  await admin.post(`/w2/forms/${formId}/release`, { release: '1' }, `/w2/forms/${formId}`);
+  assert.equal((await db.get('SELECT released FROM w2_forms WHERE id = ?', formId)).released, 0);
+
+  // Wes is paid as a W-2 employee, agrees to get his W-2 online, and downloads it.
+  const wes = (await db.get("SELECT employee_id FROM users WHERE email = 'wes@example.com'")).employee_id;
+  await db.run('UPDATE employees SET hourly_rate = 22 WHERE id = ?', wes);
+  for (let i = 0; i < 3; i += 1) {
+    const day = time.addDays('2025-07-07', i);
+    await db.run("INSERT INTO time_entries (employee_id, start_at, end_at, status) VALUES (?, ?, ?, 'approved')", wes, `${day}T09:00`, `${day}T17:00`);
+  }
+  res = await admin.post('/pay', { period_start: '2025-07-06', period_end: '2025-07-19' });
+  const run = Number(res.location.split('/').pop());
+  await admin.post(`/pay/${run}/finalize`, { paid_on: `${year}-02-06` }, `/pay/${run}`);
+  assert.equal((await db.get('SELECT status FROM pay_runs WHERE id = ?', run)).status, 'finalized');
+  const worker = makeClient();
+  await signIn(worker, 'wes@example.com', 'steady night shifts 42');
+  assert.match((await worker.get('/my/tax')).text, /Get my W-2 online/);
+  await worker.post('/my/tax/w2-consent', { agree: '1' }, '/my/tax');
+  assert.equal((await db.get('SELECT electronic_consent FROM withholding_profiles WHERE employee_id = ?', wes)).electronic_consent, 0, 'must tick that they read it');
+  await worker.post('/my/tax/w2-consent', { agree: '1', understand: '1' }, '/my/tax');
+  assert.equal((await db.get('SELECT electronic_consent FROM withholding_profiles WHERE employee_id = ?', wes)).electronic_consent, 1);
+  res = await admin.post('/w2/forms', { year, employee_id: wes }, `/w2?year=${year}`);
+  const wesForm = Number(res.location.split('/').pop());
+  assert.equal((await db.get('SELECT boxes FROM w2_forms WHERE id = ?', wesForm)).boxes.box1, 3 * 8 * 22);
+  await admin.post(`/w2/forms/${wesForm}/issue`, {}, `/w2/forms/${wesForm}`);
+  await admin.post(`/w2/forms/${wesForm}/release`, { release: '1' }, `/w2/forms/${wesForm}`);
+  assert.match((await worker.get('/my/tax')).text, new RegExp(`Form W-2 for ${year}`));
+  res = await worker.get(`/my/tax/w2/${wesForm}`);
+  assert.ok(res.text.startsWith('%PDF'));
+  assert.equal((await worker.get(`/my/tax/w2/${formId}`)).status, 404, "nobody else's");
+  // Switching back to paper takes it out of his account.
+  await worker.post('/my/tax/w2-consent', { agree: '0' }, '/my/tax');
+  assert.equal((await db.get('SELECT released FROM w2_forms WHERE id = ?', wesForm)).released, 0);
+  assert.equal((await worker.get(`/my/tax/w2/${wesForm}`)).status, 404);
+});
+
 test('every main page loads', async () => {
   for (const url of ['/', '/schedule', '/timesheets?status=all', '/pay', `/pay/${ids.payRun}`, '/staff', `/staff/${ids.employee}`,
     '/clients', `/clients/${ids.client}`, '/contracts', '/training', '/training/records', '/training/sessions',
     '/training/courses', '/training/sessions/new', '/training/records/new', '/schedule/conflicts', `/schedule/${ids.shift}/cover`,
-    '/timesheets/submissions', '/tax', '/tax/filing', '/users', '/settings', '/activity', '/account', '/incidents', '/incidents?view=all', '/pay/taxes', '/pay/deposits', '/pay/reports']) {
+    '/timesheets/submissions', '/tax', '/tax/filing', '/users', '/settings', '/activity', '/account', '/incidents', '/incidents?view=all', '/pay/taxes', '/pay/deposits', '/pay/reports', '/w2']) {
     const res = await admin.get(url);
     assert.equal(res.status, 200, url);
   }

@@ -1,0 +1,75 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>W-2 forms <%= year %></h1>
+    <p class="page-sub">Form W-2 for everyone paid as a W-2 employee in <%= year %>, from finalized pay runs (by pay date).</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/w2?year=<%= year - 1 %>">← <%= year - 1 %></a>
+    <a class="btn" href="/w2?year=<%= year + 1 %>"><%= year + 1 %> →</a>
+    <a class="btn" href="/w2/summary?year=<%= year %>">Filing summary for Social Security</a>
+  </div>
+</div>
+
+<% if (employerMissing) { %>
+  <div class="flash flash-warning">Fill in the company's legal name, EIN, address and California employer account number under <a href="/settings">Settings → Company tax details</a> before making W-2s.</div>
+<% } %>
+
+<div class="card card-pad">
+  <ul class="plain-list">
+    <li><strong>Deadline:</strong> January 31, <%= year + 1 %>, for both the employee's copies (B, C and 2) and filing with the Social Security Administration.</li>
+    <li><strong>Filing (Copy A and the W-3):</strong> online at Social Security's Business Services Online, using <strong>W-2 Online</strong> (up to 50 W-2s at a time; it makes the W-3 for you). Register for it ahead of time. The <a href="/w2/summary?year=<%= year %>">filing summary</a> has everything to type in. California doesn't need a copy: the DE 9C already told the EDD.</li>
+    <li><strong>The employee's copies:</strong> give or mail them, or share them in their account if they agreed to get their W-2 online.</li>
+  </ul>
+</div>
+
+<div class="card">
+  <% if (!rows.length) { %>
+    <p class="empty">Nobody was paid as a W-2 employee in <%= year %> (from finalized pay runs).</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Employee</th><th class="num">Wages (box 1)</th><th class="num">Federal tax (box 2)</th><th>W-4 / SSN</th><th>Online</th><th>W-2</th><th></th></tr></thead>
+        <tbody>
+          <% for (const r of rows) { %>
+            <tr>
+              <td><a href="/staff/<%= r.employee.id %>"><%= r.employee.first_name %> <%= r.employee.last_name %></a></td>
+              <td class="num"><%= money(r.form ? r.form.boxes.box1 : r.pay?.wages) %></td>
+              <td class="num"><%= money(r.form ? r.form.boxes.box2 : r.pay?.fed) %></td>
+              <td><%- r.profile ? `On file (…${r.profile.ssn_last4})` : badge('Missing', 'red') %></td>
+              <td><%= r.profile?.electronic_consent ? 'Agreed' : 'Paper' %></td>
+              <td><% if (!r.form) { %><%- badge('Not made', 'gray') %><% } else if (r.form.status === 'draft') { %><%- badge('Draft', 'amber') %><% } else { %><%- badge(r.form.released ? 'Issued, shared' : 'Issued', 'green') %><% } %></td>
+              <td class="actions">
+                <% if (r.form) { %>
+                  <a href="/w2/forms/<%= r.form.id %>">Open</a>
+                <% } else { %>
+                  <form method="post" action="/w2/forms" class="inline-form">
+                    <%- include('../partials/csrf') %>
+                    <input type="hidden" name="year" value="<%= year %>">
+                    <input type="hidden" name="employee_id" value="<%= r.employee.id %>">
+                    <button type="submit" class="btn btn-sm">Make W-2</button>
+                  </form>
+                <% } %>
+              </td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+
+<% if (totals.count) { %>
+  <section class="card card-pad">
+    <h2>Totals of the W-2s made (what the W-3 will show)</h2>
+    <dl class="dl">
+      <dt>W-2s</dt><dd><%= totals.count %> (<%= issued %> issued)</dd>
+      <dt>Box 1 wages</dt><dd><%= money(totals.box1) %></dd>
+      <dt>Box 2 federal income tax</dt><dd><%= money(totals.box2) %></dd>
+      <dt>Box 3 / 4 Social Security</dt><dd><%= money(totals.box3) %> / <%= money(totals.box4) %></dd>
+      <dt>Box 5 / 6 Medicare</dt><dd><%= money(totals.box5) %> / <%= money(totals.box6) %></dd>
+      <dt>Box 16 / 17 California</dt><dd><%= money(totals.box16) %> / <%= money(totals.box17) %></dd>
+    </dl>
+  </section>
+<% } %>
+<%- include('../partials/bottom') %>

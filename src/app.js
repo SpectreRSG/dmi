@@ -131,6 +131,7 @@ app.use('/training', require('./routes/training'));
 app.use('/incidents', requireAdmin, require('./routes/incidents').adminRouter);
 app.use('/users', requireAdmin, require('./routes/users'));
 app.use('/tax', requireAdmin, require('./routes/tax'));
+app.use('/w2', requireAdmin, require('./routes/w2'));
 app.use('/settings', requireAdmin, require('./routes/settings'));
 app.use('/activity', requireAdmin, require('./routes/activity'));
 
