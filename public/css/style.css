@@ -1258,3 +1258,5 @@ section.card + section.card, .card + section.card { margin-top: 16px; }
 .deposit-form input[name='amount'] { width: 110px; }
 .deposit-form input[name='reference'] { width: 160px; }
 .report-table td:first-child { white-space: nowrap; color: var(--muted); width: 1%; }
+.bank-pending { margin: 8px 0; }
+.bank-pending .btn-row { margin-top: 8px; }

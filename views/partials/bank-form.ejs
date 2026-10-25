@@ -1,0 +1,17 @@
+<%# Direct deposit details. Needs: values, TYPES, office (true when the office types in a paper form). %>
+<div class="form-grid">
+  <label class="field-full">Name on the account <input name="holder_name" value="<%= values.holder_name || '' %>" required maxlength="60" autocomplete="name"></label>
+  <fieldset class="field-full choice-row">
+    <legend>Kind of account</legend>
+    <% for (const [key, label] of Object.entries(TYPES)) { %>
+      <label class="check"><input type="radio" name="account_type" value="<%= key %>" <%= (values.account_type || 'checking') === key ? 'checked' : '' %>> <%= label %></label>
+    <% } %>
+  </fieldset>
+  <label class="field-full">Routing number
+    <input name="routing_number" value="<%= values.routing_number || '' %>" inputmode="numeric" maxlength="9" required autocomplete="off" spellcheck="false" placeholder="9 digits">
+    <span class="hint">The 9 digits at the bottom left of a check, or in your bank's app under account details.</span>
+  </label>
+  <label>Account number <input name="account_number" inputmode="numeric" maxlength="20" required autocomplete="off" spellcheck="false"></label>
+  <label>Account number again <input name="account_confirm" inputmode="numeric" maxlength="20" required autocomplete="off" spellcheck="false"><span class="hint">It's stored encrypted.</span></label>
+  <label class="check field-full"><input type="checkbox" name="consent" value="1" required> <span><%= office ? 'The employee signed a direct deposit form for this account, and we are keeping it on file.' : `I agree to be paid by direct deposit into this account. I can switch back to a paper check at any time.` %></span></label>
+</div>

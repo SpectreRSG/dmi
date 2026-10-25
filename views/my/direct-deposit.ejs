@@ -1,0 +1,36 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/my/pay">← My pay</a></p>
+    <h1>Direct deposit</h1>
+    <p class="page-sub">Get paid straight into your bank account instead of by paper check. It's your choice, and you can switch back at any time.</p>
+  </div>
+</div>
+<%- include('../partials/form-error') %>
+
+<section class="card card-pad">
+  <h2>How you're paid now</h2>
+  <% if (active) { %>
+    <p><%- badge('Direct deposit', 'green') %> Into <strong><%= describe(active) %></strong> (<%= active.holder_name %>).</p>
+  <% } else { %>
+    <p><%- badge('Paper check', 'gray') %> You're paid by check.</p>
+  <% } %>
+  <% if (pending) { %>
+    <p><%- badge('Waiting for the office', 'amber') %> New account <strong><%= describe(pending) %></strong>, entered <%= fmtDateTime(pending.created_at) %>. Once the office approves it, your pay goes there.</p>
+  <% } %>
+  <% if (active || pending) { %>
+    <form method="post" action="/my/pay/direct-deposit/stop" data-confirm="Switch to paper checks?">
+      <%- include('../partials/csrf') %>
+      <button type="submit" class="btn btn-sm btn-ghost">Switch to paper checks</button>
+    </form>
+  <% } %>
+</section>
+
+<form method="post" action="/my/pay/direct-deposit" class="card form-card narrow" autocomplete="off">
+  <%- include('../partials/csrf') %>
+  <h2><%= active ? 'Change to a different account' : 'Set up direct deposit' %></h2>
+  <p class="hint">For your security, the office approves every new account before pay goes to it, and you'll get a notification whenever your bank details change. You may be asked for your sign-in code.</p>
+  <%- include('../partials/bank-form', { office: false }) %>
+  <div class="form-actions"><button type="submit" class="btn btn-primary">Save</button></div>
+</form>
+<%- include('../partials/bottom') %>

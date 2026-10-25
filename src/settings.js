@@ -29,6 +29,12 @@ const DEFAULTS = {
   futa_credit_reduction: '1.5', // extra federal unemployment tax for California employers, in % (set each November)
   fed_deposit_schedule: 'monthly', // when payroll taxes are paid: 'monthly' (most new employers) or 'semiweekly' (IRS Pub 15)
   tax_tables_confirmed: '', // the year whose tax rates an admin has checked, e.g. '2026'
+  // Direct deposit: from the company's bank, when it sets up payroll (ACH) uploads.
+  bank_name: '', // the company's bank
+  bank_routing: '', // the bank's routing number (the "originating" bank)
+  ach_company_id: '', // the 10-character company ID the bank gives (often 1 + the EIN)
+  ach_immediate_origin: '', // the "immediate origin" the bank gives (often the same as the company ID)
+  ach_company_name: '', // the company name the bank has (up to 16 characters shows on statements)
 };
 
 // The time zones you can pick on the Settings page.
@@ -72,6 +78,11 @@ async function getSettings() {
     futa_credit_reduction: Number(s.futa_credit_reduction),
     fed_deposit_schedule: s.fed_deposit_schedule === 'semiweekly' ? 'semiweekly' : 'monthly',
     tax_tables_confirmed: s.tax_tables_confirmed,
+    bank_name: s.bank_name,
+    bank_routing: s.bank_routing,
+    ach_company_id: s.ach_company_id,
+    ach_immediate_origin: s.ach_immediate_origin,
+    ach_company_name: s.ach_company_name,
   };
 }
 

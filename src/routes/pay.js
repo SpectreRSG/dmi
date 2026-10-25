@@ -25,6 +25,9 @@ const taxDeposits = require('../services/taxDeposits');
 const taxReports = require('../services/taxReports');
 const { requireRecentCode } = require('../auth');
 const { decrypt } = require('../secureData');
+const bank = require('../services/bankAccounts');
+const { buildNachaFile } = require('../services/nacha');
+const { businessDayOnOrAfter } = require('../services/businessDays');
 
 const router = express.Router();
 numericIdParam(router);
@@ -327,6 +330,11 @@ router.get('/:id', async (req, res) => {
   ]);
   const missing = Object.fromEntries(notIncluded.map((r) => [r.status, r.n]));
   const draft = run.status === 'draft';
+  // Who's paid by direct deposit (an approved account) and who by check.
+  const withAccount = new Set((await db.all(
+    "SELECT employee_id FROM bank_accounts WHERE status = 'active' AND employee_id = ANY(?::int[])", items.map((i) => i.employee_id)
+  )).map((r) => r.employee_id));
+  const paid = items.filter((i) => i.net_pay > 0);
 
   res.render('pay/show', {
     title: `Pay run ${time.fmtDate(run.period_start)} – ${time.fmtDate(run.period_end)}`,
@@ -341,6 +349,13 @@ router.get('/:id', async (req, res) => {
     problems: draft ? paycheck.finalizeProblems({ run, items, settings: res.locals.settings }) : [],
     noW4: draft ? items.filter((i) => i.tax_form === 'W-2' && !i.has_w4) : [],
     noW9: draft ? items.filter((i) => i.tax_form === '1099' && !i.has_w9) : [],
+    deposit: {
+      byBank: paid.filter((i) => withAccount.has(i.employee_id)),
+      byCheck: paid.filter((i) => !withAccount.has(i.employee_id)),
+      bankReady: ['bank_name', 'bank_routing', 'ach_company_id', 'ach_immediate_origin'].every((f) => res.locals.settings[f]),
+      // Banks need a business day or two: the pay date, or the next business day after today.
+      effective: businessDayOnOrAfter([paycheck.payDateOf(run), time.addDays(time.todayStr(), 1)].sort()[1]),
+    },
   });
 });
 
@@ -474,6 +489,46 @@ router.get('/:id/export.csv', async (req, res) => {
   const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
   res.attachment(`pay-run-${run.period_start}-to-${run.period_end}.csv`);
   res.type('text/csv').send(csv);
+});
+
+// The direct deposit file to upload to the company's bank (finalized pay runs).
+// It has account numbers, so it asks for a fresh two-step code.
+router.get('/:id/direct-deposit.ach', requireRecentCode, async (req, res) => {
+  const run = await findRun(req.params.id);
+  if (!run) return notFound(res, 'pay run');
+  const back = `/pay/${run.id}`;
+  const { settings } = res.locals;
+  const fail = (message) => {
+    req.flash('error', message);
+    res.redirect(back);
+  };
+  if (run.status !== 'finalized') return fail('Finalize the pay run first.');
+  if (!['bank_name', 'bank_routing', 'ach_company_id', 'ach_immediate_origin'].every((f) => settings[f])) {
+    return fail("Fill in the bank's direct deposit details in Settings first.");
+  }
+  const effective = String(req.query.effective || '');
+  if (!time.isValidDate(effective) || effective <= time.todayStr() || businessDayOnOrAfter(effective) !== effective) {
+    return fail('Choose a business day after today for the money to arrive.');
+  }
+  const items = (await runItems(run.id)).filter((i) => i.net_pay > 0);
+  const accounts = await bank.activeAccounts(items.map((i) => i.employee_id));
+  const entries = items
+    .filter((i) => accounts.has(i.employee_id))
+    .map((i) => {
+      const a = accounts.get(i.employee_id);
+      return { name: a.holder_name, id: `DMI-${i.employee_id}`, routing: a.routing_number, account: a.account, type: a.account_type, cents: Math.round(i.net_pay * 100) };
+    });
+  if (!entries.length) return fail('Nobody on this pay run has an approved direct deposit account.');
+  const file = buildNachaFile({
+    bank: { routing: settings.bank_routing, name: settings.bank_name, companyId: settings.ach_company_id, immediateOrigin: settings.ach_immediate_origin, companyName: settings.ach_company_name || settings.company_name },
+    entries,
+    effectiveDate: effective,
+    now: time.nowStr(),
+  });
+  const total = round2(entries.reduce((sum, e) => sum + e.cents, 0) / 100);
+  await logActivity(req, `Downloaded the direct deposit file for pay run #${run.id}: ${entries.length} people, ${total}, arriving ${effective}`);
+  res.attachment(`payroll-${run.period_end}-paid-${effective}.ach`);
+  res.type('text/plain').send(file);
 });
 
 // One person's DMI timesheet for a finalized pay run, stamped "Approved by"

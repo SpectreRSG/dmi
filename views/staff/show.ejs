@@ -58,6 +58,24 @@
           <dt>W-4 and DE 4</dt><dd><% if (w4) { %><%= w4Summary %> · SSN …<%= w4.ssn_last4 %> · signed <%= fmtDate(w4.signed_at) %><%= w4.entered_by ? ' (entered from paper)' : '' %><% } else { %><span class="muted">Not filled in yet: taxes are worked out as single, with no adjustments.</span><% } %>
             <a class="btn btn-sm btn-ghost" href="/staff/<%= employee.id %>/withholding"><%= w4 ? 'Change from paper forms' : 'Enter from paper forms' %></a></dd>
         <% } %>
+        <dt>Direct deposit</dt>
+        <dd>
+          <% if (bankAccounts.active) { %><%= describeAccount(bankAccounts.active) %> (<%= bankAccounts.active.holder_name %>)<% } else { %><span class="muted">None: paid by check.</span><% } %>
+          <a class="btn btn-sm btn-ghost" href="/staff/<%= employee.id %>/bank">Enter from signed form</a>
+          <% if (bankAccounts.pending) { %>
+            <div class="flash flash-warning bank-pending">
+              <strong>New account to approve:</strong> <%= describeAccount(bankAccounts.pending) %> (<%= bankAccounts.pending.holder_name %>), entered by them <%= fmtDateTime(bankAccounts.pending.created_at) %>.
+              Check with <%= employee.first_name %> that it was them (in person or by phone) before approving.
+              <div class="btn-row">
+                <form method="post" action="/staff/<%= employee.id %>/bank/approve" class="inline-form"><%- include('../partials/csrf') %><button type="submit" class="btn btn-sm btn-primary">Approve</button></form>
+                <form method="post" action="/staff/<%= employee.id %>/bank/reject" class="inline-form"><%- include('../partials/csrf') %><button type="submit" class="btn btn-sm">Turn down</button></form>
+              </div>
+            </div>
+          <% } %>
+          <% if (bankAccounts.active) { %>
+            <form method="post" action="/staff/<%= employee.id %>/bank/stop" class="inline-form" data-confirm="Stop direct deposit and pay them by check?"><%- include('../partials/csrf') %><button type="submit" class="btn btn-sm btn-ghost">Stop (paper checks)</button></form>
+          <% } %>
+        </dd>
         <% if (employee.tax_form !== 'W-2') { %>
           <dt>W-9 details</dt><dd><% if (taxProfile) { %>On file (<%= taxProfile.tin_type %> …<%= taxProfile.tin_last4 %>), signed <%= fmtDate(taxProfile.signed_at) %> · gets 1099 <%= taxProfile.electronic_consent ? 'online' : 'on paper' %><%= taxProfile.backup_withholding ? ' · subject to backup withholding' : '' %><% } else { %><span class="muted">Not filled in yet (they do it under Tax forms in their account)</span><% } %></dd>
         <% } %>

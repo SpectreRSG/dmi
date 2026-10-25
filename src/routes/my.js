@@ -5,7 +5,8 @@ const express = require('express');
 const db = require('../db');
 const { clean, notFound, numericIdParam, logActivity, employeeName } = require('../helpers');
 const time = require('../time');
-const { homeFor } = require('../auth');
+const { homeFor, requireRecentCode } = require('../auth');
+const bank = require('../services/bankAccounts');
 const { entryHours, round2, calculatePayLine, overtimeRules } = require('../services/payroll');
 const { recordFinishedShifts } = require('../services/hoursFromSchedule');
 const { STRAIGHT_TIME } = require('../services/paycheck');
@@ -270,6 +271,8 @@ router.get('/pay', officerOnly, async (req, res) => {
     sent,
     needsW9: req.me.tax_form === '1099' && !taxProfile,
     needsW4: req.me.tax_form === 'W-2' && !w4,
+    bankAccounts: await bank.accountsFor(req.me.id),
+    describeAccount: bank.describe,
     sickBalance: paid.find((p) => p.tax_form === 'W-2')?.sick_balance ?? 0,
     taxFormsReady: taxForms.n,
   });
@@ -292,6 +295,55 @@ router.get('/pay/:id', officerOnly, myPayLine, async (req, res) => {
     back: '/my/pay',
     timesheetHref: `/my/pay/${item.id}/timesheet.pdf`,
   });
+});
+
+// ---- Direct deposit -------------------------------------------------------------
+
+async function renderDirectDeposit(req, res, values, error, status = 200) {
+  const { active, pending } = await bank.accountsFor(req.me.id);
+  res.status(status).render('my/direct-deposit', {
+    title: 'Direct deposit',
+    active,
+    pending,
+    describe: bank.describe,
+    values: values || { holder_name: `${req.me.first_name} ${req.me.last_name}` },
+    error,
+    TYPES: bank.TYPES,
+  });
+}
+
+router.get('/pay/direct-deposit', officerOnly, (req, res) => renderDirectDeposit(req, res, null, null));
+
+// A new account waits for the office to approve it, so a stolen login can't
+// send someone's pay elsewhere. They (and the office) hear about every change.
+router.post('/pay/direct-deposit', officerOnly, requireRecentCode, async (req, res) => {
+  const { values, account, error } = bank.readForm(req.body);
+  if (error) return renderDirectDeposit(req, res, values, error, 400);
+  await bank.saveAccount(req.me.id, values, account);
+  const name = employeeName(req.me);
+  await logActivity(req, `${name} entered a new direct deposit account (${bank.describe({ ...values, account_last4: account.slice(-4) })}), waiting for approval`);
+  await notify.notifyAdmins({
+    title: 'Direct deposit change to approve',
+    body: `${name} entered new bank details. Check with them that it was them, then approve it before the next pay run.`,
+    url: `/staff/${req.me.id}`,
+    tag: `bank-${req.me.id}`,
+  });
+  await notify.notifyEmployees([req.me.id], {
+    title: 'Your direct deposit details were changed',
+    body: "If this wasn't you, tell the office right away. Pay goes to the new account once the office approves it.",
+    url: '/my/pay/direct-deposit',
+    tag: `bank-change-${req.me.id}`,
+  });
+  req.flash('success', 'Saved. Once the office approves the new account, your pay goes there; until then it goes where it does now.');
+  res.redirect('/my/pay/direct-deposit');
+});
+
+router.post('/pay/direct-deposit/stop', officerOnly, requireRecentCode, async (req, res) => {
+  await bank.stopDirectDeposit(req.me.id);
+  await logActivity(req, `${employeeName(req.me)} switched to paper checks`);
+  await notify.notifyAdmins({ title: 'Paper checks from now on', body: `${employeeName(req.me)} stopped direct deposit: pay them by check.`, url: `/staff/${req.me.id}`, tag: `bank-${req.me.id}` });
+  req.flash('success', "Done. You'll be paid by paper check from now on.");
+  res.redirect('/my/pay/direct-deposit');
 });
 
 // Their DMI timesheet for that pay period: opens in the browser; ?download=1 saves it.

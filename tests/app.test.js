@@ -2350,6 +2350,91 @@ test('W-2 forms: made from the year of pay, issued, the PDFs, the filing summary
   assert.equal((await worker.get(`/my/tax/w2/${wesForm}`)).status, 404);
 });
 
+test('direct deposit: officers enter it and the office approves it, the office can enter a signed form, and the bank file', async () => {
+  const { businessDayOnOrAfter } = require('../src/services/businessDays');
+  const year = String(time.todayStr().slice(0, 4));
+  // Some pages ask for a fresh two-step code first.
+  const confirmed = async (client, email, send) => {
+    let r = await send();
+    if (r.status === 302 && /^\/account\/confirm/.test(r.location || '')) {
+      await client.post('/account/confirm', { code: await codeFor(email), next: '/' }, '/account/confirm?next=/');
+      r = await send();
+    }
+    return r;
+  };
+  const account = { holder_name: 'Wes Worker', account_type: 'savings', routing_number: '011000015', account_number: '5550123', account_confirm: '5550123', consent: '1' };
+  const wes = (await db.get("SELECT employee_id FROM users WHERE email = 'wes@example.com'")).employee_id;
+  const worker = makeClient();
+  await signIn(worker, 'wes@example.com', 'steady night shifts 42');
+  assert.match((await worker.get('/my/pay')).text, /Set up direct deposit/);
+
+  // Checked: the routing number's check digit, the account typed twice, and agreeing.
+  let res = await confirmed(worker, 'wes@example.com', () => worker.post('/my/pay/direct-deposit', { ...account, routing_number: '123456789' }, '/my/pay/direct-deposit'));
+  assert.equal(res.status, 400);
+  assert.match(res.text, /routing number doesn/);
+  res = await worker.post('/my/pay/direct-deposit', { ...account, account_confirm: '5550124' }, '/my/pay/direct-deposit');
+  assert.match(res.text, /don&#39;t match|don't match/);
+  res = await worker.post('/my/pay/direct-deposit', account, '/my/pay/direct-deposit');
+  assert.equal(res.status, 302);
+  let row = await db.get('SELECT * FROM bank_accounts WHERE employee_id = ?', wes);
+  assert.equal(row.status, 'pending', 'waits for the office');
+  assert.equal(row.account_last4, '0123');
+  assert.ok(!row.account_encrypted.includes('5550123'), 'stored encrypted');
+  assert.match((await worker.get('/my/pay/direct-deposit')).text, /Waiting for the office/);
+
+  // The office checks with him, then approves it.
+  let page = await admin.get(`/staff/${wes}`);
+  assert.match(page.text, /New account to approve/);
+  await confirmed(admin, 'alex@example.com', () => admin.post(`/staff/${wes}/bank/approve`, {}, `/staff/${wes}`));
+  assert.equal((await db.get("SELECT status FROM bank_accounts WHERE employee_id = ? AND status = 'active'", wes))?.status, 'active');
+  assert.match((await admin.get('/activity')).text, /Approved the new direct deposit account for Wes Worker/);
+  // A second change waits again; turning it down keeps the approved one.
+  await worker.post('/my/pay/direct-deposit', { ...account, account_number: '7770001', account_confirm: '7770001' }, '/my/pay/direct-deposit');
+  await admin.post(`/staff/${wes}/bank/reject`, {}, `/staff/${wes}`);
+  const rows = await db.all("SELECT status, account_last4 FROM bank_accounts WHERE employee_id = ? AND status <> 'replaced'", wes);
+  assert.deepEqual(rows, [{ status: 'active', account_last4: '0123' }]);
+
+  // The office types in Wendy's signed form: in use straight away.
+  const wendy = (await db.get("SELECT id FROM employees WHERE first_name = 'Wendy'")).id;
+  res = await confirmed(admin, 'alex@example.com', () => admin.post(`/staff/${wendy}/bank`, {
+    holder_name: 'Wendy Wages', account_type: 'checking', routing_number: '021000021', account_number: '000123456789', account_confirm: '000123456789', consent: '1',
+  }, `/staff/${wendy}/bank`));
+  assert.equal(res.status, 302);
+  assert.equal((await db.get('SELECT status FROM bank_accounts WHERE employee_id = ?', wendy)).status, 'active');
+
+  // The bank's details, then the file for Wendy's finalized pay run.
+  const current = await require('../src/settings').getSettings();
+  res = await admin.post('/settings', { ...current, bank_routing: '123456789' }, '/settings');
+  assert.equal(res.status, 400);
+  res = await admin.post('/settings', { ...current, bank_name: 'First Demo Bank', bank_routing: '011-000-015', ach_company_id: '1123456789', ach_immediate_origin: '1123456789', ach_company_name: 'Test Security' }, '/settings');
+  assert.equal(res.status, 302);
+  assert.equal((await db.get("SELECT value FROM settings WHERE key = 'bank_routing'")).value, '011000015');
+  const line = await db.get(
+    `SELECT i.* FROM pay_run_items i JOIN pay_runs p ON p.id = i.pay_run_id
+     WHERE i.employee_id = ? AND p.status = 'finalized' AND substr(p.paid_on, 1, 4) = ? ORDER BY p.id LIMIT 1`, wendy, year
+  );
+  page = await admin.get(`/pay/${line.pay_run_id}`);
+  assert.match(page.text, /Download the direct deposit file/);
+  res = await admin.get(`/pay/${line.pay_run_id}/direct-deposit.ach?effective=${time.todayStr()}`);
+  assert.equal(res.status, 302, 'not today: banks need notice');
+  const effective = businessDayOnOrAfter(time.addDays(time.todayStr(), 1));
+  res = await confirmed(admin, 'alex@example.com', () => admin.get(`/pay/${line.pay_run_id}/direct-deposit.ach?effective=${effective}`));
+  assert.match(res.headers.get('content-disposition'), /\.ach"?$/);
+  const records = res.text.trimEnd().split('\r\n');
+  assert.equal(records.length % 10, 0);
+  assert.ok(records.every((r) => r.length === 94));
+  const wendyEntry = records.find((r) => r.startsWith('622021000021'));
+  assert.ok(wendyEntry, "Wendy's checking account");
+  assert.equal(wendyEntry.slice(12, 29).trim(), '000123456789');
+  assert.equal(Number(wendyEntry.slice(29, 39)), Math.round(line.net_pay * 100));
+  assert.match((await admin.get('/activity')).text, /Downloaded the direct deposit file/);
+
+  // Wes goes back to paper checks.
+  await confirmed(worker, 'wes@example.com', () => worker.post('/my/pay/direct-deposit/stop', {}, '/my/pay/direct-deposit'));
+  assert.equal((await db.get("SELECT COUNT(*)::int AS n FROM bank_accounts WHERE employee_id = ? AND status IN ('active', 'pending')", wes)).n, 0);
+  assert.match((await worker.get('/my/pay/direct-deposit')).text, /You're paid by check|You&#39;re paid by check/);
+});
+
 test('every main page loads', async () => {
   for (const url of ['/', '/schedule', '/timesheets?status=all', '/pay', `/pay/${ids.payRun}`, '/staff', `/staff/${ids.employee}`,
     '/clients', `/clients/${ids.client}`, '/contracts', '/training', '/training/records', '/training/sessions',

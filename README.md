@@ -220,8 +220,15 @@ sites' details. So keep its password private, and deactivate it when you're not 
   Online** (Business Services Online), which makes the W-3; the summary has every box to type in.
   Employees who agree (under Tax forms) download their W-2 in their account once you share it. A
   mistake after issuing needs a Form W-2c (not in DMI).
-- **Not done by the app yet:** moving money (direct deposit). Until it's added, the office pays
-  people from the pay run as it does today.
+- **Direct deposit:** officers enter their bank account under **My pay → Direct deposit** (it's
+  optional: California lets people choose a check). A new or changed account **waits for an admin
+  to approve it** on the staff page, so a stolen login can't send someone's pay elsewhere; the
+  officer and the admins are notified of every change. The office can also type in an account from
+  a signed direct deposit form (in use at once). Once the bank has set up payroll uploads ("ACH"),
+  fill in its details under **Settings → Direct deposit**; then each finalized pay run has
+  **Download the direct deposit file** (a standard NACHA file of everyone's net pay, for the day you
+  choose) to upload to the bank, and lists who to pay by check. The file has account numbers, so it
+  asks for a fresh two-step code. Account numbers are stored encrypted.
 - Once a pay run is **finalized**, its hours are locked so nobody can be paid twice.
 - Times are entered as 24-hour clock. If a shift's end time is earlier than its start time
   (22:00 → 06:00), it finishes the next day.
@@ -283,6 +290,8 @@ src/
     taxReports.js    the numbers for Forms 941 and 940, and the EDD's DE 9 and DE 9C
     w2.js            year-end W-2s: the boxes from the year's pay, details, W-3 totals
     formW2Pdf.js     draws Form W-2 (Copies B, C, 2 and D)
+    bankAccounts.js  direct deposit accounts: the form, approval of officers' changes, paper checks
+    nacha.js         the direct deposit (NACHA/ACH) file for the bank, and routing number checks
     businessDays.js  federal holidays and business days, for due dates
     withholdingProfile.js  W-4 and DE 4 answers: the form, checks, saving (SSN encrypted)
     compliance.js    "is this guard licensed and trained?"

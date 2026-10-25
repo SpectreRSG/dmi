@@ -154,6 +154,24 @@
     </section>
   </div>
 <% } %>
+<% if (items.length) { %>
+  <section class="card card-pad">
+    <h2>Paying people</h2>
+    <p><strong><%= deposit.byBank.length %></strong> by direct deposit (<%= money(deposit.byBank.reduce((s, i) => s + i.net_pay, 0)) %>) · <strong><%= deposit.byCheck.length %></strong> by check (<%= money(deposit.byCheck.reduce((s, i) => s + i.net_pay, 0)) %>)</p>
+    <% if (deposit.byCheck.length) { %><p class="small">Checks: <%= deposit.byCheck.map((i) => `${i.first_name} ${i.last_name} ${money(i.net_pay)}`).join(' · ') %></p><% } %>
+    <% if (run.status !== 'finalized') { %>
+      <p class="hint">Once this is finalized, you can download the direct deposit file for your bank here.</p>
+    <% } else if (!deposit.bankReady) { %>
+      <p class="hint">To pay by direct deposit, fill in the bank's details under <a href="/settings">Settings → Direct deposit</a> once your bank has set up payroll uploads.</p>
+    <% } else if (deposit.byBank.length) { %>
+      <form method="get" action="/pay/<%= run.id %>/direct-deposit.ach" class="inline-form">
+        <label class="inline">Money arrives on <input type="date" name="effective" value="<%= deposit.effective %>" min="<%= addDays(todayStr(), 1) %>" required></label>
+        <button type="submit" class="btn btn-primary">Download the direct deposit file</button>
+      </form>
+      <p class="hint">Upload it to <%= settings.bank_name %> (most banks need it 1–2 business days ahead). It has account numbers, so you may be asked for your code; delete it from your computer once uploaded.</p>
+    <% } %>
+  </section>
+<% } %>
 <p class="hint">W-2 employees: taxes use the pay date's tax year (<a href="/pay/taxes">tax rates</a>) and each person's W-4 and DE 4. 1099 contractors are paid their full amount (no taxes taken out) unless the IRS told us to backup withhold.</p>
 
 <% if (run.status === 'draft') { %>

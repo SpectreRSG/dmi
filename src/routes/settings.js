@@ -6,6 +6,7 @@ const { US_STATES, digitsOnly, zipOk } = require('../services/tax1099');
 const { requireRecentCode } = require('../auth');
 const { isValidTime } = require('../time');
 const { PAY_FREQUENCIES } = require('../services/taxTables');
+const { routingOk } = require('../services/nacha');
 
 
 const router = express.Router();
@@ -24,10 +25,12 @@ router.post('/', requireRecentCode, async (req, res) => {
     'expiry_warning_days', 'min_rest_hours', 'two_step_required_for',
     'payer_name', 'payer_ein', 'payer_address', 'payer_city', 'payer_state', 'payer_zip', 'payer_phone', 'payer_state_id', 'ppo_license',
     'pay_frequency', 'ca_ui_rate', 'ca_ett_rate', 'futa_credit_reduction', 'fed_deposit_schedule',
+    'bank_name', 'bank_routing', 'ach_company_id', 'ach_immediate_origin', 'ach_company_name',
   ]);
   const was = res.locals.settings;
   // A field left out of the form (or empty) keeps its current value.
   const rate = (field) => (v[field] == null ? was[field] : toNumber(v[field], NaN));
+  const kept = (field, max) => (req.body[field] === undefined ? was[field] || '' : String(v[field] || '').slice(0, max));
   const ein = digitsOnly(v.payer_ein);
   const values = {
     company_name: v.company_name,
@@ -55,6 +58,12 @@ router.post('/', requireRecentCode, async (req, res) => {
     ca_ett_rate: rate('ca_ett_rate'),
     futa_credit_reduction: rate('futa_credit_reduction'),
     fed_deposit_schedule: v.fed_deposit_schedule ?? was.fed_deposit_schedule,
+    // Direct deposit details: a field left out of the form keeps its value; an empty one clears it.
+    bank_name: kept('bank_name', 23),
+    bank_routing: kept('bank_routing', 20).replace(/\D/g, '').slice(0, 9),
+    ach_company_id: kept('ach_company_id', 10),
+    ach_immediate_origin: kept('ach_immediate_origin', 10),
+    ach_company_name: kept('ach_company_name', 16),
   };
 
   let error = null;
@@ -77,6 +86,12 @@ router.post('/', requireRecentCode, async (req, res) => {
     error = 'Use the 2-letter state code, like CA.';
   } else if (values.payer_zip && !zipOk(values.payer_zip)) {
     error = 'The ZIP code should be 5 digits (or ZIP+4).';
+  } else if (values.bank_routing && !routingOk(values.bank_routing)) {
+    error = "The bank's routing number doesn't look right: it's 9 digits.";
+  } else if (values.ach_company_id && !/^[A-Za-z0-9 ]{1,10}$/.test(values.ach_company_id)) {
+    error = 'The ACH company ID is up to 10 letters or digits, as your bank gave it.';
+  } else if (values.ach_immediate_origin && !/^[0-9 ]{1,10}$/.test(values.ach_immediate_origin)) {
+    error = 'The immediate origin is up to 10 digits, as your bank gave it.';
   } else if (!['monthly', 'semiweekly'].includes(values.fed_deposit_schedule)) {
     error = 'Choose when payroll taxes are paid: monthly or semiweekly.';
   } else if (!PAY_FREQUENCIES[values.pay_frequency]) {
@@ -97,6 +112,9 @@ router.post('/', requireRecentCode, async (req, res) => {
   }
   if (was.daily_overtime !== values.daily_overtime || was.workday_start !== values.workday_start) {
     notes.push(values.daily_overtime === 'california' ? `California daily overtime on, workdays from ${values.workday_start}` : 'daily overtime off');
+  }
+  if (['bank_name', 'bank_routing', 'ach_company_id', 'ach_immediate_origin', 'ach_company_name'].some((f) => (was[f] || '') !== values[f])) {
+    notes.push('direct deposit bank details changed');
   }
   if (was.fed_deposit_schedule !== values.fed_deposit_schedule) notes.push(`payroll taxes now paid ${values.fed_deposit_schedule}`);
   if (was.pay_frequency !== values.pay_frequency) notes.push(`pay frequency now ${PAY_FREQUENCIES[values.pay_frequency].label.toLowerCase()}`);

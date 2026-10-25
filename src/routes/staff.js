@@ -7,6 +7,9 @@ const { entryHours, round2 } = require('../services/payroll');
 const { complianceFor, complianceForEmployee } = require('../services/compliance');
 const availability = require('../services/availability');
 const withholding = require('../services/withholdingProfile');
+const bank = require('../services/bankAccounts');
+const { requireRecentCode } = require('../auth');
+const { notifyEmployees } = require('../services/notify');
 
 const router = express.Router();
 numericIdParam(router);
@@ -160,6 +163,7 @@ router.get('/:id', async (req, res) => {
     ? await db.get('SELECT tin_type, tin_last4, signed_at, electronic_consent, backup_withholding FROM tax_profiles WHERE employee_id = ?', employee.id)
     : null;
   const w4 = res.locals.isAdmin ? await withholding.findProfile(employee.id) : null;
+  const bankAccounts = res.locals.isAdmin ? await bank.accountsFor(employee.id) : null;
 
   res.render('staff/show', {
     title: employeeName(employee),
@@ -168,6 +172,8 @@ router.get('/:id', async (req, res) => {
     taxProfile,
     w4,
     w4Summary: w4 ? withholding.summary(w4) : '',
+    bankAccounts,
+    describeAccount: bank.describe,
     compliance,
     upcomingShifts,
     said,
@@ -224,6 +230,60 @@ router.post('/:id/withholding', adminOnly, async (req, res) => {
   await withholding.saveProfile(employee.id, values, { ip: req.ip, enteredBy: req.user.id });
   await logActivity(req, `Entered the W-4 and DE 4 for ${employeeName(employee)} from their signed paper forms`);
   req.flash('success', 'W-4 and DE 4 saved. The next pay run uses them.');
+  res.redirect(`/staff/${employee.id}`);
+});
+
+// Direct deposit: typed in from a signed paper form (active at once), and
+// approving or turning down an officer's own change.
+function renderBank(res, employee, values, error, status = 200) {
+  res.status(status).render('staff/bank', { title: `Direct deposit – ${employeeName(employee)}`, employee, values, error, TYPES: bank.TYPES });
+}
+
+router.get('/:id/bank', adminOnly, async (req, res) => {
+  const employee = await findEmployee(req.params.id);
+  if (!employee) return notFound(res, 'staff member');
+  renderBank(res, employee, { holder_name: employeeName(employee) }, null);
+});
+
+router.post('/:id/bank', adminOnly, requireRecentCode, async (req, res) => {
+  const employee = await findEmployee(req.params.id);
+  if (!employee) return notFound(res, 'staff member');
+  const { values, account, error } = bank.readForm(req.body);
+  if (error) return renderBank(res, employee, values, error, 400);
+  await bank.saveAccount(employee.id, values, account, { enteredBy: req.user.id });
+  await logActivity(req, `Entered the direct deposit account for ${employeeName(employee)} from their signed form (${bank.describe({ ...values, account_last4: account.slice(-4) })})`);
+  await notifyEmployees([employee.id], { title: 'Your direct deposit account was updated', body: 'The office entered your new bank details. Tell them right away if you didn\'t ask for this.', url: '/my/pay/direct-deposit', tag: `bank-change-${employee.id}` });
+  req.flash('success', 'Direct deposit account saved and in use from the next pay run.');
+  res.redirect(`/staff/${employee.id}`);
+});
+
+router.post('/:id/bank/approve', adminOnly, requireRecentCode, async (req, res) => {
+  const employee = await findEmployee(req.params.id);
+  if (!employee) return notFound(res, 'staff member');
+  if (await bank.approvePending(employee.id, req.user.id)) {
+    await logActivity(req, `Approved the new direct deposit account for ${employeeName(employee)}`);
+    await notifyEmployees([employee.id], { title: 'New bank account approved', body: 'Your pay goes to your new account from the next pay day.', url: '/my/pay/direct-deposit', tag: `bank-change-${employee.id}` });
+    req.flash('success', 'Approved. Their pay goes to the new account from the next pay run.');
+  }
+  res.redirect(`/staff/${employee.id}`);
+});
+
+router.post('/:id/bank/reject', adminOnly, async (req, res) => {
+  const employee = await findEmployee(req.params.id);
+  if (!employee) return notFound(res, 'staff member');
+  await bank.rejectPending(employee.id);
+  await logActivity(req, `Turned down a direct deposit change for ${employeeName(employee)}`);
+  await notifyEmployees([employee.id], { title: 'Bank account change not approved', body: 'The office didn\'t approve the new bank details, so your pay goes where it did before. Talk to the office if you want to change it.', url: '/my/pay/direct-deposit', tag: `bank-change-${employee.id}` });
+  req.flash('success', 'Change turned down. Pay keeps going to the account they had.');
+  res.redirect(`/staff/${employee.id}`);
+});
+
+router.post('/:id/bank/stop', adminOnly, requireRecentCode, async (req, res) => {
+  const employee = await findEmployee(req.params.id);
+  if (!employee) return notFound(res, 'staff member');
+  await bank.stopDirectDeposit(employee.id);
+  await logActivity(req, `Stopped direct deposit for ${employeeName(employee)} (paper checks)`);
+  req.flash('success', 'Direct deposit stopped: pay them by check.');
   res.redirect(`/staff/${employee.id}`);
 });
 
