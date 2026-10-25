@@ -26,15 +26,26 @@
   <table class="table">
     <thead><tr><th>Earnings</th><th class="num">Hours</th><th class="num">Rate</th><th class="num">This period</th><th class="num">Year to date</th></tr></thead>
     <tbody>
-      <tr><td>Regular</td><td class="num"><%= fmtHours(item.regular_hours) %></td><td class="num"><%= money(item.hourly_rate) %></td><td class="num"><%= money(item.regular_pay) %></td><td class="num muted"><%= money(ytd.regular_pay) %></td></tr>
+      <% if (item.pay_basis === 'salary') { %>
+        <tr><td>Salary<%= item.overtime_exempt ? ' (exempt)' : '' %></td><td class="num"><%= item.overtime_exempt ? '—' : fmtHours(round2(item.regular_hours - item.extra_hours)) %></td><td class="num muted small"><%= item.overtime_exempt ? '' : `${money(item.hourly_rate)} regular rate` %></td><td class="num"><%= money(item.salary_pay) %></td><td class="num muted"><%= money(ytd.salary_pay) %></td></tr>
+        <% if (item.extra_hours || ytd.regular_pay) { %>
+          <tr><td>Extra hours (past the schedule)</td><td class="num"><%= fmtHours(item.extra_hours) %></td><td class="num"><%= money(item.hourly_rate) %></td><td class="num"><%= money(item.regular_pay) %></td><td class="num muted"><%= money(ytd.regular_pay) %></td></tr>
+        <% } %>
+      <% } else { %>
+        <% if (ytd.salary_pay) { %><tr><td>Salary</td><td></td><td></td><td class="num"><%= money(0) %></td><td class="num muted"><%= money(ytd.salary_pay) %></td></tr><% } %>
+        <tr><td>Regular</td><td class="num"><%= fmtHours(item.regular_hours) %></td><td class="num"><%= money(item.hourly_rate) %></td><td class="num"><%= money(item.regular_pay) %></td><td class="num muted"><%= money(ytd.regular_pay) %></td></tr>
+      <% } %>
       <% if (item.overtime_hours || ytd.overtime_pay) { %>
         <tr><td>Overtime (<%= item.overtime_multiplier %>×)</td><td class="num"><%= fmtHours(item.overtime_hours) %></td><td class="num"><%= money(item.hourly_rate * item.overtime_multiplier) %></td><td class="num"><%= money(item.overtime_pay) %></td><td class="num muted"><%= money(ytd.overtime_pay) %></td></tr>
       <% } %>
       <% if (item.double_time_hours || ytd.double_time_pay) { %>
         <tr><td>Double time (2×)</td><td class="num"><%= fmtHours(item.double_time_hours) %></td><td class="num"><%= money(item.hourly_rate * 2) %></td><td class="num"><%= money(item.double_time_pay) %></td><td class="num muted"><%= money(ytd.double_time_pay) %></td></tr>
       <% } %>
+      <% if (item.break_pay || ytd.break_pay) { %>
+        <tr><td>Meal and rest break premiums<% if (item.break_pay) { %> <span class="muted small">(<%= [item.meal_premiums && `${item.meal_premiums} meal`, item.rest_premiums && `${item.rest_premiums} rest`].filter(Boolean).join(', ') %>)</span><% } %></td><td class="num"><%= fmtHours(item.meal_premiums + item.rest_premiums) %></td><td class="num"><%= money(item.hourly_rate) %></td><td class="num"><%= money(item.break_pay) %></td><td class="num muted"><%= money(ytd.break_pay) %></td></tr>
+      <% } %>
       <% if (item.sick_hours || ytd.sick_pay) { %>
-        <tr><td>Paid sick leave</td><td class="num"><%= fmtHours(item.sick_hours) %></td><td class="num"><%= money(item.hourly_rate) %></td><td class="num"><%= money(item.sick_pay) %></td><td class="num muted"><%= money(ytd.sick_pay) %></td></tr>
+        <tr><td>Paid sick leave<%= item.pay_basis === 'salary' && item.sick_hours ? ' (in the salary)' : '' %></td><td class="num"><%= fmtHours(item.sick_hours) %></td><td class="num"><%= money(item.hourly_rate) %></td><td class="num"><%= money(item.sick_pay) %></td><td class="num muted"><%= money(ytd.sick_pay) %></td></tr>
       <% } %>
       <% if (item.adjustment || ytd.adjustment) { %>
         <tr><td>Adjustment<%= item.adjustment_note ? `: ${item.adjustment_note}` : '' %></td><td></td><td></td><td class="num"><%= money(item.adjustment) %></td><td class="num muted"><%= money(ytd.adjustment) %></td></tr>

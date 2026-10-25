@@ -55,6 +55,25 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Staff form: only show the pay fields that go with the employment type
+  // (and, for Full Time, hourly or salary). data-show-for lists types with |.
+  const payForm = document.querySelector('[data-pay-form]');
+  if (payForm) {
+    const showPay = () => {
+      const type = payForm.querySelector('input[name="employment_type"]:checked');
+      const options = type ? type.dataset.payOptions.split(' ') : [];
+      const chosen = payForm.querySelector('input[name="pay_basis"]:checked');
+      const basis = options.includes(chosen && chosen.value) ? chosen.value : options[0];
+      payForm.querySelectorAll('[data-show-for], [data-pay]').forEach((field) => {
+        const typeOk = !field.dataset.showFor || (type && field.dataset.showFor.split('|').includes(type.value));
+        const payOk = !field.dataset.pay || field.dataset.pay === basis;
+        field.hidden = !type || !typeOk || !payOk;
+      });
+    };
+    payForm.addEventListener('change', showPay);
+    showPay();
+  }
+
   // Contract form: only show the "client" / "staff member" / "other" box that applies.
   const partySelect = document.querySelector('[data-party-select]');
   if (partySelect) {

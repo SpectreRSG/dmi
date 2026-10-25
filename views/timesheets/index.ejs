@@ -53,6 +53,7 @@
                 <td><a href="/staff/<%= t.employee_id %>"><%= t.first_name %> <%= t.last_name %></a></td>
                 <td><%= t.site_name || '—' %></td>
                 <td class="nowrap"><%= fmtRange(t.start_at, t.end_at) %><% if (t.break_minutes) { %><br><span class="muted"><%= t.break_minutes %> min break</span><% } %>
+                  <% if (t.missed_meal || t.missed_rest) { %><br><%- badge(['Missed', t.missed_meal && 'meal', t.missed_meal && t.missed_rest && '+', t.missed_rest && 'rest'].filter(Boolean).join(' ') + ' break', 'amber') %><% } %>
                   <% if (t.notes) { %><br><span class="muted small"><%= t.notes %></span><% } %>
                   <% if (t.submission_id) { %><br><a class="small" href="/timesheets/submissions/<%= t.submission_id %>/pdf">Officer's PDF</a><% } %></td>
                 <td class="num"><%= fmtHours(t.hours) %></td>

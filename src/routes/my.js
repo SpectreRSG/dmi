@@ -7,9 +7,10 @@ const { clean, notFound, numericIdParam, logActivity, employeeName } = require('
 const time = require('../time');
 const { homeFor, requireRecentCode } = require('../auth');
 const bank = require('../services/bankAccounts');
-const { entryHours, round2, calculatePayLine, overtimeRules } = require('../services/payroll');
+const { entryHours, round2 } = require('../services/payroll');
 const { recordFinishedShifts } = require('../services/hoursFromSchedule');
-const { STRAIGHT_TIME } = require('../services/paycheck');
+const paycheck = require('../services/paycheck');
+const employment = require('../services/employment');
 const { payslipData } = require('../services/payslip');
 const { findPayLine, payLineTimesheet, timesheetFileName } = require('../services/payTimesheet');
 const openShifts = require('../services/openShifts');
@@ -258,15 +259,23 @@ router.get('/pay', officerOnly, async (req, res) => {
       req.me.id, time.startOfWeek(firstDay), firstDay
     )
     : [];
-  // Overtime is for W-2 employees; 1099 contractors get their rate for every hour.
-  const rules = req.me.tax_form === 'W-2' ? overtimeRules(settings) : STRAIGHT_TIME;
-  const estimate = calculatePayLine({ entries: approved, earlier, hourlyRate: req.me.hourly_rate, rules });
+  // By their employment type: overtime and break premiums for employees, the
+  // agreed rate for every hour for contractors. (Salaried staff see their salary instead.)
+  const days = approved.map((e) => e.start_at.slice(0, 10)).sort();
+  const estimate = paycheck.earnings({
+    employee: req.me, entries: approved, earlier, settings,
+    run: { period_start: days[0] || time.todayStr(), period_end: days.at(-1) || time.todayStr() },
+  });
+  estimate.gross_pay = round2(estimate.gross_pay + estimate.break_pay);
+  const rules = employment.rulesFor(req.me);
   res.render('my/pay', {
     title: 'My pay',
     recorded,
     recordedHours: round2(recorded.reduce((sum, e) => sum + e.hours, 0)),
     waiting: recorded.filter((e) => e.status === 'pending').length,
     estimate,
+    rules,
+    salaryPerPayDay: rules.salaried ? round2(req.me.annual_salary / paycheck.periodsPerYear(settings)) : 0,
     paid,
     sent,
     needsW9: req.me.tax_form === '1099' && !taxProfile,
@@ -350,6 +359,40 @@ router.post('/pay/direct-deposit/stop', officerOnly, requireRecentCode, async (r
 router.get('/pay/:id/timesheet.pdf', officerOnly, myPayLine, async (req, res) => {
   const file = await payLineTimesheet(req.line);
   await sendUpload(res, file, timesheetFileName(req.line), { inline: !req.query.download });
+});
+
+// An employee reports a missed meal or rest break on hours not paid yet. It
+// counts at once (the pay run adds the premium), and the office hears about it
+// and can change it under Timesheets if it's wrong.
+router.post('/hours/:id/breaks', officerOnly, async (req, res) => {
+  const entry = await db.get(
+    `SELECT t.* FROM time_entries t LEFT JOIN pay_runs p ON p.id = t.pay_run_id
+     WHERE t.id = ? AND t.employee_id = ? AND t.status != 'rejected' AND (p.id IS NULL OR p.status != 'finalized')`,
+    req.params.id, req.me.id
+  );
+  if (!entry || !employment.rulesFor(req.me).breaks) return notFound(res, 'hours');
+  const meal = Boolean(req.body.missed_meal) && !entry.missed_meal;
+  const rest = Boolean(req.body.missed_rest) && !entry.missed_rest;
+  if (!meal && !rest) {
+    req.flash('warning', 'Tick the break you missed.');
+    return res.redirect('/my/pay');
+  }
+  const what = [meal && 'meal break', rest && 'rest break'].filter(Boolean).join(' and ');
+  const said = String(req.body.note || '').trim().slice(0, 200);
+  const note = [entry.break_note, `${employeeName(req.me)} reported a missed ${what} on ${time.fmtDate(time.todayStr())}${said ? `: ${said}` : ''}`].filter(Boolean).join(' · ');
+  await db.run(
+    'UPDATE time_entries SET missed_meal = missed_meal | ?, missed_rest = missed_rest | ?, break_note = ? WHERE id = ?',
+    meal ? 1 : 0, rest ? 1 : 0, note.slice(0, 500), entry.id
+  );
+  await logActivity(req, `${employeeName(req.me)} reported a missed ${what} (hours #${entry.id})`);
+  await notify.notifyAdmins({
+    title: 'Missed break reported',
+    body: `${employeeName(req.me)} missed a ${what} on ${time.fmtDay(entry.start_at)}. It adds an hour's pay${meal && rest ? ' for each' : ''} unless you change it.`,
+    url: `/timesheets/${entry.id}/edit`,
+    tag: `break-${entry.id}`,
+  });
+  req.flash('success', `Thanks, the office knows. If the ${what} was owed that day, your next pay includes an extra hour's pay for it.`);
+  res.redirect('/my/pay');
 });
 
 // Old links to the timesheet pages now go to My pay.

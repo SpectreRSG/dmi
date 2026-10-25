@@ -258,7 +258,7 @@ test('add a client, a site and a staff member', async () => {
   res = await admin.post(`/clients/${ids.client}/sites`, { name: 'Main entrance' });
   assert.equal(res.status, 302);
   ids.site = (await db.get('SELECT id FROM sites WHERE client_id = ?', ids.client)).id;
-  res = await admin.post('/staff', { first_name: 'Sam', last_name: 'Guard', hourly_rate: '30', license_required: '1', status: 'active', tax_form: 'W-2' });
+  res = await admin.post('/staff', { first_name: 'Sam', last_name: 'Guard', hourly_rate: '30', license_required: '1', status: 'active', employment_type: 'Part Time Hourly' });
   assert.equal(res.status, 302);
   ids.employee = Number(res.location.split('/').pop());
   assert.equal((await db.get('SELECT hourly_rate FROM employees WHERE id = ?', ids.employee)).hourly_rate, 30);
@@ -363,7 +363,7 @@ test('pay run: overtime is calculated and finalized hours are locked', async () 
 
   const csv = await admin.get(`/pay/${ids.payRun}/export.csv`);
   assert.match(csv.headers.get('content-type'), /text\/csv/);
-  assert.match(csv.text, /Sam Guard,.*,40,10,0,30,1.5,1200,450,0,50,Bonus,1700,W-2,0,0,120.15,105.4,24.65,0,38.23,22.1,0,,1389.47/);
+  assert.match(csv.text, /Sam Guard,.*,Hourly,40,10,0,30,1.5,0,0,1200,450,0,0,0,0,50,Bonus,1700,W-2,0,0,120.15,105.4,24.65,0,38.23,22.1,0,,1389.47/);
 
   // Rejecting hours after the draft was made: the page warns, and finalizing leaves them out.
   const lastEntry = (await db.get('SELECT id FROM time_entries WHERE pay_run_id = ? ORDER BY start_at DESC', ids.payRun)).id;
@@ -430,8 +430,9 @@ test('managers cannot see pay, and cannot change pay rates', async () => {
   assert.equal(profile.status, 200);
   assert.doesNotMatch(profile.text, /Hourly rate/);
 
-  await manager.post(`/staff/${ids.employee}`, { first_name: 'Sam', last_name: 'Guard', hourly_rate: '99', status: 'active' });
-  assert.equal((await db.get('SELECT hourly_rate FROM employees WHERE id = ?', ids.employee)).hourly_rate, 30);
+  await manager.post(`/staff/${ids.employee}`, { first_name: 'Sam', last_name: 'Guard', hourly_rate: '99', status: 'active', employment_type: 'Contractor', annual_salary: '90000' });
+  const sam = await db.get('SELECT hourly_rate, employment_type, tax_form, annual_salary FROM employees WHERE id = ?', ids.employee);
+  assert.deepEqual([sam.hourly_rate, sam.employment_type, sam.tax_form, sam.annual_salary], [30, 'Part Time Hourly', 'W-2', 0], 'only admins change pay');
 });
 
 test('wrong passwords are limited', async () => {
@@ -561,7 +562,7 @@ test('training: a new training can be typed in by name, and sessions have a leng
 test('conflict checker: finds problems, and "find cover" assigns someone who is free', async () => {
   const day = time.addDays(time.startOfWeek(time.todayStr()), 35);
   const next = time.addDays(day, 1);
-  let res = await admin.post('/staff', { first_name: 'Jo', last_name: 'Backup', hourly_rate: '25', license_required: '0', status: 'active' });
+  let res = await admin.post('/staff', { first_name: 'Jo', last_name: 'Backup', hourly_rate: '25', license_required: '0', status: 'active', employment_type: 'Contractor' });
   const backupId = Number(res.location.split('/').pop());
 
   // Sam's license is fine today, but runs out a few days before these shifts.
@@ -1601,10 +1602,10 @@ test("staff positions: a dropdown of the office's five; older positions stay unt
   assert.deepEqual([...page.text.matchAll(/<option\s*(?:selected)?\s*>([^<]+)<\/option>/g)].map((m) => m[1]).filter((p) => positions.includes(p)), positions);
   assert.doesNotMatch(page.text, /list="positions"/, 'no free typing');
   // Only the five can be chosen.
-  let res = await admin.post('/staff', { first_name: 'Pat', last_name: 'Position', position: 'Event Security', status: 'active' }, '/staff/new');
+  let res = await admin.post('/staff', { first_name: 'Pat', last_name: 'Position', position: 'Event Security', status: 'active', employment_type: 'Contractor' }, '/staff/new');
   assert.equal(res.status, 400);
   assert.match(res.text, /Choose a position from the list/);
-  res = await admin.post('/staff', { first_name: 'Pat', last_name: 'Position', position: 'Armed Security Officer', status: 'active' }, '/staff/new');
+  res = await admin.post('/staff', { first_name: 'Pat', last_name: 'Position', position: 'Armed Security Officer', status: 'active', employment_type: 'Contractor' }, '/staff/new');
   assert.equal(res.status, 302);
   assert.equal((await db.get("SELECT position FROM employees WHERE last_name = 'Position'")).position, 'Armed Security Officer');
 
@@ -1613,7 +1614,7 @@ test("staff positions: a dropdown of the office's five; older positions stay unt
   assert.equal(oldie.position, 'Security officer', 'from before the new list');
   page = await admin.get(`/staff/${oldie.id}/edit`);
   assert.match(page.text, /<option value="Security officer" selected>Security officer \(old, please choose a new one\)/);
-  res = await admin.post(`/staff/${oldie.id}`, { first_name: 'Test', last_name: 'Officer', position: 'Security officer', status: 'active' }, `/staff/${oldie.id}/edit`);
+  res = await admin.post(`/staff/${oldie.id}`, { first_name: 'Test', last_name: 'Officer', position: 'Security officer', status: 'active', employment_type: oldie.employment_type }, `/staff/${oldie.id}/edit`);
   assert.equal(res.status, 302);
   assert.equal((await db.get('SELECT position FROM employees WHERE id = ?', oldie.id)).position, 'Security officer', 'kept');
   page = await admin.get('/staff');
@@ -1623,7 +1624,7 @@ test("staff positions: a dropdown of the office's five; older positions stay unt
   assert.match(page.text, /Security officer <span class="badge badge-amber">Old<\/span>/);
   assert.doesNotMatch(page.text, /Pat Position/, 'only the ones with an old position');
   // Choosing a new one clears it.
-  await admin.post(`/staff/${oldie.id}`, { first_name: 'Test', last_name: 'Officer', position: 'Unarmed Security Officer', status: 'active' }, `/staff/${oldie.id}/edit`);
+  await admin.post(`/staff/${oldie.id}`, { first_name: 'Test', last_name: 'Officer', position: 'Unarmed Security Officer', status: 'active', employment_type: oldie.employment_type }, `/staff/${oldie.id}/edit`);
   assert.equal((await db.get('SELECT position FROM employees WHERE id = ?', oldie.id)).position, 'Unarmed Security Officer');
   assert.doesNotMatch((await admin.get('/staff/new')).text, /Security officer \(old/);
 });
@@ -2013,7 +2014,7 @@ test('California daily overtime: on by default, set in Settings, and counted acr
 
   // A week next year, so nothing else is in it: Monday 14 hours, then 8 hours a day to Sunday.
   const monday = time.startOfWeek(`${Number(time.todayStr().slice(0, 4)) + 1}-03-10`);
-  const danaId = await db.insert("INSERT INTO employees (first_name, last_name, status, hourly_rate, tax_form) VALUES ('Dana', 'Daily', 'active', 20, 'W-2')");
+  const danaId = await db.insert("INSERT INTO employees (first_name, last_name, status, hourly_rate, tax_form, employment_type, meal_agreement_on) VALUES ('Dana', 'Daily', 'active', 20, 'W-2', 'Full Time', '2024-01-01')");
   const hours = [['06:00', '20:00'], ...Array(6).fill(['09:00', '17:00'])];
   for (const [i, [start, end]] of hours.entries()) {
     const day = time.addDays(monday, i);
@@ -2036,7 +2037,7 @@ test('California daily overtime: on by default, set in Settings, and counted acr
   assert.match((await admin.get('/pay/new')).text, /Hours over 8 in a workday \(workdays start at 06:00\)/);
   const slip = await admin.get(`/pay/${first}/payslips/${one.id}`);
   assert.match(slip.text, /Double time \(2×\)/);
-  assert.match((await admin.raw('GET', `/pay/${first}/export.csv`)).text, /Dana Daily,.*,40,12,2,20,1.5,800,360,80,0,,1240/);
+  assert.match((await admin.raw('GET', `/pay/${first}/export.csv`)).text, /Dana Daily,.*,Hourly,40,12,2,20,1.5,0,0,800,360,80,0,0,0,0,,1240/);
   // An adjustment keeps the double time in the total.
   await admin.post(`/pay/${first}/items/${one.id}`, { adjustment: '10', adjustment_note: 'Boots' }, `/pay/${first}`);
   assert.equal((await line(first)).gross_pay, 1250);
@@ -2058,9 +2059,10 @@ test('W-2 payroll: W-4 and DE 4, taxes, sick leave and deductions, pay stubs; 10
   const { payrollTaxes, EMPLOYEE_TAXES, sumOf } = require('../src/services/withholding');
   const year = time.todayStr().slice(0, 4);
   // A W-2 employee and a 1099 contractor, each working Monday to Friday, 10 hours a day, in a quiet fortnight.
-  let res = await admin.post('/staff', { first_name: 'Wendy', last_name: 'Wages', hourly_rate: '25', status: 'active', tax_form: 'W-2', start_date: '2024-01-08' });
+  // (Wendy eats at her post under an on-duty meal agreement, so no meal break premiums.)
+  let res = await admin.post('/staff', { first_name: 'Wendy', last_name: 'Wages', hourly_rate: '25', status: 'active', employment_type: 'Full Time', start_date: '2024-01-08', meal_agreement_on: '2024-01-08' });
   const wendy = Number(res.location.split('/').pop());
-  res = await admin.post('/staff', { first_name: 'Carl', last_name: 'Contract', hourly_rate: '40', status: 'active', tax_form: '1099' });
+  res = await admin.post('/staff', { first_name: 'Carl', last_name: 'Contract', hourly_rate: '40', status: 'active', employment_type: 'Contractor' });
   const carl = Number(res.location.split('/').pop());
   const addWeek = async (id, monday, hours) => {
     for (let i = 0; i < 5; i += 1) {
@@ -2163,7 +2165,7 @@ test('W-2 payroll: W-4 and DE 4, taxes, sick leave and deductions, pay stubs; 10
   res = await admin.post('/users', { name: 'Wes Worker', email: 'wes@example.com', role: 'officer', employee_id: 'new', password: 'steady night shifts 42', confirm: 'steady night shifts 42', active: '1' });
   assert.equal(res.status, 302);
   const wes = (await db.get("SELECT employee_id FROM users WHERE email = 'wes@example.com'")).employee_id;
-  await db.run("UPDATE employees SET tax_form = 'W-2' WHERE id = ?", wes);
+  await db.run("UPDATE employees SET tax_form = 'W-2', employment_type = 'Part Time Hourly' WHERE id = ?", wes);
   const worker = makeClient();
   await signIn(worker, 'wes@example.com', 'steady night shifts 42');
   assert.match((await worker.get('/my/schedule')).text, /Fill in your W-4 and DE 4/);
@@ -2189,7 +2191,7 @@ test('tax payments and reports: what is owed and when, recording payments, remin
   const settings = () => require('../src/settings').getSettings();
   const year = Number(time.todayStr().slice(0, 4));
   // A W-2 employee paid on Friday 9 January this year for a quiet fortnight.
-  let res = await admin.post('/staff', { first_name: 'Tina', last_name: 'Taxes', hourly_rate: '30', status: 'active', tax_form: 'W-2' });
+  let res = await admin.post('/staff', { first_name: 'Tina', last_name: 'Taxes', hourly_rate: '30', status: 'active', employment_type: 'Full Time', meal_agreement_on: '2025-01-01' });
   const tina = Number(res.location.split('/').pop());
   for (let i = 0; i < 5; i += 1) {
     const day = time.addDays('2025-06-02', i);
@@ -2319,7 +2321,7 @@ test('W-2 forms: made from the year of pay, issued, the PDFs, the filing summary
 
   // Wes is paid as a W-2 employee, agrees to get his W-2 online, and downloads it.
   const wes = (await db.get("SELECT employee_id FROM users WHERE email = 'wes@example.com'")).employee_id;
-  await db.run('UPDATE employees SET hourly_rate = 22 WHERE id = ?', wes);
+  await db.run("UPDATE employees SET hourly_rate = 22, meal_agreement_on = '2025-01-01' WHERE id = ?", wes); // eats at his post
   for (let i = 0; i < 3; i += 1) {
     const day = time.addDays('2025-07-07', i);
     await db.run("INSERT INTO time_entries (employee_id, start_at, end_at, status) VALUES (?, ?, ?, 'approved')", wes, `${day}T09:00`, `${day}T17:00`);
@@ -2439,9 +2441,9 @@ test("new hire reports (DE 34): due 20 days after a W-2 employee starts, on the 
   const { remindNewHires } = require('../src/services/newHires');
   const today = time.todayStr();
   const started = time.addDays(today, -18);
-  let res = await admin.post('/staff', { first_name: 'Nina', last_name: 'New', status: 'active', tax_form: 'W-2', start_date: started });
+  let res = await admin.post('/staff', { first_name: 'Nina', last_name: 'New', status: 'active', employment_type: 'Part Time Hourly', start_date: started });
   const nina = Number(res.location.split('/').pop());
-  await db.run("INSERT INTO employees (first_name, last_name, status, tax_form, start_date) VALUES ('Olga', 'Oldtimer', 'active', 'W-2', ?)", time.addDays(today, -700));
+  await db.run("INSERT INTO employees (first_name, last_name, status, tax_form, employment_type, start_date) VALUES ('Olga', 'Oldtimer', 'active', 'W-2', 'Full Time', ?)", time.addDays(today, -700));
   const due = time.fmtDate(time.addDays(started, 20));
   let page = await admin.get('/');
   assert.match(page.text, new RegExp(`New hire report \\(DE 34\\) for Nina New is due ${due}`));
@@ -2466,6 +2468,99 @@ test("new hire reports (DE 34): due 20 days after a W-2 employee starts, on the 
   await admin.post(`/staff/${nina}/new-hire`, { reported_on: today }, `/staff/${nina}/new-hire`);
   assert.equal((await db.get('SELECT new_hire_reported_on FROM employees WHERE id = ?', nina)).new_hire_reported_on, today);
   assert.doesNotMatch((await admin.get('/')).text, /New hire report \(DE 34\) for Nina New/);
+});
+
+test('employment types: a change switches pay and taxes; salaried pay; meal and rest break premiums', async () => {
+  const staffId = (res) => Number(res.location.split('/').pop());
+  const person = (id) => db.get('SELECT * FROM employees WHERE id = ?', id);
+  // A contractor with three days of hours in a quiet fortnight.
+  let res = await admin.post('/staff', { first_name: 'Remy', last_name: 'Role', status: 'active', employment_type: 'Contractor', hourly_rate: '30', start_date: '2024-02-05' });
+  const remy = staffId(res);
+  assert.deepEqual([(await person(remy)).tax_form, (await person(remy)).pay_basis], ['1099', 'hourly']);
+  const hours = [['2024-09-09T07:00', '2024-09-09T17:00', 0, 0], ['2024-09-10T07:00', '2024-09-10T15:30', 30, 1], ['2024-09-11T07:00', '2024-09-11T15:30', 30, 0]];
+  const entryIds = [];
+  for (const [start, end, breakMinutes, missedRest] of hours) {
+    entryIds.push(await db.insert("INSERT INTO time_entries (employee_id, start_at, end_at, break_minutes, missed_rest, status) VALUES (?, ?, ?, ?, ?, 'approved')", remy, start, end, breakMinutes, missedRest));
+  }
+  res = await admin.post('/pay', { period_start: '2024-09-08', period_end: '2024-09-21' });
+  const run = staffId(res);
+  const lineOf = (id) => db.get('SELECT * FROM pay_run_items WHERE pay_run_id = ? AND employee_id = ?', run, id);
+  let line = await lineOf(remy);
+  assert.deepEqual([line.tax_form, line.regular_hours, line.overtime_hours, line.meal_premiums, line.rest_premiums, line.gross_pay], ['1099', 26, 0, 0, 0, 780], 'contractors: straight time, no break rules');
+
+  // Now an employee: W-2, overtime, breaks, a new hire report.
+  res = await admin.post(`/staff/${remy}`, { first_name: 'Remy', last_name: 'Role', status: 'active', employment_type: 'Part Time Hourly', hourly_rate: '30', start_date: '2024-02-05' });
+  assert.equal(res.status, 302);
+  let r = await person(remy);
+  assert.deepEqual([r.tax_form, r.w2_since], ['W-2', time.todayStr()]);
+  let page = await admin.get(`/staff/${remy}`);
+  assert.match(page.text, /Part Time Hourly \(was Contractor\)/);
+  assert.match(page.text, /W-2 employee paid \$30\.00 an hour/);
+  assert.match(page.text, /Meal and rest breaks: California rules/);
+  assert.match(page.text, /Contractor → Part Time Hourly/);
+  assert.match((await admin.get('/')).text, /New hire report \(DE 34\) for Remy Role is due .*: they became an employee/);
+  await admin.post(`/pay/${run}/recalculate`, {}, `/pay/${run}`);
+  line = await lineOf(remy);
+  // Monday: 10 hours, no meal break recorded (8 + 2 overtime, a meal premium); Tuesday: a rest break marked missed.
+  assert.deepEqual([line.tax_form, line.regular_hours, line.overtime_hours, line.meal_premiums, line.rest_premiums, line.break_pay], ['W-2', 24, 2, 1, 1, 60]);
+  assert.equal(line.gross_pay, 24 * 30 + 2 * 45 + 60);
+  page = await admin.get(`/pay/${run}/items/${line.id}`);
+  assert.match(page.text, /Missed meal and rest breaks/);
+  assert.match(page.text, /10 hours worked needs 30 minutes of meal breaks; 0 recorded/);
+  assert.match((await admin.get(`/pay/${run}/payslips/${line.id}`)).text, /Meal and rest break premiums/);
+
+  // Remy reports a missed meal break on Wednesday from their phone.
+  res = await admin.post('/users', { name: 'Remy Role', email: 'remy@example.com', role: 'officer', employee_id: String(remy), password: 'quiet harbour lights 7', confirm: 'quiet harbour lights 7', active: '1' });
+  assert.equal(res.status, 302);
+  const remyPhone = makeClient();
+  await signIn(remyPhone, 'remy@example.com', 'quiet harbour lights 7');
+  assert.match((await remyPhone.get('/my/pay')).text, /Missed a break\?/);
+  res = await remyPhone.post(`/my/hours/${entryIds[2]}/breaks`, { missed_meal: '1', note: 'No relief at the gate' }, '/my/pay');
+  assert.equal(res.status, 302);
+  const wednesday = await db.get('SELECT missed_meal, break_note FROM time_entries WHERE id = ?', entryIds[2]);
+  assert.equal(wednesday.missed_meal, 1);
+  assert.match(wednesday.break_note, /Remy Role reported a missed meal break .*: No relief at the gate/);
+  assert.equal((await remyPhone.post(`/my/hours/${entryIds[0] + 100000}/breaks`, { missed_meal: '1' }, '/my/pay')).status, 404);
+  assert.match((await admin.get('/timesheets?status=all&employee=' + remy)).text, /Missed meal break/);
+
+  // Part Time Regular: a set salary for 24 hours a week. Salary $31,200 is $25 an hour.
+  res = await admin.post(`/staff/${remy}`, { first_name: 'Remy', last_name: 'Role', status: 'active', employment_type: 'Part Time Regular', hourly_rate: '30', annual_salary: '31200', weekly_hours: '40', start_date: '2024-02-05' }, `/staff/${remy}/edit`);
+  assert.equal(res.status, 400);
+  assert.match(res.text, /less than 40/);
+  await admin.post(`/staff/${remy}`, { first_name: 'Remy', last_name: 'Role', status: 'active', employment_type: 'Part Time Regular', hourly_rate: '30', annual_salary: '31200', weekly_hours: '24', start_date: '2024-02-05' });
+  r = await person(remy);
+  assert.deepEqual([r.pay_basis, r.annual_salary, r.weekly_hours, r.w2_since], ['salary', 31200, 24, time.todayStr()]);
+  // A full-time salaried manager, exempt from overtime, with no hours recorded at all.
+  res = await admin.post('/staff', { first_name: 'Sal', last_name: 'Aried', status: 'active', employment_type: 'Full Time', pay_basis: 'salary', annual_salary: '60000', overtime_exempt: '1', start_date: '2024-01-02' }, '/staff/new');
+  assert.equal(res.status, 400);
+  assert.match(res.text, /at least \$70,304\.00 a year/);
+  res = await admin.post('/staff', { first_name: 'Sal', last_name: 'Aried', status: 'active', employment_type: 'Full Time', pay_basis: 'salary', annual_salary: '80000', overtime_exempt: '1', start_date: '2024-01-02' });
+  const sal = staffId(res);
+  await admin.post(`/pay/${run}/recalculate`, {}, `/pay/${run}`);
+  line = await lineOf(remy);
+  // The salary, 2 overtime hours at $25 × 1.5, and three premiums (two meal, one rest) at $25.
+  assert.deepEqual([line.pay_basis, line.salary_pay, line.hourly_rate, line.extra_hours, line.overtime_pay, line.meal_premiums, line.rest_premiums, line.break_pay],
+    ['salary', 1200, 25, 0, 75, 2, 1, 75]);
+  assert.equal(line.gross_pay, 1350);
+  const salLine = await lineOf(sal);
+  assert.deepEqual([salLine.pay_basis, salLine.overtime_exempt, salLine.salary_pay, salLine.regular_hours, salLine.gross_pay], ['salary', 1, 3076.92, 0, 3076.92]);
+  assert.ok(salLine.sick_accrued > 2.6, 'exempt staff earn sick leave as if working 40 hours a week');
+  page = await admin.get(`/pay/${run}`);
+  assert.match(page.text, /Salary, exempt/);
+  assert.match((await admin.get(`/pay/${run}/payslips/${salLine.id}`)).text, /Salary \(exempt\)/);
+  assert.match((await admin.raw('GET', `/pay/${run}/export.csv`)).text, /Sal Aried,,Salary \(exempt\),0,0,0,/);
+
+  // Back to contractor: taxes and break rules stop.
+  await admin.post(`/staff/${remy}`, { first_name: 'Remy', last_name: 'Role', status: 'active', employment_type: 'Contractor', hourly_rate: '30', start_date: '2024-02-05' });
+  r = await person(remy);
+  assert.deepEqual([r.tax_form, r.pay_basis, r.w2_since], ['1099', 'hourly', null]);
+  await admin.post(`/pay/${run}/recalculate`, {}, `/pay/${run}`);
+  line = await lineOf(remy);
+  assert.deepEqual([line.tax_form, line.salary_pay, line.break_pay, line.gross_pay], ['1099', 0, 0, 780]);
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM employment_changes WHERE employee_id = ?', remy)).n, 4);
+
+  await admin.post(`/pay/${run}/delete`, {}, `/pay/${run}`);
+  await db.run("UPDATE employees SET status = 'inactive', end_date = '2024-09-21' WHERE id = ?", sal); // out of later pay runs
 });
 
 test('every main page loads', async () => {

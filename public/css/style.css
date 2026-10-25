@@ -1260,3 +1260,12 @@ section.card + section.card, .card + section.card { margin-top: 16px; }
 .report-table td:first-child { white-space: nowrap; color: var(--muted); width: 1%; }
 .bank-pending { margin: 8px 0; }
 .bank-pending .btn-row { margin-top: 8px; }
+
+/* Staff form: employment type choices */
+.type-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 0; padding: 0; border: 0; }
+.type-choices legend { margin-bottom: 6px; padding: 0; font-size: 13.5px; font-weight: 600; }
+.type-choice { display: flex; flex-direction: row; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid var(--border); border-radius: 10px; font-weight: 400; cursor: pointer; }
+.type-choice:has(input:checked) { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+.type-choice input { width: 17px; height: 17px; flex: none; margin: 2px 0 0; }
+.pay-rules { margin: 6px 0; padding-left: 18px; }
+.pay-rules li { margin: 2px 0; }

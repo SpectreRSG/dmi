@@ -31,24 +31,8 @@
         <% } %>
       </select>
     </label>
-    <label>Employment type
-      <select name="employment_type">
-        <option value="">—</option>
-        <% for (const t of EMPLOYMENT_TYPES) { %><option <%= employee.employment_type === t ? 'selected' : '' %>><%= t %></option><% } %>
-      </select>
-    </label>
-    <% if (locals.isAdmin) { %>
-      <label>Hourly pay rate (<%= settings.currency_symbol %>)
-        <input type="number" name="hourly_rate" min="0" step="0.01" value="<%= employee.hourly_rate ?? '' %>">
-        <span class="hint">Used to calculate pay. Only admins can see this.</span>
-      </label>
-      <label>Paid as
-        <select name="tax_form">
-          <option value="1099" <%= employee.tax_form !== 'W-2' ? 'selected' : '' %>>1099 independent contractor</option>
-          <option value="W-2" <%= employee.tax_form === 'W-2' ? 'selected' : '' %>>W-2 employee</option>
-        </select>
-        <span class="hint">Contractors get a 1099-NEC from this app. W-2s are done by your payroll provider.</span>
-      </label>
+    <% if (!locals.isAdmin) { %>
+      <p class="field-full">Employment type: <strong><%= employee.employment_type || 'Contractor' %></strong> <span class="hint">Only admins can change how people are paid.</span></p>
     <% } %>
     <label>Status
       <select name="status">
@@ -59,6 +43,52 @@
     <label>Start date <input type="date" name="start_date" value="<%= employee.start_date || '' %>"></label>
     <label>End date <input type="date" name="end_date" value="<%= employee.end_date || '' %>"><span class="hint">Leave empty if still employed.</span></label>
   </div>
+
+  <% if (locals.isAdmin) { %>
+    <% const employeeTypes = Object.keys(TYPES).filter((t) => TYPES[t].taxForm === 'W-2').join('|'); %>
+    <h2>Pay and taxes</h2>
+    <p class="hint">The employment type decides how they're paid and taxed. Change it whenever their job changes: taxes, overtime, paid sick leave and break rules switch with it. Only admins see this.</p>
+    <div class="form-grid" data-pay-form>
+      <fieldset class="field-full type-choices">
+        <legend>Employment type</legend>
+        <% for (const [name, t] of Object.entries(TYPES)) { %>
+          <label class="type-choice">
+            <input type="radio" name="employment_type" value="<%= name %>" data-pay-options="<%= t.pay.join(' ') %>" <%= employee.employment_type === name ? 'checked' : '' %> required>
+            <span><strong><%= name %></strong> <span class="muted small"><%= t.taxForm %></span><br><span class="hint"><%= t.hint %></span></span>
+          </label>
+        <% } %>
+      </fieldset>
+      <fieldset class="field-full choice-row" data-show-for="Full Time">
+        <legend>Paid by</legend>
+        <label class="check"><input type="radio" name="pay_basis" value="hourly" <%= employee.pay_basis !== 'salary' ? 'checked' : '' %>> The hour</label>
+        <label class="check"><input type="radio" name="pay_basis" value="salary" <%= employee.pay_basis === 'salary' ? 'checked' : '' %>> A yearly salary</label>
+      </fieldset>
+      <label data-pay="hourly">Hourly pay rate (<%= settings.currency_symbol %>)
+        <input type="number" name="hourly_rate" min="0" step="0.01" value="<%= employee.hourly_rate ?? '' %>">
+        <span class="hint">Employees: at least California's minimum wage of <%= money(minimumWage) %> (some cities are higher). Contractors: the rate you agreed.</span>
+      </label>
+      <label data-pay="salary">Yearly salary (<%= settings.currency_symbol %>)
+        <input type="number" name="annual_salary" min="0" step="0.01" value="<%= Number(employee.annual_salary) || '' %>">
+        <span class="hint">Paid in equal parts each pay day, with or without hours recorded.</span>
+      </label>
+      <label data-show-for="Part Time Regular">Hours a week the salary is for
+        <input type="number" name="weekly_hours" min="1" max="39.75" step="0.25" value="<%= employee.employment_type === 'Part Time Regular' ? Number(employee.weekly_hours) : '' %>">
+        <span class="hint">Their regular schedule, e.g. 24. Hours past it are paid on top; overtime still applies.</span>
+      </label>
+      <label class="check field-full" data-show-for="Full Time" data-pay="salary">
+        <input type="checkbox" name="overtime_exempt" value="1" <%= employee.overtime_exempt ? 'checked' : '' %>>
+        <span>Exempt from overtime and break rules <span class="hint">Only for managers and office staff whose main duties qualify, with a salary of at least <%= money(exemptMinimum) %> a year. Guards are not exempt. Ask your accountant or lawyer if unsure.</span></span>
+      </label>
+      <label data-show-for="<%= employeeTypes %>">On-duty meal agreement signed
+        <input type="date" name="meal_agreement_on" value="<%= employee.meal_agreement_on || '' %>">
+        <span class="hint">Only where the job means they can't leave their post to eat: they eat at the post, paid. Leave empty if they take normal 30-minute unpaid meal breaks. They can cancel it in writing at any time.</span>
+      </label>
+      <label data-show-for="<%= employeeTypes %>">Meal break waiver signed
+        <input type="date" name="meal_waiver_on" value="<%= employee.meal_waiver_on || '' %>">
+        <span class="hint">Lets them skip the meal break on days of 6 hours or less, and the second one on days of 12 hours or less.</span>
+      </label>
+    </div>
+  <% } %>
 
   <h2>Security license</h2>
   <div class="form-grid">

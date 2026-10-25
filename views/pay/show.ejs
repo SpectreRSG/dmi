@@ -46,6 +46,11 @@
     <div class="flash flash-info">No W-4 and DE 4 yet for <%= noW4.map((i) => `${i.first_name} ${i.last_name}`).join(', ') %>, so their taxes are worked out as the rules say for that: single with no adjustments (federal) and single with no allowances (California).
       They can fill them in under Tax forms, or <a href="/staff/<%= noW4[0].employee_id %>/withholding">enter their paper forms</a>.</div>
   <% } %>
+  <% if (withPremiums.length) { %>
+    <div class="flash flash-info">Missed-break premiums for <%= withPremiums.map((i) => `${i.first_name} ${i.last_name}`).join(', ') %>: an hour's pay for each workday with a missed meal or rest break.
+      A shift over 5 hours with no meal break on record counts as missed. If they did take it, add the break to their hours in <a href="/timesheets">Timesheets</a>; if they eat at their post, record their on-duty meal agreement on their staff record. Then press Recalculate.
+      Open <a href="/pay/<%= run.id %>/items/<%= withPremiums[0].id %>">Details</a> to see which days and why.</div>
+  <% } %>
   <% if (noW9.length) { %>
     <div class="flash flash-info">No W-9 yet for 1099 contractor<%= noW9.length === 1 ? '' : 's' %> <%= noW9.map((i) => `${i.first_name} ${i.last_name}`).join(', ') %>. Get it before paying them: without their tax ID number, the IRS requires 24% backup withholding.</div>
   <% } %>
@@ -63,13 +68,13 @@
 
 <div class="card">
   <% if (!items.length) { %>
-    <p class="empty">No approved hours in this period yet. Approve hours in <a href="/timesheets">Timesheets</a>, then press Recalculate.</p>
+    <p class="empty">No approved hours (or salaried staff) in this period yet. Approve hours in <a href="/timesheets">Timesheets</a>, then press Recalculate.</p>
   <% } else { %>
     <div class="table-wrap">
       <table class="table">
         <thead>
           <tr>
-            <th>Staff member</th><th class="num">Regular hrs</th><th class="num">Overtime hrs</th><% if (dt) { %><th class="num">Double time hrs</th><% } %><th class="num">Rate</th>
+            <th>Staff member</th><th class="num">Regular hrs</th><th class="num">Overtime hrs</th><% if (dt) { %><th class="num">Double time hrs</th><% } %><th class="num">Pay rate</th>
             <th>Adjustment</th><th class="num">Gross pay</th><th class="num">Taxes &amp; deductions</th><th class="num">Net pay</th>
           </tr>
         </thead>
@@ -78,7 +83,7 @@
             <% const off = round2(i.gross_pay - i.net_pay); %>
             <tr>
               <td>
-                <a href="/staff/<%= i.employee_id %>"><%= i.first_name %> <%= i.last_name %></a> <%- badge(i.tax_form, i.tax_form === 'W-2' ? 'blue' : 'gray') %><br><span class="muted small"><%= i.position || '' %></span>
+                <a href="/staff/<%= i.employee_id %>"><%= i.first_name %> <%= i.last_name %></a> <%- badge(i.tax_form, i.tax_form === 'W-2' ? 'blue' : 'gray') %><% if (i.pay_basis === 'salary') { %> <%- badge(i.overtime_exempt ? 'Salary, exempt' : 'Salary', 'green') %><% } %><br><span class="muted small"><%= i.position || '' %></span>
                 <div class="line-links small">
                   <a href="/pay/<%= run.id %>/items/<%= i.id %>"><%= run.status === 'draft' && i.tax_form === 'W-2' ? 'Details & sick leave' : 'Details' %></a>
                   · <a href="/pay/<%= run.id %>/payslips/<%= i.id %>">Pay stub</a><% if (run.status === 'finalized') { %> · <a href="/pay/<%= run.id %>/items/<%= i.id %>/timesheet.pdf" target="_blank" rel="noopener">Timesheet</a><% } %>
@@ -87,7 +92,11 @@
               <td class="num"><%= fmtHours(i.regular_hours) %></td>
               <td class="num"><%= fmtHours(i.overtime_hours) %><% if (i.overtime_hours) { %><br><span class="muted small">at <%= i.overtime_multiplier %>×</span><% } %></td>
               <% if (dt) { %><td class="num"><%= fmtHours(i.double_time_hours) %><% if (i.double_time_hours) { %><br><span class="muted small">at 2×</span><% } %></td><% } %>
-              <td class="num"><%= money(i.hourly_rate) %></td>
+              <td class="num">
+                <% if (i.pay_basis === 'salary') { %>
+                  <%= money(i.salary_pay) %><br><span class="muted small">salary<%= i.overtime_exempt ? '' : `, ${money(i.hourly_rate)}/h for overtime` %></span>
+                <% } else { %><%= money(i.hourly_rate) %><span class="muted small">/h</span><% } %>
+              </td>
               <td>
                 <% if (run.status === 'draft') { %>
                   <form method="post" action="/pay/<%= run.id %>/items/<%= i.id %>" class="adjust-form">
@@ -99,7 +108,9 @@
                 <% } else if (i.adjustment) { %>
                   <%= money(i.adjustment) %><% if (i.adjustment_note) { %><br><span class="muted small"><%= i.adjustment_note %></span><% } %>
                 <% } else { %>—<% } %>
-                <% if (i.sick_hours) { %><br><span class="muted small">Sick leave <%= fmtHours(i.sick_hours) %> h: <%= money(i.sick_pay) %></span><% } %>
+                <% if (i.sick_hours) { %><br><span class="muted small">Sick leave <%= fmtHours(i.sick_hours) %> h: <%= i.pay_basis === 'salary' ? 'in salary' : money(i.sick_pay) %></span><% } %>
+                <% if (i.extra_hours) { %><br><span class="muted small">Extra hours <%= fmtHours(i.extra_hours) %> h: <%= money(i.regular_pay) %></span><% } %>
+                <% if (i.break_pay) { %><br><span class="muted small">Break premiums (<%= [i.meal_premiums && `${i.meal_premiums} meal`, i.rest_premiums && `${i.rest_premiums} rest`].filter(Boolean).join(', ') %>): <%= money(i.break_pay) %></span><% } %>
               </td>
               <td class="num"><%= money(i.gross_pay) %></td>
               <td class="num"><%= off ? money(off) : '—' %><% if (i.deduction) { %><br><span class="muted small">incl. <%= money(i.deduction) %> deduction</span><% } %></td>
@@ -172,6 +183,7 @@
     <% } %>
   </section>
 <% } %>
+<p class="hint">Salaried staff are paid their salary each pay day, with or without hours recorded (part of it for a first or last paycheck). Missed meal and rest breaks add an hour's pay each (one of each a workday at most): mark them on the hours in <a href="/timesheets">Timesheets</a>.</p>
 <p class="hint">W-2 employees: taxes use the pay date's tax year (<a href="/pay/taxes">tax rates</a>) and each person's W-4 and DE 4. 1099 contractors are paid their full amount (no taxes taken out) unless the IRS told us to backup withhold.</p>
 
 <% if (run.status === 'draft') { %>

@@ -9,6 +9,7 @@ const availability = require('../services/availability');
 const withholding = require('../services/withholdingProfile');
 const bank = require('../services/bankAccounts');
 const newHires = require('../services/newHires');
+const employment = require('../services/employment');
 const { decrypt } = require('../secureData');
 const { requireRecentCode } = require('../auth');
 const { notifyEmployees } = require('../services/notify');
@@ -19,27 +20,35 @@ numericIdParam(router);
 // The positions to choose from. Someone saved with an older position keeps
 // it until it's changed (the Staff list points them out).
 const POSITIONS = ['Armed Security Officer', 'Unarmed Security Officer', 'Supervisor', 'Manager', 'Administrator'];
-const EMPLOYMENT_TYPES = ['Full-time', 'Part-time', 'Casual', 'Contractor'];
 
 const FIELDS = [
-  'first_name', 'last_name', 'email', 'phone', 'address', 'position', 'employment_type', 'hourly_rate',
+  'first_name', 'last_name', 'email', 'phone', 'address', 'position',
   'start_date', 'end_date', 'license_number', 'license_expiry', 'emergency_contact_name',
-  'emergency_contact_phone', 'status', 'notes', 'license_required', 'tax_form',
+  'emergency_contact_phone', 'status', 'notes', 'license_required',
 ];
+// How someone is paid and taxed: their employment type decides it (services/employment.js).
+const PAY_FIELDS = [...employment.PAY_KEYS, 'meal_agreement_on', 'meal_waiver_on'];
+const NEW_PERSON_PAY = {
+  employment_type: 'Contractor', tax_form: '1099', pay_basis: 'hourly', hourly_rate: 0, annual_salary: 0,
+  weekly_hours: 40, overtime_exempt: 0, meal_agreement_on: null, meal_waiver_on: null,
+};
 
 function readForm(req, existing) {
   const v = clean(req.body, FIELDS);
   v.license_required = req.body.license_required ? 1 : 0;
   v.status = v.status === 'inactive' ? 'inactive' : 'active';
-  // Only admins can see or change pay rates.
-  v.hourly_rate = req.user.role === 'admin' ? toNumber(v.hourly_rate, 0) : (existing?.hourly_rate ?? 0);
-  // 1099 contractor or W-2 employee (admins only, like pay).
-  v.tax_form = req.user.role === 'admin' ? (v.tax_form === 'W-2' ? 'W-2' : '1099') : (existing?.tax_form ?? '1099');
 
   let error = null;
+  // Only admins can see or change pay.
+  if (req.user.role === 'admin') {
+    const pay = employment.readPayFields(req.body, existing || {});
+    Object.assign(v, pay.values);
+    error = pay.error;
+  } else {
+    for (const f of PAY_FIELDS) v[f] = existing ? existing[f] : NEW_PERSON_PAY[f];
+  }
   if (!v.first_name || !v.last_name) error = 'First name and last name are required.';
   else if (v.position && !POSITIONS.includes(v.position) && v.position !== existing?.position) error = 'Choose a position from the list.';
-  else if (Number.isNaN(v.hourly_rate) || v.hourly_rate < 0) error = 'Hourly rate must be a number (0 or more).';
   else if (['start_date', 'end_date', 'license_expiry'].some((f) => v[f] && !isValidDate(v[f]))) {
     error = 'Please use the date pickers for dates.';
   }
@@ -52,7 +61,28 @@ function renderForm(res, employee, error, status = 200) {
     employee,
     error,
     POSITIONS,
-    EMPLOYMENT_TYPES,
+    TYPES: employment.TYPES,
+    exemptMinimum: employment.exemptMinimum(todayStr().slice(0, 4)),
+    minimumWage: employment.minimumWage(todayStr().slice(0, 4)),
+  });
+}
+
+// Keeps a record of a change to how someone is paid, and tells them about it
+// (California wants employees told in writing within 7 days, Labor Code 2810.5;
+// the pay stub shows it too).
+async function recordPayChange(req, employee, change, { isNew = false } = {}) {
+  const { settings } = req.res.locals;
+  await db.run(
+    'INSERT INTO employment_changes (employee_id, changed_on, before, after, changed_by) VALUES (?, ?, ?::jsonb, ?::jsonb, ?)',
+    employee.id, todayStr(), JSON.stringify(isNew ? {} : change.before), JSON.stringify(change.after), req.user.id
+  );
+  if (isNew) return;
+  const lines = employment.describe(employee, settings);
+  await notifyEmployees([employee.id], {
+    title: 'Your pay details changed',
+    body: `${lines[0]}${change.before.tax_form !== change.after.tax_form && employee.tax_form === 'W-2' ? ' Please fill in your W-4 and DE 4 in DMI.' : ''}`,
+    url: '/my/pay',
+    tag: `pay-change-${employee.id}`,
   });
 }
 
@@ -100,10 +130,12 @@ router.get('/new', (req, res) => {
 router.post('/', async (req, res) => {
   const { values, error } = readForm(req);
   if (error) return renderForm(res, values, error, 400);
+  const columns = [...FIELDS, ...PAY_FIELDS];
   const id = await db.insert(
-    `INSERT INTO employees (${FIELDS.join(', ')}) VALUES (${FIELDS.map((f) => `@${f}`).join(', ')})`,
+    `INSERT INTO employees (${columns.join(', ')}) VALUES (${columns.map((f) => `@${f}`).join(', ')})`,
     values
   );
+  await recordPayChange(req, { ...values, id }, employment.payChange({}, values), { isNew: true });
   await logActivity(req, `Added staff member ${employeeName(values)}`);
   req.flash('success', `${employeeName(values)} was added.`);
   res.redirect(`/staff/${id}`);
@@ -166,6 +198,13 @@ router.get('/:id', async (req, res) => {
     : null;
   const w4 = res.locals.isAdmin ? await withholding.findProfile(employee.id) : null;
   const bankAccounts = res.locals.isAdmin ? await bank.accountsFor(employee.id) : null;
+  const payHistory = res.locals.isAdmin
+    ? (await db.all(
+      `SELECT c.*, u.name AS changed_by_name FROM employment_changes c LEFT JOIN users u ON u.id = c.changed_by
+       WHERE c.employee_id = ? ORDER BY c.id DESC LIMIT 10`,
+      employee.id
+    )).map((c) => ({ ...c, summary: employment.changeSummary(c.before, c.after) }))
+    : [];
 
   res.render('staff/show', {
     title: employeeName(employee),
@@ -176,6 +215,9 @@ router.get('/:id', async (req, res) => {
     w4Summary: w4 ? withholding.summary(w4) : '',
     bankAccounts,
     describeAccount: bank.describe,
+    payRules: res.locals.isAdmin ? employment.describe(employee, res.locals.settings) : [],
+    payHistory,
+    newHireDue: newHires.dueDate(employee.w2_since || employee.start_date || todayStr()),
     compliance,
     upcomingShifts,
     said,
@@ -198,12 +240,36 @@ router.post('/:id', async (req, res) => {
   if (!existing) return notFound(res, 'staff member');
   const { values, error } = readForm(req, existing);
   if (error) return renderForm(res, { ...values, id: existing.id }, error, 400);
-  await db.run(`UPDATE employees SET ${FIELDS.map((f) => `${f} = @${f}`).join(', ')} WHERE id = @id`, {
+  const change = employment.payChange(existing, values);
+  const columns = [...FIELDS, ...PAY_FIELDS];
+  // A contractor who becomes an employee is a new hire from today (new hire
+  // report, sick leave waiting period); going back to contractor ends that.
+  if (existing.tax_form !== values.tax_form) {
+    values.w2_since = values.tax_form === 'W-2' ? todayStr() : null;
+    values.new_hire_reported_on = null;
+    columns.push('w2_since', 'new_hire_reported_on');
+  }
+  await db.run(`UPDATE employees SET ${columns.map((f) => `${f} = @${f}`).join(', ')} WHERE id = @id`, {
     ...values,
     id: existing.id,
   });
+  const employee = { ...existing, ...values };
+  if (change) {
+    await recordPayChange(req, employee, change);
+    const was = change.before.employment_type !== change.after.employment_type ? ` (was ${change.before.employment_type})` : '';
+    await logActivity(req, `Changed how ${employeeName(values)} is paid: ${values.employment_type}${was}`);
+    req.flash('success', `Saved. ${employeeName(values)} is now ${values.employment_type}${was}: ${employment.describe(employee, res.locals.settings).join(' ')}`);
+    if (values.tax_form === 'W-2' && existing.tax_form !== 'W-2') {
+      req.flash('info', 'They are an employee from today: report them as a new hire (DE 34) within 20 days, and they need to fill in a W-4 and DE 4 (they see it when they sign in). Pay runs from now on use the new rules; press Recalculate on any draft.');
+    } else if (existing.tax_form === 'W-2' && values.tax_form !== 'W-2') {
+      req.flash('info', 'They are paid as a contractor from now on: taxes stop, and they need a W-9 on file. Their W-2 pay so far this year still goes on a W-2 in January. Press Recalculate on any draft pay run.');
+    } else {
+      req.flash('info', 'Pay runs from now on use the new pay details. Press Recalculate on any draft pay run.');
+    }
+  } else {
+    req.flash('success', 'Changes saved.');
+  }
   await logActivity(req, `Updated staff member ${employeeName(values)}`);
-  req.flash('success', 'Changes saved.');
   res.redirect(`/staff/${existing.id}`);
 });
 
@@ -303,7 +369,7 @@ router.get('/:id/new-hire', adminOnly, requireRecentCode, async (req, res) => {
     employee,
     w4,
     ssn,
-    due: employee.start_date ? newHires.dueDate(employee.start_date) : null,
+    due: newHires.hiredOn(employee) ? newHires.dueDate(newHires.hiredOn(employee)) : null,
   });
 });
 

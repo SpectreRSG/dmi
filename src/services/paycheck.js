@@ -1,8 +1,11 @@
-// From gross pay to net pay for one pay line: paid sick leave, taxes for W-2
-// employees, backup withholding for 1099 contractors who need it, and other
-// deductions. Used by pay runs (routes/pay.js).
+// One pay line, from hours to net pay: overtime and salary by employment type,
+// meal and rest break premiums, paid sick leave, taxes for W-2 employees,
+// backup withholding for 1099 contractors who need it, and other deductions.
+// Used by pay runs (routes/pay.js).
 const time = require('../time');
-const { round2 } = require('./payroll');
+const { round2, calculatePayLine, overtimeRules } = require('./payroll');
+const employment = require('./employment');
+const breaks = require('./breaks');
 const { tablesFor, PAY_FREQUENCIES } = require('./taxTables');
 const { payrollTaxes, EMPLOYEE_TAXES, EMPLOYER_TAXES, sumOf } = require('./withholding');
 const sick = require('./sickLeave');
@@ -31,6 +34,29 @@ const FINALIZED_SAME_EMPLOYEE = `FROM pay_run_items i JOIN pay_runs p ON p.id = 
   WHERE i.employee_id = ? AND p.status = 'finalized' AND p.id <> ?`;
 const PAY_YEAR = "substr(COALESCE(p.paid_on, p.finalized_at), 1, 4)";
 
+// Hours and pay before sick leave and taxes: overtime as the person's
+// employment type allows, the salary for salaried staff, and meal and rest
+// break premiums (one hour at the regular rate each). `entries`: the approved
+// hours in the pay run; `earlier`: hours already paid earlier in the same weeks.
+function earnings({ employee, entries, earlier = [], run, settings }) {
+  const rules = employment.rulesFor(employee);
+  const rate = employment.rateOf(employee);
+  let line = calculatePayLine({ entries, earlier, hourlyRate: rate, rules: rules.overtime ? overtimeRules(settings) : STRAIGHT_TIME });
+  line.pay_basis = rules.salaried ? 'salary' : 'hourly';
+  line.overtime_exempt = rules.exempt ? 1 : 0;
+  line.salary_pay = 0;
+  line.extra_hours = 0;
+  if (rules.salaried) line = employment.salaryLine(line, { employee, run, periods: periodsPerYear(settings) });
+  const owed = rules.breaks
+    ? breaks.premiums(entries, { onDutyMeals: Boolean(employee.meal_agreement_on), waiver: Boolean(employee.meal_waiver_on), workdayStart: settings.workday_start })
+    : { meal: 0, rest: 0, days: [] };
+  line.meal_premiums = owed.meal;
+  line.rest_premiums = owed.rest;
+  line.break_pay = round2((owed.meal + owed.rest) * rate);
+  line.break_days = owed.days; // (not saved) each workday's breaks, for the line's details page
+  return line;
+}
+
 // Earlier W-2 paychecks this year (finalized pay runs other than this one).
 async function yearToDate(tx, employeeId, year, runId) {
   const row = await tx.get(
@@ -53,28 +79,35 @@ async function sickAvailable(tx, employeeId, runId) {
 async function sickLeaveFor(tx, { employee, run, hoursWorked, wanted, ytd }) {
   const available = await sickAvailable(tx, employee.id, run.id);
   const earnedNow = sick.earned(hoursWorked, available);
-  const limit = sick.usable({ available, earnedNow, usedThisYear: ytd.sickUsed, startDate: employee.start_date, payDate: payDateOf(run) });
+  // A contractor who became an employee: their employment starts that day.
+  const startDate = employee.w2_since || employee.start_date;
+  const limit = sick.usable({ available, earnedNow, usedThisYear: ytd.sickUsed, startDate, payDate: payDateOf(run) });
   const used = round2(Math.min(Math.max(0, Number(wanted) || 0), limit.hours));
   return { available, earnedNow, limit, used, balance: round2(available + earnedNow - used) };
 }
 
 // The whole pay line, ready to save. `hours`: the hours and pay from
-// calculatePayLine; `inputs`: what the office typed in (adjustment, sick
-// hours, deduction and their notes).
+// earnings(); `inputs`: what the office typed in (adjustment, sick hours,
+// deduction and their notes).
 async function completeLine(tx, { run, employee, hours, inputs = {}, settings }) {
   const w2 = employee.tax_form === 'W-2';
   const payDate = payDateOf(run);
   const year = Number(payDate.slice(0, 4));
   const tables = tablesFor(year);
   const ytd = await yearToDate(tx, employee.id, year, run.id);
-  const hoursWorked = (hours.regular_hours || 0) + (hours.overtime_hours || 0) + (hours.double_time_hours || 0);
+  const salaried = hours.pay_basis === 'salary';
+  const worked = (hours.regular_hours || 0) + (hours.overtime_hours || 0) + (hours.double_time_hours || 0);
+  // Salaried staff earn sick leave for at least the hours their salary is for
+  // (exempt staff count as working 40 hours a week, Labor Code 246(b)).
+  const hoursWorked = salaried ? Math.max(worked, hours.scheduled_hours ?? employment.scheduledHours(employee, run)) : worked;
 
   const leave = w2
     ? await sickLeaveFor(tx, { employee, run, hoursWorked, wanted: inputs.sick_hours, ytd })
     : { used: 0, earnedNow: 0, balance: 0, limit: null };
-  const sickPay = round2(leave.used * hours.hourly_rate);
+  // A salary already pays for sick days: the hours just come off the balance.
+  const sickPay = salaried ? 0 : round2(leave.used * hours.hourly_rate);
   const adjustment = round2(Number(inputs.adjustment) || 0);
-  const gross = round2(hours.regular_pay + hours.overtime_pay + hours.double_time_pay + sickPay + adjustment);
+  const gross = round2((hours.salary_pay || 0) + hours.regular_pay + hours.overtime_pay + hours.double_time_pay + (hours.break_pay || 0) + sickPay + adjustment);
 
   let taxes = { ...NO_TAXES };
   if (w2 && tables) {
@@ -104,8 +137,8 @@ async function completeLine(tx, { run, employee, hours, inputs = {}, settings })
 }
 
 const ITEM_COLUMNS = [
-  'pay_run_id', 'employee_id', 'tax_form', 'regular_hours', 'overtime_hours', 'double_time_hours', 'hourly_rate', 'overtime_multiplier',
-  'regular_pay', 'overtime_pay', 'double_time_pay', 'sick_hours', 'sick_pay', 'sick_accrued', 'sick_balance', 'adjustment', 'adjustment_note',
+  'pay_run_id', 'employee_id', 'tax_form', 'pay_basis', 'overtime_exempt', 'regular_hours', 'overtime_hours', 'double_time_hours', 'hourly_rate',
+  'overtime_multiplier', 'salary_pay', 'extra_hours', 'regular_pay', 'overtime_pay', 'double_time_pay', 'meal_premiums', 'rest_premiums', 'break_pay', 'sick_hours', 'sick_pay', 'sick_accrued', 'sick_balance', 'adjustment', 'adjustment_note',
   'gross_pay', ...EMPLOYEE_TAXES, 'deduction', 'deduction_note', 'net_pay', ...EMPLOYER_TAXES, 'ss_wages', 'futa_wages', 'ui_wages',
 ];
 
@@ -142,6 +175,7 @@ function finalizeProblems({ run, items, settings }) {
 
 module.exports = {
   STRAIGHT_TIME,
+  earnings,
   payDateOf,
   periodsPerYear,
   employerRates,

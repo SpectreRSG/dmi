@@ -9,7 +9,7 @@ const { payDateOf } = require('./paycheck');
 const { EMPLOYEE_TAXES } = require('./withholding');
 
 const YTD_FIELDS = [
-  'regular_hours', 'overtime_hours', 'double_time_hours', 'sick_hours', 'regular_pay', 'overtime_pay', 'double_time_pay', 'sick_pay',
+  'regular_hours', 'overtime_hours', 'double_time_hours', 'sick_hours', 'salary_pay', 'regular_pay', 'overtime_pay', 'double_time_pay', 'break_pay', 'sick_pay',
   'adjustment', 'gross_pay', ...EMPLOYEE_TAXES, 'deduction', 'net_pay',
 ];
 

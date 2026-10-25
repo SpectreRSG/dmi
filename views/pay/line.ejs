@@ -1,9 +1,9 @@
 <%- include('../partials/top') %>
-<% const w2 = item.tax_form === 'W-2'; const draft = run.status === 'draft'; %>
+<% const w2 = item.tax_form === 'W-2'; const draft = run.status === 'draft'; const salaried = item.pay_basis === 'salary'; %>
 <div class="page-head">
   <div>
     <p class="page-sub"><a href="/pay/<%= run.id %>">← Pay run <%= fmtDate(run.period_start) %> – <%= fmtDate(run.period_end) %></a></p>
-    <h1><%= item.first_name %> <%= item.last_name %> <%- badge(w2 ? 'W-2 employee' : '1099 contractor', w2 ? 'blue' : 'gray') %></h1>
+    <h1><%= item.first_name %> <%= item.last_name %> <%- badge(w2 ? 'W-2 employee' : '1099 contractor', w2 ? 'blue' : 'gray') %><% if (salaried) { %> <%- badge(item.overtime_exempt ? 'Salary, exempt from overtime' : 'Salary', 'green') %><% } %></h1>
     <p class="page-sub">Pay date <%= fmtDate(payDate) %><%= draft ? ' (planned)' : '' %> · <a href="/pay/<%= run.id %>/payslips/<%= item.id %>">Pay stub</a></p>
   </div>
 </div>
@@ -13,10 +13,17 @@
     <h2>From gross to net</h2>
     <table class="table compact">
       <tbody>
-        <tr><td>Regular: <%= fmtHours(item.regular_hours) %> h × <%= money(item.hourly_rate) %></td><td class="num"><%= money(item.regular_pay) %></td></tr>
+        <% if (salaried) { %>
+          <tr><td>Salary for this pay period<br><span class="muted small"><%= fmtHours(round2(item.regular_hours + item.overtime_hours + item.double_time_hours)) %> h recorded<%= item.overtime_exempt ? '' : `; regular rate ${money(item.hourly_rate)} an hour` %></span></td><td class="num"><%= money(item.salary_pay) %></td></tr>
+          <% if (item.extra_hours) { %><tr><td>Extra hours past their schedule: <%= fmtHours(item.extra_hours) %> h × <%= money(item.hourly_rate) %></td><td class="num"><%= money(item.regular_pay) %></td></tr><% } %>
+        <% } else { %>
+          <tr><td>Regular: <%= fmtHours(item.regular_hours) %> h × <%= money(item.hourly_rate) %></td><td class="num"><%= money(item.regular_pay) %></td></tr>
+        <% } %>
         <% if (item.overtime_hours) { %><tr><td>Overtime: <%= fmtHours(item.overtime_hours) %> h × <%= money(item.hourly_rate * item.overtime_multiplier) %></td><td class="num"><%= money(item.overtime_pay) %></td></tr><% } %>
         <% if (item.double_time_hours) { %><tr><td>Double time: <%= fmtHours(item.double_time_hours) %> h × <%= money(item.hourly_rate * 2) %></td><td class="num"><%= money(item.double_time_pay) %></td></tr><% } %>
-        <% if (item.sick_hours) { %><tr><td>Paid sick leave: <%= fmtHours(item.sick_hours) %> h × <%= money(item.hourly_rate) %></td><td class="num"><%= money(item.sick_pay) %></td></tr><% } %>
+        <% if (item.meal_premiums) { %><tr><td>Meal break premium: <%= item.meal_premiums %> × <%= money(item.hourly_rate) %></td><td class="num"><%= money(round2(item.meal_premiums * item.hourly_rate)) %></td></tr><% } %>
+        <% if (item.rest_premiums) { %><tr><td>Rest break premium: <%= item.rest_premiums %> × <%= money(item.hourly_rate) %></td><td class="num"><%= money(round2(item.rest_premiums * item.hourly_rate)) %></td></tr><% } %>
+        <% if (item.sick_hours) { %><tr><td>Paid sick leave: <%= fmtHours(item.sick_hours) %> h <%= salaried ? '(paid in the salary)' : `× ${money(item.hourly_rate)}` %></td><td class="num"><%= money(item.sick_pay) %></td></tr><% } %>
         <% if (item.adjustment) { %><tr><td>Adjustment<%= item.adjustment_note ? `: ${item.adjustment_note}` : '' %></td><td class="num"><%= money(item.adjustment) %></td></tr><% } %>
         <tr><td><strong>Gross pay</strong></td><td class="num"><strong><%= money(item.gross_pay) %></strong></td></tr>
         <% if (w2) { %>
@@ -50,7 +57,7 @@
       </table>
       <h2 class="spaced">Paid sick leave</h2>
       <dl class="dl compact">
-        <dt>Earned this pay run</dt><dd><%= fmtHours(item.sick_accrued) %> h <span class="muted small">(1 for every 30 worked)</span></dd>
+        <dt>Earned this pay run</dt><dd><%= fmtHours(item.sick_accrued) %> h <span class="muted small">(1 for every 30 worked<%= salaried ? ', counting at least the hours the salary is for' : '' %>)</span></dd>
         <dt>Used this pay run</dt><dd><%= fmtHours(item.sick_hours) %> h</dd>
         <dt>Available afterwards</dt><dd><strong><%= fmtHours(item.sick_balance) %> h</strong></dd>
       </dl>
@@ -58,6 +65,21 @@
     </section>
   <% } %>
 </div>
+
+<% if (breakDays.length) { %>
+  <section class="card card-pad">
+    <h2>Missed meal and rest breaks</h2>
+    <p class="muted small">Each workday with a missed meal break earns an hour's pay, and so does a missed rest break. To change these, fix the hours in <a href="/timesheets">Timesheets</a> and press Recalculate.</p>
+    <table class="table compact">
+      <thead><tr><th>Workday</th><th class="num">Hours</th><th>Premium</th><th>Why</th></tr></thead>
+      <tbody>
+        <% for (const d of breakDays) { %>
+          <tr><td><%= fmtDay(d.date) %></td><td class="num"><%= fmtHours(d.hours) %></td><td><%= [d.missedMeal && 'Meal', d.missedRest && 'Rest'].filter(Boolean).join(' + ') %></td><td class="small"><%= d.why.join('; ') %></td></tr>
+        <% } %>
+      </tbody>
+    </table>
+  </section>
+<% } %>
 
 <% if (draft) { %>
   <form method="post" action="/pay/<%= run.id %>/items/<%= item.id %>" class="card form-card narrow">
@@ -70,7 +92,7 @@
       <% if (w2) { %>
         <label class="field-full">Paid sick leave taken (hours)
           <input type="number" step="0.25" min="0" name="sick_hours" value="<%= item.sick_hours || '' %>" placeholder="0">
-          <span class="hint">Paid at <%= money(item.hourly_rate) %> an hour. <%= sickLimit ? sickLimit.reason : '' %></span>
+          <span class="hint"><%= salaried ? 'It comes off their balance: the salary already pays for the day.' : `Paid at ${money(item.hourly_rate)} an hour.` %> <%= sickLimit ? sickLimit.reason : '' %></span>
         </label>
       <% } %>
       <label>Deduction after taxes ($) <input type="number" step="0.01" min="0" name="deduction" value="<%= item.deduction || '' %>" placeholder="0.00"><span class="hint">Only with the person's written OK (California Labor Code 224), e.g. paying back an advance.</span></label>

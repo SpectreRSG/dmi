@@ -52,7 +52,7 @@ function staffOptions(includeId) {
 }
 
 async function readForm(body, entryId = 0) {
-  const v = clean(body, ['employee_id', 'site_id', 'date', 'start_time', 'end_time', 'break_minutes', 'notes']);
+  const v = clean(body, ['employee_id', 'site_id', 'date', 'start_time', 'end_time', 'break_minutes', 'notes', 'break_note']);
   const values = {
     employee_id: toId(v.employee_id),
     site_id: toId(v.site_id),
@@ -61,6 +61,10 @@ async function readForm(body, entryId = 0) {
     end_time: v.end_time,
     break_minutes: toNumber(v.break_minutes, 0),
     notes: v.notes,
+    // Missed meal or rest breaks (each adds an hour's pay for W-2 employees, see services/breaks.js).
+    missed_meal: body.missed_meal ? 1 : 0,
+    missed_rest: body.missed_rest ? 1 : 0,
+    break_note: v.break_note ? v.break_note.slice(0, 500) : null,
     approve_now: body.approve_now ? 1 : 0,
   };
 
@@ -248,8 +252,8 @@ router.post('/', async (req, res) => {
   const { values, error } = await readForm(req.body);
   if (error) return renderForm(res, values, error, 400);
   const id = await db.insert(
-    `INSERT INTO time_entries (employee_id, site_id, start_at, end_at, break_minutes, notes)
-     VALUES (@employee_id, @site_id, @start_at, @end_at, @break_minutes, @notes)`,
+    `INSERT INTO time_entries (employee_id, site_id, start_at, end_at, break_minutes, notes, missed_meal, missed_rest, break_note)
+     VALUES (@employee_id, @site_id, @start_at, @end_at, @break_minutes, @notes, @missed_meal, @missed_rest, @break_note)`,
     values
   );
   if (values.approve_now) await setStatus([id], 'approved', req.user.id);
@@ -295,7 +299,8 @@ router.post('/:id', async (req, res) => {
   await db.run(
     // Edited here, they're the office's hours now: changing the shift no longer changes them.
     `UPDATE time_entries SET employee_id = @employee_id, site_id = @site_id, start_at = @start_at, end_at = @end_at,
-     break_minutes = @break_minutes, notes = @notes, source = CASE WHEN source = 'schedule' THEN 'office' ELSE source END WHERE id = @id`,
+     break_minutes = @break_minutes, notes = @notes, missed_meal = @missed_meal, missed_rest = @missed_rest, break_note = @break_note,
+     source = CASE WHEN source = 'schedule' THEN 'office' ELSE source END WHERE id = @id`,
     { ...values, id: entry.id }
   );
   await logActivity(req, `Edited hours #${entry.id} for ${employeeName(entry)}`);

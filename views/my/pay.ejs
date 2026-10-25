@@ -19,11 +19,19 @@
     <span class="stat-value"><%= fmtHours(recordedHours) %></span>
     <span class="stat-note">hours<%= waiting ? `, ${waiting} entr${waiting === 1 ? 'y' : 'ies'} waiting for the office` : '' %></span>
   </div>
-  <div class="stat">
-    <span class="stat-label">Estimated pay for those</span>
-    <span class="stat-value"><%= money(estimate.gross_pay) %></span>
-    <span class="stat-note">before tax<%= me.tax_form === 'W-2' ? ' and deductions' : '' %>, at <%= money(me.hourly_rate) %> an hour<%= estimate.overtime_hours ? `, with ${fmtHours(estimate.overtime_hours)} h overtime` : '' %><%= estimate.double_time_hours ? ` and ${fmtHours(estimate.double_time_hours)} h double time` : '' %></span>
-  </div>
+  <% if (rules.salaried) { %>
+    <div class="stat">
+      <span class="stat-label">Your salary</span>
+      <span class="stat-value"><%= money(salaryPerPayDay) %></span>
+      <span class="stat-note">each pay day, before tax<%= !rules.exempt && estimate.overtime_hours ? `, plus ${fmtHours(estimate.overtime_hours)} h overtime so far` : '' %></span>
+    </div>
+  <% } else { %>
+    <div class="stat">
+      <span class="stat-label">Estimated pay for those</span>
+      <span class="stat-value"><%= money(estimate.gross_pay) %></span>
+      <span class="stat-note">before tax<%= me.tax_form === 'W-2' ? ' and deductions' : '' %>, at <%= money(me.hourly_rate) %> an hour<%= estimate.overtime_hours ? `, with ${fmtHours(estimate.overtime_hours)} h overtime` : '' %><%= estimate.double_time_hours ? ` and ${fmtHours(estimate.double_time_hours)} h double time` : '' %><%= estimate.break_pay ? `, and ${estimate.meal_premiums + estimate.rest_premiums} missed-break premium${estimate.meal_premiums + estimate.rest_premiums === 1 ? '' : 's'}` : '' %></span>
+    </div>
+  <% } %>
   <a class="stat" href="/my/pay/direct-deposit">
     <span class="stat-label">Paid by</span>
     <span class="stat-value"><%= bankAccounts.active ? 'Direct deposit' : 'Check' %></span>
@@ -82,7 +90,7 @@
   <% } else { %>
     <div class="table-wrap">
       <table class="table stack-on-phone">
-        <thead><tr><th>Date</th><th>Site</th><th>Time</th><th class="num">Hours</th><th>Status</th></tr></thead>
+        <thead><tr><th>Date</th><th>Site</th><th>Time</th><th class="num">Hours</th><th>Status</th><% if (rules.breaks) { %><th>Breaks</th><% } %></tr></thead>
         <tbody>
           <% for (const e of recorded) { %>
             <tr>
@@ -91,6 +99,23 @@
               <td class="nowrap" data-label="Time"><span><%= fmtRange(e.start_at, e.end_at) %><% if (e.break_minutes) { %> <span class="muted small">(<%= e.break_minutes %> min break)</span><% } %></span></td>
               <td class="num" data-label="Hours"><%= fmtHours(e.hours) %></td>
               <td data-label="Status"><%- e.status === 'approved' ? badge('Recorded', 'green') : badge('Office is checking', 'amber') %></td>
+              <% if (rules.breaks) { %>
+                <td data-label="Breaks">
+                  <% if (e.missed_meal || e.missed_rest) { %><%- badge(['Missed', e.missed_meal && 'meal', e.missed_meal && e.missed_rest && '+', e.missed_rest && 'rest'].filter(Boolean).join(' '), 'amber') %><% } %>
+                  <% if (!e.missed_meal || !e.missed_rest) { %>
+                    <details class="break-report">
+                      <summary class="small">Missed a break?</summary>
+                      <form method="post" action="/my/hours/<%= e.id %>/breaks" class="stack-form">
+                        <%- include('../partials/csrf') %>
+                        <% if (!e.missed_meal) { %><label class="check"><input type="checkbox" name="missed_meal" value="1"> I didn't get my 30-minute meal break<%= me.meal_agreement_on ? ' (even at my post)' : '' %>, or it started after my 5th hour</label><% } %>
+                        <% if (!e.missed_rest) { %><label class="check"><input type="checkbox" name="missed_rest" value="1"> I didn't get a 10-minute rest break</label><% } %>
+                        <label>What happened (optional) <input name="note" maxlength="200"></label>
+                        <button type="submit" class="btn btn-sm">Tell the office</button>
+                      </form>
+                    </details>
+                  <% } %>
+                </td>
+              <% } %>
             </tr>
           <% } %>
         </tbody>

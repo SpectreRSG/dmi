@@ -47,6 +47,9 @@ const TABLES = {
       source: 'California EDD, California Withholding Schedules for 2026 (Method B – Exact Calculation Method); EDD 2026 rates (SDI, UI, ETT)',
       sdiRate: 0.013, // employee, all wages (no limit since 2024)
       uiWageBase: 7000, // unemployment insurance and ETT, per employee per year
+      // The state minimum wage. A salary exempt from overtime must be at least
+      // twice this for 40 hours a week (Labor Code 515(a)): $70,304 in 2026.
+      minimumWage: 16.9,
       // Table 1: no withholding if annual wages are this or less.
       lowIncomeExemption: { single: 18896, marriedLow: 18896, marriedHigh: 37791, head: 37791 },
       // Table 3.

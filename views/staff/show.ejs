@@ -16,7 +16,11 @@
   <div class="stat"><span class="stat-label">Scheduled this week</span><span class="stat-value"><%= fmtHours(scheduledThisWeek) %></span><span class="stat-note">hours</span></div>
   <div class="stat"><span class="stat-label">Worked this week</span><span class="stat-value"><%= fmtHours(hoursThisWeek) %></span><span class="stat-note">hours in timesheets</span></div>
   <% if (locals.isAdmin) { %>
-    <div class="stat"><span class="stat-label">Hourly rate</span><span class="stat-value"><%= money(employee.hourly_rate) %></span><span class="stat-note">per hour</span></div>
+    <% if (employee.tax_form === 'W-2' && employee.pay_basis === 'salary') { %>
+      <div class="stat"><span class="stat-label">Salary</span><span class="stat-value"><%= money(employee.annual_salary) %></span><span class="stat-note">a year<%= employee.overtime_exempt ? ', exempt' : '' %></span></div>
+    <% } else { %>
+      <div class="stat"><span class="stat-label">Hourly rate</span><span class="stat-value"><%= money(employee.hourly_rate) %></span><span class="stat-note">per hour</span></div>
+    <% } %>
   <% } %>
   <div class="stat <%= compliance.level === 'bad' ? 'is-bad' : (compliance.level === 'warn' ? 'is-warn' : '') %>">
     <span class="stat-label">Compliance</span>
@@ -53,10 +57,19 @@
         </dd>
       <% } %>
       <% if (locals.isAdmin) { %>
-        <dt>Paid as</dt><dd><%= employee.tax_form === 'W-2' ? 'W-2 employee' : '1099 independent contractor' %></dd>
+        <dt>How they're paid</dt>
+        <dd>
+          <strong><%= employee.employment_type %></strong> <a class="btn btn-sm btn-ghost" href="/staff/<%= employee.id %>/edit">Change</a>
+          <ul class="pay-rules small"><% for (const line of payRules) { %><li><%= line %></li><% } %></ul>
+          <% if (payHistory.length) { %>
+            <details class="small"><summary>Pay history</summary>
+              <ul class="plain-list"><% for (const c of payHistory) { %><li><%= fmtDate(c.changed_on) %>: <%= c.summary %><span class="muted"><%= c.changed_by_name ? ` (${c.changed_by_name})` : '' %></span></li><% } %></ul>
+            </details>
+          <% } %>
+        </dd>
         <% if (employee.tax_form === 'W-2') { %>
           <dt>New hire report (DE 34)</dt>
-          <dd><% if (employee.new_hire_reported_on) { %>Reported to the EDD <%= fmtDate(employee.new_hire_reported_on) %><% } else if (!employee.start_date) { %><span class="muted">Add their start date (needed for this report and for paid sick leave).</span><% } else { %>Due <%= fmtDate(addDays(employee.start_date, 20)) %> (20 days after they started)<% } %>
+          <dd><% if (employee.new_hire_reported_on) { %>Reported to the EDD <%= fmtDate(employee.new_hire_reported_on) %><% } else if (!employee.start_date && !employee.w2_since) { %><span class="muted">Add their start date (needed for this report and for paid sick leave).</span><% } else { %>Due <%= fmtDate(newHireDue) %> (20 days after they <%= employee.w2_since ? 'became an employee' : 'started' %>)<% } %>
             <a class="btn btn-sm btn-ghost" href="/staff/<%= employee.id %>/new-hire"><%= employee.new_hire_reported_on ? 'Details' : 'Report details' %></a></dd>
           <dt>W-4 and DE 4</dt><dd><% if (w4) { %><%= w4Summary %> · SSN …<%= w4.ssn_last4 %> · signed <%= fmtDate(w4.signed_at) %><%= w4.entered_by ? ' (entered from paper)' : '' %><% } else { %><span class="muted">Not filled in yet: taxes are worked out as single, with no adjustments.</span><% } %>
             <a class="btn btn-sm btn-ghost" href="/staff/<%= employee.id %>/withholding"><%= w4 ? 'Change from paper forms' : 'Enter from paper forms' %></a></dd>

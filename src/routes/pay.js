@@ -11,7 +11,7 @@ const express = require('express');
 const db = require('../db');
 const { toNumber, notFound, numericIdParam, logActivity, employeeName } = require('../helpers');
 const time = require('../time');
-const { calculatePayLine, overtimeRules, round2 } = require('../services/payroll');
+const { round2 } = require('../services/payroll');
 const { recordFinishedShifts } = require('../services/hoursFromSchedule');
 const { findPayLine, payLineTimesheet, timesheetFileName } = require('../services/payTimesheet');
 const { sendUpload } = require('../uploads');
@@ -53,7 +53,7 @@ function runItems(runId) {
   );
 }
 
-const SUMMED = ['regular_hours', 'overtime_hours', 'double_time_hours', 'sick_hours', 'adjustment', 'gross_pay', 'deduction', 'net_pay',
+const SUMMED = ['regular_hours', 'overtime_hours', 'double_time_hours', 'salary_pay', 'break_pay', 'sick_hours', 'adjustment', 'gross_pay', 'deduction', 'net_pay',
   ...EMPLOYEE_TAXES, ...EMPLOYER_TAXES];
 
 function totalsOf(items) {
@@ -100,17 +100,22 @@ async function recalculate(run, settings) {
       run.period_start
     );
 
+    // Salaried staff are paid every pay day, with or without hours recorded.
+    const salaried = await tx.all(
+      `SELECT id FROM employees WHERE tax_form = 'W-2' AND pay_basis = 'salary'
+         AND COALESCE(start_date, '0000-01-01') <= ? AND COALESCE(end_date, '9999-12-31') >= ?
+         AND (status = 'active' OR end_date IS NOT NULL)`,
+      run.period_end,
+      run.period_start
+    );
+    for (const { id } of salaried) if (!byEmployee.has(id)) byEmployee.set(id, []);
+
     for (const [employeeId, list] of byEmployee) {
-      const employee = await tx.get('SELECT id, hourly_rate, tax_form, start_date FROM employees WHERE id = ?', employeeId);
-      const hours = calculatePayLine({
-        entries: list,
-        earlier: earlier.filter((e) => e.employee_id === employeeId),
-        hourlyRate: employee.hourly_rate,
-        rules: employee.tax_form === 'W-2' ? overtimeRules(settings) : paycheck.STRAIGHT_TIME,
-      });
+      const employee = await tx.get('SELECT * FROM employees WHERE id = ?', employeeId);
+      const hours = paycheck.earnings({ employee, entries: list, earlier: earlier.filter((e) => e.employee_id === employeeId), run, settings });
       const line = await paycheck.completeLine(tx, { run, employee, hours, inputs: previous.get(employeeId) || {}, settings });
       await paycheck.insertLine(tx, { pay_run_id: run.id, employee_id: employeeId, ...line });
-      await tx.run('UPDATE time_entries SET pay_run_id = ? WHERE id = ANY(?::int[])', run.id, list.map((e) => e.id));
+      if (list.length) await tx.run('UPDATE time_entries SET pay_run_id = ? WHERE id = ANY(?::int[])', run.id, list.map((e) => e.id));
     }
   });
 }
@@ -348,6 +353,7 @@ router.get('/:id', async (req, res) => {
     changedCount: changed.n,
     problems: draft ? paycheck.finalizeProblems({ run, items, settings: res.locals.settings }) : [],
     noW4: draft ? items.filter((i) => i.tax_form === 'W-2' && !i.has_w4) : [],
+    withPremiums: draft ? items.filter((i) => i.break_pay > 0) : [],
     noW9: draft ? items.filter((i) => i.tax_form === '1099' && !i.has_w9) : [],
     deposit: {
       byBank: paid.filter((i) => withAccount.has(i.employee_id)),
@@ -379,11 +385,18 @@ router.get('/:id/items/:itemId', async (req, res) => {
   let sickLimit = null;
   if (run.status === 'draft' && item.tax_form === 'W-2') {
     // What could be used if the office entered more (the line itself already has it applied).
-    const employee = await db.get('SELECT id, hourly_rate, tax_form, start_date FROM employees WHERE id = ?', item.employee_id);
+    const employee = await db.get('SELECT * FROM employees WHERE id = ?', item.employee_id);
     const line = await paycheck.completeLine(db, { run, employee, hours: item, inputs: { ...item, sick_hours: 1e6 }, settings: res.locals.settings });
     sickLimit = line.sick_limit;
   }
-  res.render('pay/line', { title: `Pay – ${employeeName(item)}`, run, item, sickLimit, payDate: paycheck.payDateOf(run) });
+  // The workdays with a missed meal or rest break, and why.
+  let breakDays = [];
+  if (item.meal_premiums || item.rest_premiums) {
+    const employee = await db.get('SELECT * FROM employees WHERE id = ?', item.employee_id);
+    const entries = await db.all('SELECT * FROM time_entries WHERE pay_run_id = ? AND employee_id = ? ORDER BY start_at', run.id, item.employee_id);
+    breakDays = paycheck.earnings({ employee, entries, run, settings: res.locals.settings }).break_days.filter((d) => d.missedMeal || d.missedRest);
+  }
+  res.render('pay/line', { title: `Pay – ${employeeName(item)}`, run, item, sickLimit, breakDays, payDate: paycheck.payDateOf(run) });
 });
 
 router.post('/:id/items/:itemId', async (req, res) => {
@@ -407,8 +420,10 @@ router.post('/:id/items/:itemId', async (req, res) => {
   else if (Number.isNaN(inputs.deduction) || inputs.deduction < 0) error = 'The deduction must be an amount of 0 or more, like 25.';
   if (!error) {
     error = await db.transaction(async (tx) => {
-      const employee = await tx.get('SELECT id, hourly_rate, tax_form, start_date FROM employees WHERE id = ?', item.employee_id);
-      if (employee.tax_form !== item.tax_form) return 'They are now paid as a different kind of worker (W-2 or 1099). Press Recalculate first.';
+      const employee = await tx.get('SELECT * FROM employees WHERE id = ?', item.employee_id);
+      if (employee.tax_form !== item.tax_form || employee.pay_basis !== item.pay_basis) {
+        return 'How they are paid has changed since this pay run was worked out. Press Recalculate first.';
+      }
       const line = await paycheck.completeLine(tx, { run, employee, hours: item, inputs, settings: res.locals.settings });
       if (inputs.sick_hours > 0 && item.tax_form !== 'W-2') return 'Paid sick leave is for W-2 employees.';
       if (line.sick_hours < inputs.sick_hours) return `Only ${line.sick_hours} hours of paid sick leave can be paid now. ${line.sick_limit.reason}`;
@@ -473,15 +488,18 @@ router.get('/:id/export.csv', async (req, res) => {
   const run = await findRun(req.params.id);
   if (!run) return notFound(res, 'pay run');
   const header = [
-    'Employee', 'Position', 'Regular hours', 'Overtime hours', 'Double time hours', 'Hourly rate', 'Overtime multiplier',
-    'Regular pay', 'Overtime pay', 'Double time pay', 'Adjustment', 'Adjustment note', 'Gross pay',
+    'Employee', 'Position', 'Pay basis', 'Regular hours', 'Overtime hours', 'Double time hours', 'Hourly rate', 'Overtime multiplier',
+    'Salary', 'Extra hours', 'Regular pay', 'Overtime pay', 'Double time pay', 'Meal break premiums', 'Rest break premiums', 'Break premium pay',
+    'Adjustment', 'Adjustment note', 'Gross pay',
     'Paid as', 'Sick leave hours', 'Sick leave pay', 'Federal income tax', 'Social Security', 'Medicare', 'Additional Medicare',
     'California income tax', 'California SDI', 'Deduction', 'Deduction note', 'Net pay',
     'Employer Social Security', 'Employer Medicare', 'FUTA', 'California UI', 'California ETT',
   ];
   const rows = (await runItems(run.id)).map((i) => [
-    employeeName(i), i.position, i.regular_hours, i.overtime_hours, i.double_time_hours, i.hourly_rate, i.overtime_multiplier,
-    i.regular_pay, i.overtime_pay, i.double_time_pay, i.adjustment, i.adjustment_note, i.gross_pay,
+    employeeName(i), i.position, i.pay_basis === 'salary' ? (i.overtime_exempt ? 'Salary (exempt)' : 'Salary') : 'Hourly',
+    i.regular_hours, i.overtime_hours, i.double_time_hours, i.hourly_rate, i.overtime_multiplier,
+    i.salary_pay, i.extra_hours, i.regular_pay, i.overtime_pay, i.double_time_pay, i.meal_premiums, i.rest_premiums, i.break_pay,
+    i.adjustment, i.adjustment_note, i.gross_pay,
     i.tax_form, i.sick_hours, i.sick_pay, i.fed_income_tax, i.social_security, i.medicare, i.additional_medicare,
     i.ca_income_tax, i.ca_sdi, i.deduction, i.deduction_note, i.net_pay,
     i.employer_social_security, i.employer_medicare, i.futa, i.ca_ui, i.ca_ett,

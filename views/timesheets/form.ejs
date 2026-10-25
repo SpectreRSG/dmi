@@ -27,7 +27,14 @@
       <label>End time <input type="time" name="end_time" value="<%= entry.end_time || '' %>" required></label>
     </div>
     <p class="hint field-full">If the end time is earlier than the start time, it counts as finishing the next day.</p>
-    <label>Unpaid break (minutes) <input type="number" name="break_minutes" min="0" max="600" step="1" value="<%= entry.break_minutes ?? 0 %>"></label>
+    <label>Unpaid break (minutes) <input type="number" name="break_minutes" min="0" max="600" step="1" value="<%= entry.break_minutes ?? 0 %>"><span class="hint">The 30-minute meal break, if they took it off duty.</span></label>
+    <fieldset class="field-full choice-row">
+      <legend>Missed breaks (W-2 employees)</legend>
+      <label class="check"><input type="checkbox" name="missed_meal" value="1" <%= entry.missed_meal ? 'checked' : '' %>> Meal break missed, cut short, or started after the 5th hour</label>
+      <label class="check"><input type="checkbox" name="missed_rest" value="1" <%= entry.missed_rest ? 'checked' : '' %>> A 10-minute rest break missed</label>
+    </fieldset>
+    <p class="hint field-full">Each adds an hour's pay that workday (one for meal, one for rest). A meal break that isn't recorded counts as missed for shifts over 5 hours, unless they have an on-duty meal agreement (on their staff record).</p>
+    <label class="field-full">About the breaks <input name="break_note" value="<%= entry.break_note || '' %>" maxlength="500" placeholder="e.g. no relief at the post"></label>
     <% if (!entry.id) { %>
       <label class="check"><input type="checkbox" name="approve_now" value="1" <%= entry.approve_now ? 'checked' : '' %>> Approve straight away</label>
     <% } %>

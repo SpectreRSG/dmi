@@ -29,7 +29,6 @@ async function main() {
 async function seed(db) {
   const time = require('../src/time');
   const { hashPassword } = require('../src/auth');
-  const { calculatePayLine, overtimeRules } = require('../src/services/payroll');
   const paycheck = require('../src/services/paycheck');
   const { getSettings, saveSettings } = require('../src/settings');
 
@@ -88,13 +87,16 @@ async function seed(db) {
       ['Tom', 'Nguyen', 'Unarmed Security Officer', 'Part-time', 29, day(150)],
     ];
     const guards = [];
-    for (const [i, [first_name, last_name, position, employment_type, hourly_rate, license_expiry]] of people.entries()) {
+    for (const [i, [first_name, last_name, position, , hourly_rate, license_expiry]] of people.entries()) {
+      // The manager is a salaried employee, exempt from overtime; guards are 1099 contractors.
+      const manager = position === 'Manager';
       const id = await insert('employees', {
         first_name,
         last_name,
         position,
-        employment_type,
-        tax_form: position === 'Manager' ? 'W-2' : '1099', // the manager is an employee; guards are 1099 contractors
+        employment_type: manager ? 'Full Time' : 'Contractor',
+        tax_form: manager ? 'W-2' : '1099',
+        ...(manager ? { pay_basis: 'salary', annual_salary: 76000, overtime_exempt: 1 } : {}),
         hourly_rate,
         license_expiry,
         license_number: `SL-${40213 + i * 137}`,
@@ -106,10 +108,10 @@ async function seed(db) {
       });
       guards.push({ id, first_name, last_name });
     }
-    const hannah = await insert('employees', { first_name: 'Hannah', last_name: 'Lee', position: 'Administrator', employment_type: 'Part-time', tax_form: 'W-2', hourly_rate: 28, license_required: 0, start_date: day(-400), email: 'hannah.lee@example.com' });
+    const hannah = await insert('employees', { first_name: 'Hannah', last_name: 'Lee', position: 'Administrator', employment_type: 'Part Time Regular', tax_form: 'W-2', pay_basis: 'salary', annual_salary: 36400, weekly_hours: 24, hourly_rate: 28, license_required: 0, start_date: day(-400), email: 'hannah.lee@example.com' });
     await insert('training_records', { employee_id: hannah, course_id: course.induction, completed_on: day(-395), provider: 'In-house' });
     await insert('training_records', { employee_id: hannah, course_id: course.fire, completed_on: day(-180), expires_on: time.addMonths(day(-180), 24), provider: 'In-house' });
-    await insert('employees', { first_name: 'Mark', last_name: 'Davies', position: 'Unarmed Security Officer', employment_type: 'Casual', hourly_rate: 29, status: 'inactive', start_date: day(-800), end_date: day(-120), license_number: 'SL-39001', license_expiry: day(-30) });
+    await insert('employees', { first_name: 'Mark', last_name: 'Davies', position: 'Unarmed Security Officer', employment_type: 'Contractor', hourly_rate: 29, status: 'inactive', start_date: day(-800), end_date: day(-120), license_number: 'SL-39001', license_expiry: day(-30) });
 
     // ---- Training records (with a few gaps on purpose) -----------------------------
     for (const [i, g] of guards.entries()) {
@@ -251,9 +253,8 @@ async function seed(db) {
     for (const e of paid) byEmployee.set(e.employee_id, [...(byEmployee.get(e.employee_id) || []), e]);
     const run = await tx.get('SELECT * FROM pay_runs WHERE id = ?', payRun);
     for (const [employeeId, entries] of byEmployee) {
-      const employee = await tx.get('SELECT id, hourly_rate, tax_form, start_date FROM employees WHERE id = ?', employeeId);
-      const rules = employee.tax_form === 'W-2' ? overtimeRules(settings) : paycheck.STRAIGHT_TIME;
-      const hours = calculatePayLine({ entries, hourlyRate: employee.hourly_rate, rules });
+      const employee = await tx.get('SELECT * FROM employees WHERE id = ?', employeeId);
+      const hours = paycheck.earnings({ employee, entries, run, settings });
       const line = await paycheck.completeLine(tx, { run, employee, hours, settings });
       await paycheck.insertLine(tx, { pay_run_id: payRun, employee_id: employeeId, ...line });
     }

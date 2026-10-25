@@ -16,8 +16,8 @@ A private website for running the business side of a security company:
 | **Sign-in security** | Two-step sign-in (an authenticator app code) or a passkey (Face ID, Touch ID, screen lock), backup codes, remembered devices, and signing out everywhere. |
 | **1099 forms** | Works out what each contractor was paid in a year (from finalized pay runs), makes Form 1099-NEC (Copy B and 2 for the officer, C and 1 for the company), shares it in the officer's account if they agreed, and gives you a filing summary for sending Copy A to the IRS. Admins only. |
 | **Timesheets** | Hours actually worked. When a shift ends, its hours are recorded and approved from the schedule by themselves. You only fix the exceptions (edit the shift or the hours), or type in hours that weren't on the schedule and approve them. |
-| **Pay** | Turns approved hours into pay for a period. **W-2 employees**: California daily and weekly overtime and double time, then 2026 federal and California tax withholding from their W-4 and DE 4 (income tax, Social Security, Medicare, SDI), the company's own payroll taxes (Social Security, Medicare, FUTA, UI, ETT), **California paid sick leave** (earned and used), deductions and **net pay**, with California-compliant pay stubs (year-to-date totals and sick leave available). **1099 contractors**: their rate for every hour (no overtime), no taxes taken out unless the IRS requires backup withholding. Plus bonuses, a spreadsheet for your accountant, and each person's DMI timesheet PDF, stamped "Approved by" when you finalize. Admins only. |
-| **Staff** | Guard profiles: position (Armed Security Officer, Unarmed Security Officer, Supervisor, Manager or Administrator), contact details, pay rate, security license, emergency contact, whether their app notifications are on, hours, training and contracts. |
+| **Pay** | Turns approved hours into pay for a period. **W-2 employees**: hourly or **salaried** (paid each pay day, with or without hours), California daily and weekly overtime and double time, **meal and rest break premiums**, then 2026 federal and California tax withholding from their W-4 and DE 4 (income tax, Social Security, Medicare, SDI), the company's own payroll taxes (Social Security, Medicare, FUTA, UI, ETT), **California paid sick leave** (earned and used), deductions and **net pay**, with California-compliant pay stubs (year-to-date totals and sick leave available). **1099 contractors**: their rate for every hour (no overtime), no taxes taken out unless the IRS requires backup withholding. Plus bonuses, a spreadsheet for your accountant, and each person's DMI timesheet PDF, stamped "Approved by" when you finalize. Admins only. |
+| **Staff** | Guard profiles: position (Armed Security Officer, Unarmed Security Officer, Supervisor, Manager or Administrator), **employment type** (Full Time, Part Time Regular, Part Time Hourly or Contractor, which decides how they're paid and taxed), pay rate or salary, security license, emergency contact, whether their app notifications are on, hours, training and contracts. |
 | **Clients & sites** | Your customers and the places your guards work, with site instructions. |
 | **Contracts** | Client agreements, employment contracts, NDAs, subcontracts. Upload the signed copy and get warned before they end. |
 | **Training** | A table showing who is qualified, who's expiring, and who's missing training. Plan training sessions, book people in, and record attendance. Type the name of a new training right on the form. |
@@ -187,6 +187,42 @@ sites' details. So keep its password private, and deactivate it when you're not 
   were already finalized keep the numbers they had. Overtime is for **W-2 employees**: 1099
   contractors aren't covered by overtime law, so they get their rate for every hour. Have your
   accountant confirm the setup the first time.
+- **Employment types decide how people are paid** (Staff → Edit → Pay and taxes, admins only).
+  Change someone's type whenever their job changes, and everything that goes with it switches too:
+
+  | Type | Tax form | Paid | Overtime | Sick leave, breaks | Fills in |
+  |---|---|---|---|---|---|
+  | Full Time | W-2 | by the hour, or a yearly salary | yes, unless "exempt" | yes (exempt: sick leave only) | W-4 and DE 4 |
+  | Part Time Regular | W-2 | a set salary for a regular schedule (e.g. 24 hours a week) | yes | yes | W-4 and DE 4 |
+  | Part Time Hourly | W-2 | by the hour | yes | yes | W-4 and DE 4 |
+  | Contractor | 1099 | the agreed rate for every hour | no | no | W-9 |
+
+  - A **salary** is paid in equal parts each pay day (yearly salary ÷ pay days), and a share of it
+    for a first or last paycheck (by weekdays). Its hourly rate (weekly salary ÷ the hours it's for,
+    40 for full time, Labor Code 515(d)) pays overtime, break premiums and, for Part Time Regular,
+    hours past their schedule. Sick days come off the balance; the salary already pays for them.
+  - **Exempt from overtime** is only for Full Time salaried staff whose duties qualify (managers,
+    office staff), with a salary of at least twice the state minimum wage for full time ($70,304 in
+    2026; the minimum wage is in `taxTables.js`). They get no overtime or break premiums, and earn
+    sick leave as if working 40 hours a week. Guards are not exempt.
+  - Hourly employees must be paid at least the state minimum wage ($16.90 in 2026; some cities are higher).
+  - Every change is kept in the staff page's **Pay history**, and the person gets a notification
+    (California wants employees told of pay changes within 7 days). A contractor who becomes an
+    employee is a new hire from that day (new hire report, sick leave waiting period). Pay runs use
+    the details at the time they're calculated: press **Recalculate** on any draft after a change.
+- **Meal and rest breaks (W-2 employees who aren't exempt, Labor Code 512 and 226.7):** a 30-minute
+  unpaid meal break before the end of the 5th hour worked and a second before the end of the 10th;
+  a paid 10-minute rest break for every 4 hours (or more than half of that). Each workday with a
+  missed, short or late meal break adds **one hour's pay**, and so does a missed rest break (at most
+  one of each a day). DMI counts a meal break as missed when a day over 5 hours has less unpaid break
+  time on record than needed (time off the clock between two shifts that day counts), or when it's
+  marked as missed on the hours (Timesheets) or reported by the employee under **My pay → Missed a
+  break?**. Rest breaks are paid, so they only count when marked or reported. On the staff record:
+  - **On-duty meal agreement signed**: for posts where the guard can't be relieved, they eat at the
+    post (paid), so no meal break needs to be recorded. It must be in writing, and they can cancel it.
+  - **Meal break waiver signed**: they can skip the meal break on days of 6 hours or less, and the
+    second one on days of 12 hours or less (so a 12-hour shift needs only one meal break).
+  The pay run warns who has premiums, and each line's **Details** lists the days and why.
 - **Rest between shifts:** the conflict checker warns when someone has less than 8 hours between
   shifts. Change the number in **Settings → Scheduling**.
 - **Payroll taxes (W-2 employees).** Each paycheck's withholding follows IRS Publication 15-T
@@ -203,11 +239,11 @@ sites' details. So keep its password private, and deactivate it when you're not 
 - **New hire reports (DE 34):** every new W-2 employee must be reported to the EDD within 20 days
   of their start date (e-Services for Business). The dashboard lists who's due, admins get a
   reminder 5 days before, and **Report details** on the staff page has everything to type in (full
-  SSN, behind a fresh two-step code); then mark it as reported. Someone moving from 1099 to W-2
-  counts as a new hire from the day they became an employee: set that as their start date.
+  SSN, behind a fresh two-step code); then mark it as reported. Someone moving from Contractor to an
+  employee type counts as a new hire from the day the type was changed (DMI uses that day).
 - **Paid sick leave (W-2 employees, California):** 1 hour earned for every 30 worked, earning stops
   while 80 hours are banked, up to 40 hours used a year, usable from the 90th day of employment
-  (start date on the staff record).
+  (start date on the staff record, or the day a contractor became an employee).
 - **Paying the payroll taxes (Pay → Tax payments):** lists what's owed to the IRS (federal income
   tax, Social Security and Medicare, FUTA) and the EDD (California income tax and SDI, UI and ETT)
   from finalized W-2 pay, with due dates from the schedule in **Settings → Payroll** (monthly for
@@ -286,9 +322,11 @@ src/
   viewHelpers.js     formatting helpers used by templates (dates, money, badges, icons)
   services/
     payroll.js       the pay & overtime maths
+    employment.js    employment types: what each one means for pay and taxes, salary maths, the staff form's pay fields
+    breaks.js        California meal and rest break rules and premiums
     taxTables.js     the payroll tax rates for each year (check and add a year each December)
     withholding.js   the tax maths: federal and California withholding, Social Security, Medicare, SDI, FUTA, UI, ETT
-    paycheck.js      from gross to net for one pay line: taxes, paid sick leave, deductions, what blocks finalizing
+    paycheck.js      one pay line from hours to net: overtime and salary by type, break premiums, taxes, sick leave, deductions, what blocks finalizing
     sickLeave.js     California paid sick leave rules
     payslip.js       what a pay stub shows, with year-to-date totals
     taxDeposits.js   payroll tax payments: what's owed, due dates, what's paid, reminders
