@@ -8,17 +8,7 @@
   </div>
   <% if (office && messages.length) { %>
     <div class="page-actions">
-      <details class="chat-download">
-        <summary class="btn"><%- icon('file') %> Download secure PDF</summary>
-        <form method="post" action="<%= base %>/log.pdf" class="card card-pad stack chat-download-form">
-          <%- include('../partials/csrf') %>
-          <p class="small">The PDF opens only with the password you choose here. It can be printed, but not changed or copied. Every page shows who downloaded it, when, and a verification code.</p>
-          <label>Password to open it <input type="password" name="password" minlength="8" maxlength="64" required autocomplete="new-password"></label>
-          <label>Password again <input type="password" name="confirm" minlength="8" maxlength="64" required autocomplete="new-password"></label>
-          <p class="hint">8 to 64 characters. Keep it safe and share it separately from the file (for example by phone): DMI doesn't keep it, so it can't be looked up later.</p>
-          <div><button type="submit" class="btn btn-primary">Download PDF</button></div>
-        </form>
-      </details>
+      <a class="btn" href="<%= base %>/log.pdf" title="Opens and prints for anyone, but can't be edited. Every page shows who downloaded it, when, and a verification code."><%- icon('file') %> Download PDF</a>
     </div>
   <% } %>
 </div>

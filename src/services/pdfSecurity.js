@@ -1,12 +1,13 @@
-// Locks a PDF made with pdf-lib, which can't do this itself: AES-256
-// encryption with a password to open the file, and permissions that allow
-// printing but not changing it or copying its text. This is the standard PDF
-// security handler, revision 6 (ISO 32000-2, section 7.6.4), which Adobe
-// Acrobat, Apple Preview, Chrome and Edge all open.
+// Locks a PDF made with pdf-lib against changes, which pdf-lib can't do
+// itself: it opens for anyone (no password, unless one is given) and can be
+// printed, but PDF software won't let it be edited, annotated or copied from.
+// This is the standard PDF security handler, revision 6 (ISO 32000-2, section
+// 7.6.4, AES-256), which Adobe Acrobat, Apple Preview, Chrome and Edge all honor.
 //
 // How it works: a random file key encrypts every string and stream in the
-// file; the open password and a random owner password (never kept) each guard
-// a copy of that key. See tests/pdfSecurity.test.js.
+// file; the open password (empty by default) and a random owner password,
+// never kept, each guard a copy of that key. Only the owner password could
+// lift the restrictions. See tests/pdfSecurity.test.js.
 const crypto = require('crypto');
 const { PDFArray, PDFDict, PDFHexString, PDFName, PDFNumber, PDFRawStream, PDFStream, PDFString, PDFBool } = require('pdf-lib');
 
@@ -81,9 +82,9 @@ function encryptStrings(object, fileKey) {
 }
 
 // Encrypts a pdf-lib document in place and returns the saved, locked file.
+// `userPassword`: needed to open it ('' = anyone can open it).
 // `allow`: what people may do once it's open (printing, by default, and screen readers).
-async function saveEncrypted(doc, { userPassword, ownerPassword = crypto.randomBytes(32).toString('hex'), allow = ['print', 'printHigh', 'accessibility'] }) {
-  if (!passwordBytes(userPassword).length) throw new Error('A password is needed to lock the PDF.');
+async function saveEncrypted(doc, { userPassword = '', ownerPassword = crypto.randomBytes(32).toString('hex'), allow = ['print', 'printHigh', 'accessibility'] } = {}) {
   await doc.flush(); // everything that will be in the file now exists
   const { context } = doc;
   const fileKey = crypto.randomBytes(32);

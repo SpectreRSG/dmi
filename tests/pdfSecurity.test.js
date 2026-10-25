@@ -1,6 +1,7 @@
 // The PDF lock (services/pdfSecurity.js), checked the way a PDF reader opens
-// it: the password unlocks the file key, the key decrypts the pages. (The
-// files were also checked with Poppler and pypdf when this was written.)
+// it: the open password (none, normally) unlocks the file key, the key decrypts
+// the pages, and the permissions say no changes. (The files were also checked
+// with Poppler and pypdf when this was written.)
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('crypto');
@@ -44,22 +45,21 @@ function streams(bytes, key) {
   return out;
 }
 
-test('a locked PDF: AES-256, the password opens it, printing allowed but not changes or copying', async () => {
+test('a locked PDF: opens without a password, prints, but no changes, notes or copying', async () => {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   doc.addPage([612, 792]).drawText('Meet at the north gate', { x: 50, y: 700, size: 12, font });
   doc.setTitle('Secret title');
-  const bytes = await saveEncrypted(doc, { userPassword: 'open sesame 42' });
+  const bytes = await saveEncrypted(doc);
   const text = Buffer.from(bytes).toString('latin1');
   assert.match(text, /\/Filter \/Standard/);
   assert.match(text, /\/V 5/);
   assert.match(text, /\/R 6/);
   assert.match(text, /\/CFM \/AESV3/);
-  assert.doesNotMatch(text, /north gate|Secret title/, 'nothing readable without the password');
-  assert.equal(open(bytes, 'wrong password'), null);
-  const key = open(bytes, 'open sesame 42');
-  assert.equal(key.length, 32);
-  assert.ok(streams(bytes, key).some((s) => s.includes('Meet at the north gate')), 'the password unlocks the page');
+  assert.doesNotMatch(text, /north gate|Secret title/, 'stored encrypted, so it can only be read through PDF software, which honors the lock');
+  const key = open(bytes, '');
+  assert.equal(key.length, 32, 'no password needed to open it');
+  assert.ok(streams(bytes, key).some((s) => s.includes('Meet at the north gate')));
   // Perms: the permissions, sealed with the file key.
   const perms = decipher('aes-256-ecb', key, null, field(text, 'Perms'), false);
   assert.equal(perms.subarray(9, 12).toString('latin1'), 'adb');
@@ -68,20 +68,23 @@ test('a locked PDF: AES-256, the password opens it, printing allowed but not cha
   assert.equal(p, permissionFlags(['print', 'printHigh', 'accessibility']));
   assert.ok(p & (1 << 2), 'can print');
   assert.ok(!(p & (1 << 3)) && !(p & (1 << 4)) && !(p & (1 << 5)), 'no changes, copying or notes');
-  await assert.rejects(saveEncrypted(await PDFDocument.create(), { userPassword: '' }), /password is needed/);
+  // It can also need a password to open, if one is given.
+  const withPassword = await saveEncrypted(await PDFDocument.create(), { userPassword: 'open sesame 42' });
+  assert.equal(open(withPassword, ''), null);
+  assert.equal(open(withPassword, 'open sesame 42').length, 32);
 });
 
-test('the conversation PDF: every message with its time, a verification code, locked', async () => {
+test('the conversation PDF: every message with its time, a verification code, locked against changes', async () => {
   const thread = { id: 7, name: 'Olivia Officer', person_role: 'officer' };
   const messages = [
     { id: 1, created_at: '2026-10-25 06:05:12', sender_name: 'Olivia Officer', sender_role: 'officer', body: 'Running late 🚗\nTraffic on the 101.' },
     { id: 2, created_at: '2026-10-25 06:07:40', sender_name: 'Alex Admin', sender_role: 'admin', body: 'Thanks. '.repeat(120) },
   ];
-  const { bytes, code } = await chatLogPdf({ thread, messages, companyName: 'Direct Measures Inc', downloadedBy: 'Alex Admin', password: 'kept safe 123', roleName: 'officer' });
+  const { bytes, code } = await chatLogPdf({ thread, messages, companyName: 'Direct Measures Inc', downloadedBy: 'Alex Admin', roleName: 'officer' });
   assert.match(code, /^[0-9A-F]{4}(-[0-9A-F]{4}){3}$/);
   assert.equal(code, verificationCode(thread, messages), 'the same messages give the same code');
   assert.notEqual(code, verificationCode(thread, [{ ...messages[0], body: 'Running late' }, messages[1]]), 'any change gives a different code');
-  const pages = streams(bytes, open(bytes, 'kept safe 123')).join('\n');
+  const pages = streams(bytes, open(bytes, '')).join('\n');
   assert.match(pages, /Messages with Olivia Officer \(officer\)/);
   assert.match(pages, /Sun 25 Oct 2026, 06:05  ·  Olivia Officer/);
   assert.match(pages, /Running late \?\n/, 'an emoji the font can\'t show becomes one ?');

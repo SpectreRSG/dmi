@@ -1,7 +1,7 @@
-// A conversation's messages as a secure PDF for the admins: every message with
-// its date and time, locked with a password the admin chooses (it can be
-// printed, but not changed or copied; see pdfSecurity.js). Every page shows
-// who downloaded it and when, and a verification code worked out from the
+// A conversation's messages as a PDF for the admins: every message with its
+// date and time, locked against changes (it opens and prints for anyone, but
+// can't be edited or copied from; see pdfSecurity.js). Every page shows who
+// downloaded it and when, and a verification code worked out from the
 // messages themselves, so a copy can be checked against DMI's record.
 const crypto = require('crypto');
 const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
@@ -57,7 +57,7 @@ function verificationCode(thread, messages) {
 const stamp = (at) => `${time.fmtDay(at.slice(0, 10))} ${at.slice(0, 4)}, ${at.slice(11, 16)}`;
 
 // `thread` and `messages` from services/chat.js; `downloadedBy`: the admin's name.
-async function chatLogPdf({ thread, messages, companyName, downloadedBy, password, roleName }) {
+async function chatLogPdf({ thread, messages, companyName, downloadedBy, roleName }) {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -122,7 +122,7 @@ async function chatLogPdf({ thread, messages, companyName, downloadedBy, passwor
     p.drawText(footer, { x: MARGIN, y: MARGIN - 24, size, font, color: GRAY });
   });
 
-  return { bytes: await saveEncrypted(doc, { userPassword: password }), code };
+  return { bytes: await saveEncrypted(doc), code };
 }
 
 module.exports = { chatLogPdf, verificationCode, wrap };

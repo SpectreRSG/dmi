@@ -1302,8 +1302,3 @@ section.card + section.card, .card + section.card { margin-top: 16px; }
   .chat-log { max-height: calc(100vh - 330px); padding: 12px; }
   .chat-msg { max-width: 88%; }
 }
-.chat-download { position: relative; }
-.chat-download > summary { list-style: none; cursor: pointer; }
-.chat-download > summary::-webkit-details-marker { display: none; }
-.chat-download-form { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; width: min(360px, calc(100vw - 32px)); box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18); }
-@media (max-width: 640px) { .chat-download-form { right: auto; left: 0; } }
