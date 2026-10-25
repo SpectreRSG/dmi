@@ -2,7 +2,8 @@
 // recording the hours of shifts that have ended, offering a repeating shift
 // request's shifts as they come within two weeks, and moving open-shift offers
 // along (next wave of officers, telling the office when nobody has claimed one),
-// and reminders (shifts coming up, time cards due).
+// reminders (shifts coming up, time cards due, tax payments, new hire reports),
+// and removing messages once they're 2 years old.
 //
 // They run in two ways, and either is enough on its own:
 // - every 5 minutes on the live site (netlify/functions/autopilot.mjs), and

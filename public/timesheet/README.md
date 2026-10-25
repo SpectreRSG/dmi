@@ -1,6 +1,6 @@
 # DMI Timesheet (dmi.codehound.org)
 
-A one-page tool that fills in the Direct Measures International timesheet PDF.
+A one-page tool that fills in the Direct Measures Inc. timesheet PDF.
 Type Clock in and Clock out for each shift (hours are calculated from those and
 cannot be typed), click **Download PDF**, and get the filled form back.
 
@@ -17,7 +17,6 @@ the device with [pdf-lib](https://pdf-lib.js.org) (MIT, vendored as
 | `style.css` | How it looks (light and dark) |
 | `app.js` | Pay periods, totals, signature pad, and PDF filling |
 | `dmi-timesheet-template.pdf` | The blank DMI form (no name, hours or signature) |
-| `netlify.toml` | Settings for the separate Netlify site |
 
 ## Pay periods
 
@@ -33,7 +32,8 @@ page. Nudge those numbers if anything prints slightly off.
 
 Served at dmi.codehound.org/timesheet/ as plain files from the `public/`
 folder, alongside the admin app. It was the temporary placeholder for the site
-while the admin app moved to Netlify, and stays until officers' timesheets are
-built into the admin app itself. Originally copied from the `dmi/` folder of
+while the admin app moved to Netlify. Officers' hours now come from the schedule
+in the admin app, so nobody needs this page; it stays only for anyone with an
+old link, and the login page no longer points to it. Originally copied from the `dmi/` folder of
 the SpectreRSG/CodeHound repository (branch `dmi-timesheet`, commit `ec878c1`).
 Its security headers are set in the root `netlify.toml`.

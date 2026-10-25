@@ -111,6 +111,12 @@
   </form>
 </div>
 <div class="narrow">
-  <%- include('../partials/notifications', { pushWhat: ['admin', 'manager'].includes(currentUser.role) ? 'Free alerts on this phone or computer, like a text message: call-outs, open shifts nobody has claimed, when time cards are due, and sign-ins to your account.' : currentUser.role === 'officer' ? 'Free alerts on this phone or computer, like a text message: shift reminders, open shifts, schedule changes, time cards due, pay day, and sign-ins to your account.' : null }) %>
+  <% const pushWhat = {
+    admin: 'call-outs, open shifts nobody has claimed, shift requests, incident reports, new messages, when time cards are due, tax payments and new hire reports due, and sign-ins to your account',
+    manager: 'call-outs, open shifts nobody has claimed, when time cards are due, and sign-ins to your account',
+    officer: 'shift reminders, open shifts, schedule changes, time cards due, pay day, replies from the office, and sign-ins to your account',
+    client: 'shift requests approved and covered, replies from the office, and sign-ins to your account',
+  }[currentUser.role]; %>
+  <%- include('../partials/notifications', { pushWhat: pushWhat ? `Free alerts on this phone or computer, like a text message: ${pushWhat}.` : null }) %>
 </div>
 <%- include('../partials/bottom') %>

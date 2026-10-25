@@ -10,19 +10,20 @@ A private website for running the business side of a security company:
 | **Availability** | Officers say when they can't work (one day, a few days, or every week, all day or between times) and when they'd like extra shifts. The conflict checker warns about shifts booked while someone can't work, the office is warned when booking them, "Find cover" and open-shift offers skip them, and officers who said they're available are asked first. See everyone's at **Schedule → Availability**. |
 | **Shift requests from sites** | A site representative (client account) asks for a shift: site, date, times, how many officers, and the officers they'd like. It can **repeat** on chosen weekdays for up to 3 months (e.g. every Mon, Wed and Fri, 6 PM–6 AM). The office approves or declines it under **Schedule → Shift requests**, a whole repeating request in one click. Approved: the shifts go on the schedule as open shifts (teal) and are offered to officers, the ones the site asked for first (up to 2 hours to themselves), then everyone else who's free. A repeating request's shifts are offered about two weeks before each date, and an officer offered several at once gets one notification for all of them. The site gets a notification when it's approved and when each shift is covered, with the officer's name, and sees every request it has sent under **History**, with who covered each date. |
 | **Call-outs & open shifts** | An officer who can't make a shift presses **I can't make it** (or the office notes it). The shift is offered to the officers who are free, rested, licensed and trained: regulars at that site first, everyone else 10 minutes later. The first to claim it gets it. The office is only told if nobody has claimed it after 30 minutes (15 when the shift is close). |
-| **App notifications** | Free alerts on phones and computers, like a text message, with no texting company or phone numbers. Officers hear about open shifts, changes to their shifts and pay day, get a **reminder 24 hours and again 2 hours before each shift**, and a **"time cards are due"** reminder 2 days before each pay period ends. The office hears about call-outs, shifts nobody has claimed, and when time cards are due. Each person turns them on once per device. |
-| **Officer & client accounts** | Anyone can sign up at `/register`; while they wait, the page walks them through adding DMI to their phone's Home Screen and turning on notifications, and they're notified when an admin approves them and gives them a role. **Officers** must have notifications on before they can use their pages (incident reports always work). They see their shifts on a monthly calendar, their pay (pay stubs and their DMI timesheet for each pay day) and their 1099, and keep their contact details up to date. They fill in their W-9 (1099 contractors) or W-4 and DE 4 (W-2 employees) once at the start; there are no timesheets to fill in. **Clients** see the monthly schedule for their sites. Neither ever sees pay rates or other people's details. |
+| **App notifications** | Free alerts on phones and computers, like a text message, with no texting company or phone numbers. Officers hear about open shifts, changes to their shifts and pay day, get a **reminder 24 hours and again 2 hours before each shift**, and a **"time cards are due"** reminder 2 days before each pay period ends. Sites hear when their shift requests are approved and covered. The office hears about call-outs, shifts nobody has claimed, and when time cards are due; admins also hear about shift requests, incident reports, tax payments and new hire reports due. Everyone with **Messages** hears when a new one arrives for them. Each person turns them on once per device. |
+| **Officer & client accounts** | Anyone can sign up at `/register`; while they wait, the page walks them through adding DMI to their phone's Home Screen and turning on notifications, and they're notified when an admin approves them and gives them a role. **Officers** must have notifications on before they can use their pages (incident reports always work). They see their shifts on a monthly calendar and their pay (their own rate or salary, pay stubs and their DMI timesheet for each pay day, and their 1099 or W-2), can report a missed meal or rest break, and keep their contact details and direct deposit up to date. They fill in their W-9 (1099 contractors) or W-4 and DE 4 (W-2 employees) once at the start; there are no timesheets to fill in. **Clients** see the monthly schedule for their sites and ask for shifts. Both can write incident reports and send the office a **message**. Neither ever sees anyone else's pay or private details. |
 | **Incident reports** | Use of force and incident reports, with the same questions as the California PPO incident record. **Everyone with an account can write one**: officers (it starts from their shift), clients (for their own sites), managers and admins. They fill it in on their phone, add photos, and sign it by typing their legal name. Admins are notified, see the reporting deadlines that may apply (guard notice, BSIS, local police), fill in the review, and approve it or ask for more; the writer answers with a dated supplement. A sent report can't be changed, prints on the model PDF form, and is kept 5 years after the incident (longer on legal hold). Only admins review them; everyone else sees only their own. |
 | **Messages** | A private, 1:1 conversation between each officer or client and the office: they open **Messages** in their menu and write to the admins; any admin can read and answer it in **Messages** (or start one, from there or a staff page). New messages appear by themselves while the page is open, an app notification reaches whoever a message is for, and the menu shows how many are unread. Every message is date and time stamped, can't be changed or deleted, and is kept for 2 years (then removed automatically). Admins can download a conversation as a **PDF that can't be edited**: it opens and prints for anyone, with no password, but PDF software won't let it be changed, annotated or copied from, and every page shows who downloaded it, when, and a verification code. Managers don't use it. |
 | **Sign-in security** | Two-step sign-in (an authenticator app code) or a passkey (Face ID, Touch ID, screen lock), backup codes, remembered devices, and signing out everywhere. |
 | **1099 forms** | Works out what each contractor was paid in a year (from finalized pay runs), makes Form 1099-NEC (Copy B and 2 for the officer, C and 1 for the company), shares it in the officer's account if they agreed, and gives you a filing summary for sending Copy A to the IRS. Admins only. |
-| **Timesheets** | Hours actually worked. When a shift ends, its hours are recorded and approved from the schedule by themselves. You only fix the exceptions (edit the shift or the hours), or type in hours that weren't on the schedule and approve them. |
+| **Timesheets** | Hours actually worked. When a shift ends, its hours are recorded and approved from the schedule by themselves. You only fix the exceptions (edit the shift or the hours, or mark a missed meal or rest break), or type in hours that weren't on the schedule and approve them. |
 | **Pay** | Turns approved hours into pay for a period. **W-2 employees**: hourly or **salaried** (paid each pay day, with or without hours), California daily and weekly overtime and double time, **meal and rest break premiums**, then 2026 federal and California tax withholding from their W-4 and DE 4 (income tax, Social Security, Medicare, SDI), the company's own payroll taxes (Social Security, Medicare, FUTA, UI, ETT), **California paid sick leave** (earned and used), deductions and **net pay**, with California-compliant pay stubs (year-to-date totals and sick leave available). **1099 contractors**: their rate for every hour (no overtime), no taxes taken out unless the IRS requires backup withholding. Plus bonuses, a spreadsheet for your accountant, and each person's DMI timesheet PDF, stamped "Approved by" when you finalize. Admins only. |
-| **Staff** | Guard profiles: position (Armed Security Officer, Unarmed Security Officer, Supervisor, Manager or Administrator), **employment type** (Full Time, Part Time Regular, Part Time Hourly or Contractor, which decides how they're paid and taxed), pay rate or salary, security license, emergency contact, whether their app notifications are on, hours, training and contracts. |
+| **Payroll taxes, W-2s & direct deposit** | What's owed to the IRS and the EDD from each pay run, with due dates and reminders (**Pay → Tax payments**); the numbers for Forms 941 and 940 and the EDD's DE 9 and DE 9C (**Pay → Tax reports**); **W-2 forms** each January; **new hire reports (DE 34)**; and **direct deposit**: officers add their bank account, an admin approves it, and each pay run makes the file to upload to the bank. Admins only (apart from officers' own bank details). |
+| **Staff** | Guard profiles: position (Armed Security Officer, Unarmed Security Officer, Supervisor, Manager or Administrator), **employment type** (Full Time, Part Time Regular, Part Time Hourly or Contractor, which decides how they're paid and taxed), pay rate or salary, **Employee since** (for the new hire report), meal break agreements, pay history, security license, emergency contact, direct deposit, whether their app notifications are on, hours, training and contracts. Their page has a **Message** button for anyone with an officer account. |
 | **Clients & sites** | Your customers and the places your guards work, with site instructions. |
 | **Contracts** | Client agreements, employment contracts, NDAs, subcontracts. Upload the signed copy and get warned before they end. |
 | **Training** | A table showing who is qualified, who's expiring, and who's missing training. Plan training sessions, book people in, and record attendance. Type the name of a new training right on the form. |
-| **Admin** | User accounts (admin or manager), company settings, and an activity log of who changed what. |
+| **Admin** | User accounts (approving sign-ups and giving each person a role: admin, manager, officer or client), company settings, and an activity log of who changed what. |
 
 > **Live site:** https://dmi.codehound.org, hosted on Netlify (see section 4). Officers' hours now
 > come from the schedule, so they don't send timesheets. The old stand-alone timesheet page
@@ -67,15 +68,17 @@ npm start
 ```
 
 (Stop the app first if it's running.) This fills an **empty** local database with demo guards,
-clients, shifts, hours, a pay run, contracts and training. It prints a login (`admin@example.com` plus a password). When you're done
+clients, shifts, hours, a pay run, contracts and training. It prints four logins (`admin@`,
+`manager@`, `officer@` and `client@example.com`, all with the same password). When you're done
 exploring, stop the app and **delete the `data` folder** to start fresh with your real data.
 
 ---
 
 ## 2. A typical week
 
-1. **Set up once:** add your **clients & sites**, your **staff** (with pay rates and license
-   details), and your **training courses** (tick "required" for must-haves like First Aid).
+1. **Set up once:** add your **clients & sites**, your **staff** (with their employment type, pay
+   rate or salary, and license details), and your **training courses** (tick "required" for
+   must-haves like First Aid).
 2. **Plan:** in **Schedule**, add shifts. For regular posts, tick the days of the week it repeats
    on and the date to repeat until. Leave the staff box empty to create an unfilled shift you'll fill later.
 3. **Check for conflicts:** press the **Check conflicts** button on the Schedule page (it turns
@@ -135,25 +138,32 @@ exploring, stop the app and **delete the `data` folder** to start fresh with you
     - press **PDF** for the report on the official-looking form (the same form you gave us), with
       extra pages for long answers, supplements, files and history.
     Put your **PPO license number** under **Settings → Incident reports** so it's on every report.
-11. **Every January (1099s):** fill in the company's legal name, EIN and address once under
-   **Settings → Company tax details**. Make sure officers have filled in their W-9 details (their account
-   asks them to when they first sign in; it's under **My pay → Tax forms**). Then in **1099 forms**, pick last year, press **Make 1099** for each contractor,
-   check the PDFs, and press **Mark as issued**. By **January 31**:
-   - give each officer Copy B: share it in their account (if they agreed to get it online) or
-     print it and give or mail it to them;
-   - file Copy A with the IRS: online through the IRS's free **IRIS** website, or on the official
-     red-ink paper forms (a printout from the app isn't accepted for Copy A). The **filing summary**
-     page has every number to type in. Filing 10 or more information returns in total means you must
-     file online.
-   - From 2026 payments on, a 1099-NEC is required for anyone paid **$2,000** or more in the year
-     (it was $600 before). Have your accountant check the first batch.
+11. **Messages:** when an officer or client writes to the office, every admin gets a notification
+    and **Messages** in the menu shows a number. Open it, pick the conversation and answer; they get
+    a notification. To write to someone first, choose them at the top of **Messages**, or press
+    **Message** on their staff page. Press **Download PDF** on a conversation to keep a copy that
+    can't be edited (for a dispute, say).
+12. **Every January (1099s):** fill in the company's legal name, EIN and address once under
+    **Settings → Company tax details**. Make sure officers have filled in their W-9 details (their
+    account asks them to when they first sign in; it's under **My pay → Tax forms**). Then in
+    **1099 forms**, pick last year, press **Make 1099** for each contractor, check the PDFs, and
+    press **Mark as issued**. By **January 31**:
+    - give each officer Copy B: share it in their account (if they agreed to get it online) or
+      print it and give or mail it to them;
+    - file Copy A with the IRS: online through the IRS's free **IRIS** website, or on the official
+      red-ink paper forms (a printout from the app isn't accepted for Copy A). The **filing summary**
+      page has every number to type in. Filing 10 or more information returns in total means you
+      must file online.
+    - From 2026 payments on, a 1099-NEC is required for anyone paid **$2,000** or more in the year
+      (it was $600 before). Have your accountant check the first batch.
+    - W-2 employees get a W-2 instead, by the same date: see **W-2 forms** below.
 
 ### Who can do what?
 
-- **Admin**: everything, including pay, pay rates, user accounts, settings and reviewing incident reports.
-- **Manager**: schedule, timesheets, staff, clients, contracts and training, and writing their own incident reports. Managers never see pay, pay rates, tax details or other people's incident reports.
-- **Officer**: their own monthly schedule (including "I can't make it" and claiming open shifts), their availability, their pay (pay stubs and DMI timesheets), their contact details, their W-9 and 1099s (contractors) or W-4 and DE 4 (employees), and **Incident reports** (writing their own, and seeing the ones they sent). Nothing else.
-- **Client** (site representative): the monthly schedule for their own sites, with guards shown as "first name + last initial", and **Shift requests** to ask for officers (once, or repeating), with a **History** of every request and who covered each date, and **Incident reports** for their own sites (writing their own, and seeing the ones they sent).
+- **Admin**: everything, including pay, pay rates, taxes, user accounts, settings, reviewing incident reports and answering **Messages**.
+- **Manager**: schedule, timesheets, staff, clients, contracts and training, and writing their own incident reports. Managers never see pay, pay rates, tax details, messages or other people's incident reports.
+- **Officer**: their own monthly schedule (including "I can't make it" and claiming open shifts), their availability, their pay (their rate, pay stubs and DMI timesheets, reporting a missed break, direct deposit), their contact details, their W-9 and 1099s (contractors) or W-4, DE 4 and W-2s (employees), **Incident reports** (writing their own, and seeing the ones they sent) and **Messages** with the office. Nothing else.
+- **Client** (site representative): the monthly schedule for their own sites, with guards shown as "first name + last initial", and **Shift requests** to ask for officers (once, or repeating), with a **History** of every request and who covered each date, **Incident reports** for their own sites (writing their own, and seeing the ones they sent) and **Messages** with the office.
 - **Waiting for approval**: someone who signed up but hasn't been given a role yet. They see nothing, and can't write incident reports until they're approved.
 
 A **test officer account** (`test.officer@example.com`, staff record "Test Officer") is created
@@ -279,7 +289,7 @@ sites' details. So keep its password private, and deactivate it when you're not 
 - Times are entered as 24-hour clock. If a shift's end time is earlier than its start time
   (22:00 → 06:00), it finishes the next day.
 - **Messages are kept for 2 years.** Nobody can change or delete one before then (the database
-  itself refuses); after 2 years the nightly jobs remove it. If a conversation is needed for
+  itself refuses); after 2 years the timed jobs remove it. If a conversation is needed for
   longer (for example a dispute), download it first with **Download PDF** on its page (it asks
   for a fresh two-step code). The PDF opens without a password and can be printed, but it's locked
   against changes: PDF software (Adobe, Preview, Chrome, Edge) won't edit, annotate or copy from
@@ -290,9 +300,9 @@ sites' details. So keep its password private, and deactivate it when you're not 
   not even an admin (the database itself refuses). After 5 years they're listed under
   **Incident reports → Past 5 years**, and an admin can delete them; nothing is deleted
   automatically. **Legal hold** keeps one longer (for a claim or lawsuit).
-- **A sent incident report is never changed.** Not by the officer, and not by the office: anything
-  new is a dated supplement, and the original stays as it was signed. A draft is only seen by the
-  officer writing it, and their phone keeps a copy as they type, in case the signal drops.
+- **A sent incident report is never changed.** Not by whoever wrote it, and not by the office:
+  anything new is a dated supplement, and the original stays as it was signed. A draft is only seen
+  by the person writing it, and their phone keeps a copy as they type, in case the signal drops.
 
 ---
 
@@ -314,7 +324,7 @@ Your browser  ──asks for a page──▶  Server (Node.js + Express)  ──
   The tables are described in `netlify/database/migrations/`.
 - **Templates (views)**: HTML pages with gaps that get filled in with real data, like
   `<%= employee.first_name %>`. They're in `views/` and use **EJS**.
-- **CSS**: makes it look nice. One file: `public/css/style.css`. The colours are at the top.
+- **CSS**: makes it look nice. One file: `public/css/style.css`. The colors are at the top.
 - **JavaScript in the browser**: small extras like "are you sure?" pop-ups, in `public/js/app.js`.
   The site still works without it.
 
@@ -363,7 +373,7 @@ src/
     availability.js  officers' "can't work" / "available" times, and who's free when
     shiftRequests.js shift requests from sites: repeating dates, approving, declining, first choice,
                      offering a repeating request's shifts two weeks ahead
-    jobs.js          the timed jobs (finished shifts, open-shift waves)
+    jobs.js          the timed jobs (finished shifts, open-shift waves, reminders, clearing out old messages)
     totp.js          the 6-digit authenticator-app codes (the TOTP standard) and the setup QR code
     twoStep.js       two-step sign-in: who needs it, checking codes, backup codes, remembered devices
     passkeys.js      passkeys (Face ID, Touch ID, screen lock): adding them, and checking a sign-in
@@ -444,8 +454,11 @@ This app stores personal details and pay information, so treat it carefully.
   really them first). That also removes their passkeys. They set it up again at their next sign-in.
 - **Who needs it:** everyone by default. **Settings → Sign-in security** can limit it to the office;
   admins and managers always need it.
-- **Extra check:** the pages showing full tax ID numbers, and changes to user accounts or settings,
-  ask for a fresh code (or passkey) if the last one was more than 15 minutes ago.
+- **Extra check:** these ask for a fresh code (or passkey) if the last one was more than 15 minutes
+  ago: pages and downloads with full Social Security, tax ID or bank account numbers (the 1099 and
+  W-2 filing summaries and company copies, the DE 9C, new hire report details, the direct deposit
+  file), adding or approving a bank account, changes to user accounts or settings, changing your own
+  two-step sign-in or passkeys, and downloading a conversation's PDF.
 - **Free:** passkeys and codes come from the phone itself, so there's no texting or email service to pay for.
 - **Good to know:** a passkey belongs to one web address. Passkeys made on the live site
   (dmi.codehound.org) don't work on a preview address, and the other way round.
@@ -456,8 +469,8 @@ and your recent sign-ins.
 
 **Also built in:** scrambled (hashed) passwords; very common passwords, and ones that are mostly
 your own name or email, are refused; sign-in lockout after 5 wrong passwords (or 30 from one
-connection for any accounts) and after 5 wrong codes (and 20 failed passkey tries from one connection); everyone signs in again after 12 hours, and
-after 8 idle hours; an app notification when someone signs in to your account, or gets your password
+connection, across all accounts) and after 5 wrong codes (or 20 failed passkey tries from one
+connection); everyone signs in again after 12 hours, and after 8 idle hours; an app notification when someone signs in to your account, or gets your password
 right but the code wrong; changing your password signs you out everywhere else; signed-in pages
 are never kept by the browser (so the back button can't show them after signing out); protection
 against forged forms (CSRF) and other common attacks (security headers); uploaded files that only
@@ -465,9 +478,10 @@ signed-in users can download; managers who can't see pay; and an activity log. N
 see anything until an admin approves them (and at most 5 sign-ups per connection every 15 minutes).
 Officers and clients only ever reach their own pages.
 
-**Tax ID numbers** (from officers' W-9 details) are stored encrypted, and only the last 4 digits are
-shown, except on the company's own copies of the 1099 (Copy C and 1) and the admin-only filing
-summary (opening it is logged). For stronger protection, set a `TAX_ID_KEY` environment variable in Netlify
+**Tax ID numbers** (from officers' W-9, W-4 and DE 4 details) are stored encrypted, and only the
+last 4 digits are shown, except on the company's own copies of the 1099 (Copy C and 1) and W-2
+(Copy D), the admin-only filing summaries, the DE 9C download and new hire report details (opening
+any of them is logged). For stronger protection, set a `TAX_ID_KEY` environment variable in Netlify
 (**Project configuration → Environment variables**) to a long random phrase *before* officers enter
 their details, and keep a copy of it somewhere safe: without it those numbers can't be read.
 
@@ -491,7 +505,7 @@ their details, and keep a copy of it somewhere safe: without it those numbers ca
 
 **App notifications** need nothing set up: the site makes its own key pair the first time (kept
 in the database). Each person turns them on under **My details** (officers) or **My account**
-(office), once per phone or computer. Officers are shown **Set up the DMI app** (`/my/setup`) after
+(the office and clients), once per phone or computer. Officers are shown **Set up the DMI app** (`/my/setup`) after
 signing up and can't use their pages until they're on. A phone only has one person's notifications:
 whoever signed in on it last. Phones don't let a website add itself to the Home Screen or turn on its
 own notifications: the person taps **Add** and **Allow** themselves, and the setup page shows how
@@ -513,8 +527,10 @@ push services.
 - They're sent by the timed jobs below, so on the live site they arrive within 5 minutes of the
   time. On a preview site they only go out when someone is using it.
 
-**Timed jobs:** every 5 minutes the live site records the hours of shifts that have ended, sends reminders, and moves
-open-shift offers along (`netlify/functions/autopilot.mjs`). Netlify only runs timed jobs on the
+**Timed jobs:** every 5 minutes the live site records the hours of shifts that have ended, offers
+a repeating request's shifts as they come within two weeks, moves open-shift offers along, sends
+reminders (shifts, time cards, tax payments, new hire reports), and removes messages older than
+2 years (`netlify/functions/autopilot.mjs`). Netlify only runs timed jobs on the
 live site, so on the preview (and on your computer) the same jobs run when someone loads a page,
 at most once a minute. That's about 8,600 short runs a month, a few of Netlify's credits.
 
@@ -522,8 +538,9 @@ at most once a minute. That's about 8,600 short runs a month, a few of Netlify's
 `DATABASE_URL` to the database's address, `SESSION_SECRET`, and `HTTPS=true` once it's on https.
 
 **Back-ups:** on your computer, everything is in the `data` folder: copy it somewhere safe while the
-app is stopped. On the live site, the data is in Netlify Database; download the pay-run
-spreadsheets as you go, and ask for help setting up regular database snapshots.
+app is stopped. On the live site, the data is in Netlify Database, and Netlify takes a snapshot
+of it each time a new version of the site goes live. Download the pay-run spreadsheets as you go,
+and ask for help setting up regular database snapshots too.
 
 ---
 
