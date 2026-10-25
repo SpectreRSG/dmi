@@ -200,6 +200,11 @@ sites' details. So keep its password private, and deactivate it when you're not 
   rates. Set how often people are paid and your California UI rate (the EDD mails it each December)
   under **Settings → Payroll**. The company's legal name, EIN and address must be filled in, as
   they go on every pay stub.
+- **New hire reports (DE 34):** every new W-2 employee must be reported to the EDD within 20 days
+  of their start date (e-Services for Business). The dashboard lists who's due, admins get a
+  reminder 5 days before, and **Report details** on the staff page has everything to type in (full
+  SSN, behind a fresh two-step code); then mark it as reported. Someone moving from 1099 to W-2
+  counts as a new hire from the day they became an employee: set that as their start date.
 - **Paid sick leave (W-2 employees, California):** 1 hour earned for every 30 worked, earning stops
   while 80 hours are banked, up to 40 hours used a year, usable from the 90th day of employment
   (start date on the staff record).
@@ -292,6 +297,7 @@ src/
     formW2Pdf.js     draws Form W-2 (Copies B, C, 2 and D)
     bankAccounts.js  direct deposit accounts: the form, approval of officers' changes, paper checks
     nacha.js         the direct deposit (NACHA/ACH) file for the bank, and routing number checks
+    newHires.js      California new hire reports (DE 34): who's due, reminders
     businessDays.js  federal holidays and business days, for due dates
     withholdingProfile.js  W-4 and DE 4 answers: the form, checks, saving (SSN encrypted)
     compliance.js    "is this guard licensed and trained?"

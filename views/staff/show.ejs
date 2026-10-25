@@ -55,6 +55,9 @@
       <% if (locals.isAdmin) { %>
         <dt>Paid as</dt><dd><%= employee.tax_form === 'W-2' ? 'W-2 employee' : '1099 independent contractor' %></dd>
         <% if (employee.tax_form === 'W-2') { %>
+          <dt>New hire report (DE 34)</dt>
+          <dd><% if (employee.new_hire_reported_on) { %>Reported to the EDD <%= fmtDate(employee.new_hire_reported_on) %><% } else if (!employee.start_date) { %><span class="muted">Add their start date (needed for this report and for paid sick leave).</span><% } else { %>Due <%= fmtDate(addDays(employee.start_date, 20)) %> (20 days after they started)<% } %>
+            <a class="btn btn-sm btn-ghost" href="/staff/<%= employee.id %>/new-hire"><%= employee.new_hire_reported_on ? 'Details' : 'Report details' %></a></dd>
           <dt>W-4 and DE 4</dt><dd><% if (w4) { %><%= w4Summary %> · SSN …<%= w4.ssn_last4 %> · signed <%= fmtDate(w4.signed_at) %><%= w4.entered_by ? ' (entered from paper)' : '' %><% } else { %><span class="muted">Not filled in yet: taxes are worked out as single, with no adjustments.</span><% } %>
             <a class="btn btn-sm btn-ghost" href="/staff/<%= employee.id %>/withholding"><%= w4 ? 'Change from paper forms' : 'Enter from paper forms' %></a></dd>
         <% } %>

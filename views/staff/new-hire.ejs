@@ -1,0 +1,41 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/staff/<%= employee.id %>">← <%= employee.first_name %> <%= employee.last_name %></a></p>
+    <h1>New hire report (DE 34)</h1>
+    <p class="page-sub">California requires reporting every new employee to the EDD within 20 days of their first day of work. Report it in <strong>e-Services for Business</strong> (New Employee Registry), then mark it as reported here. This page has the full Social Security number: don't leave it open.</p>
+  </div>
+</div>
+
+<div class="grid-2">
+  <section class="card card-pad">
+    <h2>The employee</h2>
+    <dl class="dl">
+      <dt>Name</dt><dd><%= w4 ? w4.legal_name : `${employee.first_name} ${employee.last_name}` %></dd>
+      <dt>Social Security number</dt><dd><%= ssn || 'Not on file: enter their W-4 and DE 4 first' %></dd>
+      <dt>Address</dt><dd><%= w4 ? `${w4.address}, ${w4.city}, ${w4.state} ${w4.zip}` : (employee.address || '—') %></dd>
+      <dt>Start date</dt><dd><%= employee.start_date ? fmtDate(employee.start_date) : 'Not set: add it on the staff record' %></dd>
+      <dt>Report by</dt><dd><strong><%= due ? fmtDate(due) : '—' %></strong></dd>
+    </dl>
+  </section>
+  <section class="card card-pad">
+    <h2>The employer</h2>
+    <dl class="dl">
+      <dt>Name</dt><dd><%= settings.payer_name || settings.company_name %></dd>
+      <dt>EIN</dt><dd><%= settings.payer_ein || '—' %></dd>
+      <dt>California employer account</dt><dd><%= settings.payer_state_id || '—' %></dd>
+      <dt>Address</dt><dd><%= [settings.payer_address, settings.payer_city, `${settings.payer_state || ''} ${settings.payer_zip || ''}`.trim()].filter(Boolean).join(', ') || '—' %></dd>
+      <dt>Phone</dt><dd><%= settings.payer_phone || '—' %></dd>
+    </dl>
+  </section>
+</div>
+
+<form method="post" action="/staff/<%= employee.id %>/new-hire" class="card form-card narrow">
+  <%- include('../partials/csrf') %>
+  <h2><%= employee.new_hire_reported_on ? `Reported ${fmtDate(employee.new_hire_reported_on)}` : 'Done it?' %></h2>
+  <div class="form-grid">
+    <label>Date reported <input type="date" name="reported_on" value="<%= employee.new_hire_reported_on || todayStr() %>" max="<%= todayStr() %>" required></label>
+  </div>
+  <div class="form-actions"><button type="submit" class="btn btn-primary"><%= employee.new_hire_reported_on ? 'Change the date' : 'Mark as reported' %></button></div>
+</form>
+<%- include('../partials/bottom') %>

@@ -5,6 +5,7 @@ const time = require('../time');
 const { entryHours, round2 } = require('../services/payroll');
 const { complianceFor, expiryStatus } = require('../services/compliance');
 const { recordFinishedShifts } = require('../services/hoursFromSchedule');
+const { newHiresDue } = require('../services/newHires');
 
 const router = express.Router();
 
@@ -78,6 +79,9 @@ router.get('/', async (req, res) => {
     ? (await db.get("SELECT COUNT(*)::int AS n FROM users WHERE role = 'pending' AND active = 1")).n
     : 0;
 
+  // New W-2 employees to report to the EDD (admins only, like pay).
+  const newHires = res.locals.isAdmin ? await newHiresDue(today) : [];
+
   const complianceIssues = employees
     .map((employee) => ({ employee, ...byEmployee.get(employee.id) }))
     .filter((c) => c.level !== 'ok');
@@ -105,6 +109,7 @@ router.get('/', async (req, res) => {
     trainingSessions,
     recentActivity,
     waitingAccounts,
+    newHires,
   });
 });
 

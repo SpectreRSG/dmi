@@ -2435,6 +2435,39 @@ test('direct deposit: officers enter it and the office approves it, the office c
   assert.match((await worker.get('/my/pay/direct-deposit')).text, /You're paid by check|You&#39;re paid by check/);
 });
 
+test("new hire reports (DE 34): due 20 days after a W-2 employee starts, on the dashboard, a reminder, and marked as reported", async () => {
+  const { remindNewHires } = require('../src/services/newHires');
+  const today = time.todayStr();
+  const started = time.addDays(today, -18);
+  let res = await admin.post('/staff', { first_name: 'Nina', last_name: 'New', status: 'active', tax_form: 'W-2', start_date: started });
+  const nina = Number(res.location.split('/').pop());
+  await db.run("INSERT INTO employees (first_name, last_name, status, tax_form, start_date) VALUES ('Olga', 'Oldtimer', 'active', 'W-2', ?)", time.addDays(today, -700));
+  const due = time.fmtDate(time.addDays(started, 20));
+  let page = await admin.get('/');
+  assert.match(page.text, new RegExp(`New hire report \\(DE 34\\) for Nina New is due ${due}`));
+  assert.doesNotMatch(page.text, /New hire report \(DE 34\) for Olga/, 'long-time employees were reported when they started');
+  assert.match((await admin.get(`/staff/${nina}`)).text, new RegExp(`Due ${due}`));
+  await remindNewHires();
+  await remindNewHires();
+  assert.equal((await db.get("SELECT COUNT(*)::int AS n FROM reminders_sent WHERE kind = 'new_hire' AND ref = ?", `${nina}:${started}`)).n, 1);
+
+  // The details to type in (full SSN, behind a fresh code), then marked as reported.
+  await admin.post(`/staff/${nina}/withholding`, {
+    legal_name: 'Nina New', address: '3 Oak St', city: 'Burbank', state: 'CA', zip: '91502', ssn: '345-67-8901', fed_filing_status: 'single', ca_filing_status: 'single', certify: '1', signed_name: 'Nina New',
+  }, `/staff/${nina}/withholding`);
+  res = await admin.get(`/staff/${nina}/new-hire`);
+  if (res.status === 302) {
+    await admin.post('/account/confirm', { code: await codeFor('alex@example.com'), next: '/staff' }, '/account/confirm?next=/staff');
+    res = await admin.get(`/staff/${nina}/new-hire`);
+  }
+  assert.match(res.text, /345-67-8901/);
+  await admin.post(`/staff/${nina}/new-hire`, { reported_on: time.addDays(today, 2) }, `/staff/${nina}/new-hire`);
+  assert.equal((await db.get('SELECT new_hire_reported_on FROM employees WHERE id = ?', nina)).new_hire_reported_on, null, 'not in the future');
+  await admin.post(`/staff/${nina}/new-hire`, { reported_on: today }, `/staff/${nina}/new-hire`);
+  assert.equal((await db.get('SELECT new_hire_reported_on FROM employees WHERE id = ?', nina)).new_hire_reported_on, today);
+  assert.doesNotMatch((await admin.get('/')).text, /New hire report \(DE 34\) for Nina New/);
+});
+
 test('every main page loads', async () => {
   for (const url of ['/', '/schedule', '/timesheets?status=all', '/pay', `/pay/${ids.payRun}`, '/staff', `/staff/${ids.employee}`,
     '/clients', `/clients/${ids.client}`, '/contracts', '/training', '/training/records', '/training/sessions',

@@ -16,6 +16,9 @@
 <% if (waitingAccounts) { %>
   <div class="flash flash-warning"><%= waitingAccounts %> new account<%= waitingAccounts === 1 ? ' is' : 's are' %> waiting for a role. <a href="/users">Approve them on User accounts →</a></div>
 <% } %>
+<% for (const h of newHires) { %>
+  <div class="flash <%= h.overdue ? 'flash-error' : 'flash-warning' %>">New hire report (DE 34) for <%= h.employee.first_name %> <%= h.employee.last_name %> <%= h.overdue ? 'was due' : 'is due' %> <%= fmtDate(h.due) %>: they started <%= fmtDate(h.employee.start_date) %>. <a href="/staff/<%= h.employee.id %>/new-hire">Report details →</a></div>
+<% } %>
 <div class="stats">
   <a class="stat" href="/staff">
     <span class="stat-label">Active staff</span>

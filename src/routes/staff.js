@@ -8,6 +8,8 @@ const { complianceFor, complianceForEmployee } = require('../services/compliance
 const availability = require('../services/availability');
 const withholding = require('../services/withholdingProfile');
 const bank = require('../services/bankAccounts');
+const newHires = require('../services/newHires');
+const { decrypt } = require('../secureData');
 const { requireRecentCode } = require('../auth');
 const { notifyEmployees } = require('../services/notify');
 
@@ -284,6 +286,38 @@ router.post('/:id/bank/stop', adminOnly, requireRecentCode, async (req, res) => 
   await bank.stopDirectDeposit(employee.id);
   await logActivity(req, `Stopped direct deposit for ${employeeName(employee)} (paper checks)`);
   req.flash('success', 'Direct deposit stopped: pay them by check.');
+  res.redirect(`/staff/${employee.id}`);
+});
+
+// California's new-hire report (DE 34): everything to type into e-Services
+// for Business (full SSN, so it asks for a fresh code), then mark it reported.
+router.get('/:id/new-hire', adminOnly, requireRecentCode, async (req, res) => {
+  const employee = await findEmployee(req.params.id);
+  if (!employee) return notFound(res, 'staff member');
+  const w4 = await withholding.findProfile(employee.id);
+  const ssn = w4 ? (await decrypt(w4.ssn_encrypted)).replace(/^(\d{3})(\d{2})(\d{4})$/, '$1-$2-$3') : null;
+  if (ssn) await logActivity(req, `Opened the new hire report details for ${employeeName(employee)} (shows the full Social Security number)`);
+  res.set('Cache-Control', 'no-store');
+  res.render('staff/new-hire', {
+    title: `New hire report – ${employeeName(employee)}`,
+    employee,
+    w4,
+    ssn,
+    due: employee.start_date ? newHires.dueDate(employee.start_date) : null,
+  });
+});
+
+router.post('/:id/new-hire', adminOnly, async (req, res) => {
+  const employee = await findEmployee(req.params.id);
+  if (!employee) return notFound(res, 'staff member');
+  const reportedOn = isValidDate(req.body.reported_on) && req.body.reported_on <= todayStr() ? req.body.reported_on : null;
+  if (!reportedOn) {
+    req.flash('error', 'Enter the date it was reported (today or earlier).');
+    return res.redirect(`/staff/${employee.id}/new-hire`);
+  }
+  await db.run('UPDATE employees SET new_hire_reported_on = ? WHERE id = ?', reportedOn, employee.id);
+  await logActivity(req, `Marked ${employeeName(employee)} as reported to the EDD as a new hire (DE 34) on ${reportedOn}`);
+  req.flash('success', 'Marked as reported.');
   res.redirect(`/staff/${employee.id}`);
 });
 
