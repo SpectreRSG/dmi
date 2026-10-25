@@ -119,17 +119,6 @@ function present(message, viewer) {
   };
 }
 
-// The whole conversation as plain text, for keeping or sending on.
-function logText(thread, messages, companyName) {
-  const lines = [
-    `${companyName}: messages with ${thread.name} (${thread.person_role})`,
-    `Downloaded ${time.nowStr().replace('T', ' ')}. Times are company time. Messages are kept for ${RETAIN_YEARS} years.`,
-    '',
-  ];
-  for (const m of messages) lines.push(`[${m.created_at}] ${m.sender_name}${m.sender_role === 'admin' ? ' (office)' : ''}:`, ...m.body.split('\n').map((l) => `  ${l}`), '');
-  return `${lines.join('\r\n')}\r\n`;
-}
-
 // Removes messages (and conversations left empty) older than 2 years. Run by the jobs.
 async function purgeOld() {
   const cutoff = `${time.addMonths(time.todayStr(), -12 * RETAIN_YEARS)} 00:00:00`;
@@ -141,5 +130,5 @@ async function purgeOld() {
 }
 
 module.exports = {
-  RETAIN_YEARS, MAX_LENGTH, PEOPLE, threadById, threadFor, cleanBody, send, messagesIn, markRead, unreadFor, inbox, people, present, logText, purgeOld,
+  RETAIN_YEARS, MAX_LENGTH, PEOPLE, threadById, threadFor, cleanBody, send, messagesIn, markRead, unreadFor, inbox, people, present, purgeOld,
 };

@@ -13,7 +13,7 @@ A private website for running the business side of a security company:
 | **App notifications** | Free alerts on phones and computers, like a text message, with no texting company or phone numbers. Officers hear about open shifts, changes to their shifts and pay day, get a **reminder 24 hours and again 2 hours before each shift**, and a **"time cards are due"** reminder 2 days before each pay period ends. The office hears about call-outs, shifts nobody has claimed, and when time cards are due. Each person turns them on once per device. |
 | **Officer & client accounts** | Anyone can sign up at `/register`; while they wait, the page walks them through adding DMI to their phone's Home Screen and turning on notifications, and they're notified when an admin approves them and gives them a role. **Officers** must have notifications on before they can use their pages (incident reports always work). They see their shifts on a monthly calendar, their pay (pay stubs and their DMI timesheet for each pay day) and their 1099, and keep their contact details up to date. They fill in their W-9 (1099 contractors) or W-4 and DE 4 (W-2 employees) once at the start; there are no timesheets to fill in. **Clients** see the monthly schedule for their sites. Neither ever sees pay rates or other people's details. |
 | **Incident reports** | Use of force and incident reports, with the same questions as the California PPO incident record. **Everyone with an account can write one**: officers (it starts from their shift), clients (for their own sites), managers and admins. They fill it in on their phone, add photos, and sign it by typing their legal name. Admins are notified, see the reporting deadlines that may apply (guard notice, BSIS, local police), fill in the review, and approve it or ask for more; the writer answers with a dated supplement. A sent report can't be changed, prints on the model PDF form, and is kept 5 years after the incident (longer on legal hold). Only admins review them; everyone else sees only their own. |
-| **Messages** | A private, 1:1 conversation between each officer or client and the office: they open **Messages** in their menu and write to the admins; any admin can read and answer it in **Messages** (or start one, from there or a staff page). New messages appear by themselves while the page is open, an app notification reaches whoever a message is for, and the menu shows how many are unread. Every message is date and time stamped, can't be changed or deleted, and is kept for 2 years (then removed automatically); admins can download a conversation's log. Managers don't use it. |
+| **Messages** | A private, 1:1 conversation between each officer or client and the office: they open **Messages** in their menu and write to the admins; any admin can read and answer it in **Messages** (or start one, from there or a staff page). New messages appear by themselves while the page is open, an app notification reaches whoever a message is for, and the menu shows how many are unread. Every message is date and time stamped, can't be changed or deleted, and is kept for 2 years (then removed automatically). Admins can download a conversation as a **secure PDF**: locked (AES-256) with a password they choose, printable but not changeable or copyable, with who downloaded it, when, and a verification code on every page. Managers don't use it. |
 | **Sign-in security** | Two-step sign-in (an authenticator app code) or a passkey (Face ID, Touch ID, screen lock), backup codes, remembered devices, and signing out everywhere. |
 | **1099 forms** | Works out what each contractor was paid in a year (from finalized pay runs), makes Form 1099-NEC (Copy B and 2 for the officer, C and 1 for the company), shares it in the officer's account if they agreed, and gives you a filing summary for sending Copy A to the IRS. Admins only. |
 | **Timesheets** | Hours actually worked. When a shift ends, its hours are recorded and approved from the schedule by themselves. You only fix the exceptions (edit the shift or the hours), or type in hours that weren't on the schedule and approve them. |
@@ -279,8 +279,13 @@ sites' details. So keep its password private, and deactivate it when you're not 
 - Times are entered as 24-hour clock. If a shift's end time is earlier than its start time
   (22:00 → 06:00), it finishes the next day.
 - **Messages are kept for 2 years.** Nobody can change or delete one before then (the database
-  itself refuses); after 2 years the nightly jobs remove it. Download a conversation's log from
-  its page first if it's needed for longer (for example a dispute).
+  itself refuses); after 2 years the nightly jobs remove it. If a conversation is needed for
+  longer (for example a dispute), download it first: **Download secure PDF** on its page asks for
+  a fresh two-step code and a password of your choice (8 to 64 characters), and the PDF opens only
+  with that password. DMI doesn't keep the password, so store it safely and share it separately
+  from the file. The PDF can be printed but not changed or copied, and every page shows who
+  downloaded it, when, and a **verification code** worked out from the messages (the activity log
+  records each download with its code, so a copy can be checked later).
 - **Incident reports are kept for 5 years** after the incident. Until then nobody can delete one,
   not even an admin (the database itself refuses). After 5 years they're listed under
   **Incident reports → Past 5 years**, and an admin can delete them; nothing is deleted
@@ -367,7 +372,9 @@ src/
     timesheetApproval.js  the approved copy of an officer's timesheet ("APPROVED BY" filled in)
     incidentReports.js    incident reports: the questions (named like the boxes on the model form),
                      sending, deadlines, the 5-year keep date, and the filled-in PDF
-    chat.js          messages between each officer or client and the office: unread counts, the log, the 2-year clean-up
+    chat.js          messages between each officer or client and the office: unread counts, the 2-year clean-up
+    chatPdf.js       a conversation as a secure PDF, with the verification code
+    pdfSecurity.js   locks a PDF: AES-256 with a password to open it, printing allowed, no changes or copying
   routes/            one file per area: staff, schedule, timesheets, pay, contracts, training, tax…
                      (my.js and myTax.js are the officers' and clients' own pages; incidents.js
                      has both /my/incidents, where everyone writes their own, and the admins' /incidents;

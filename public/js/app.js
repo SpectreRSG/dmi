@@ -58,6 +58,15 @@ document.addEventListener('DOMContentLoaded', () => {
   // Messages: send without reloading, and check for new ones every few seconds.
   const chatBox = document.querySelector('[data-chat]');
   if (chatBox) setUpChat(chatBox);
+  // Secure PDF: once the download has started, clear the password and close the form.
+  document.querySelectorAll('.chat-download-form').forEach((form) => {
+    form.addEventListener('submit', () => {
+      setTimeout(() => {
+        form.reset();
+        form.closest('details').open = false;
+      }, 800);
+    });
+  });
 
   // Staff form: only show the pay fields that go with the employment type
   // (and, for Full Time, hourly or salary). data-show-for lists types with |.

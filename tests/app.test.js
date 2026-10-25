@@ -2732,12 +2732,29 @@ test('messages: officers and clients each have a private conversation with the a
   res = await admin.post('/chat/start', { user_id: String((await db.get("SELECT id FROM users WHERE email = 'morgan@example.com'")).id) }, '/chat');
   assert.equal(res.location, '/chat', 'only officers and clients');
 
-  // The log, with the date and time on every message.
-  res = await admin.raw('GET', `/chat/${thread.id}/log.txt`);
+  // The log as a secure PDF: a password the admin chooses, behind a fresh code.
+  assert.match((await admin.get(`/chat/${thread.id}`)).text, /Download secure PDF/);
+  const pdfPost = (form) => admin.post(`/chat/${thread.id}/log.pdf`, form, `/chat/${thread.id}`);
+  res = await pdfPost({ password: 'short', confirm: 'short' });
+  if (res.location?.startsWith('/account/confirm')) {
+    await admin.post('/account/confirm', { code: await codeFor('alex@example.com'), next: `/chat/${thread.id}` }, `/account/confirm?next=/chat/${thread.id}`);
+    res = await pdfPost({ password: 'short', confirm: 'short' });
+  }
+  assert.equal(res.location, `/chat/${thread.id}`);
+  assert.match((await admin.get(`/chat/${thread.id}`)).text, /Choose a password of 8 to 64 characters/);
+  res = await pdfPost({ password: 'kept safe 123', confirm: 'kept safe 124' });
+  assert.match((await admin.get(`/chat/${thread.id}`)).text, /The two passwords don(&#39;|')t match/);
+  res = await pdfPost({ password: 'kept safe 123', confirm: 'kept safe 123' });
   assert.equal(res.status, 200);
-  assert.match(res.headers.get('content-disposition'), /Messages_Olivia_Officer\.txt/);
-  assert.match(res.text, new RegExp(`\\[${message.created_at}\\] Olivia Officer:`));
-  assert.match(res.text, /Alex Admin \(office\):/);
+  assert.equal(res.headers.get('content-type'), 'application/pdf');
+  assert.match(res.headers.get('content-disposition'), new RegExp(`attachment; filename="?Messages_Olivia_Officer_${time.todayStr()}\\.pdf`));
+  assert.match(res.text, /^%PDF/);
+  assert.match(res.text, /\/Encrypt \d+ 0 R/);
+  assert.match(res.text, /\/CFM \/AESV3/);
+  assert.doesNotMatch(res.text, /Running 10 minutes late/, 'unreadable without the password');
+  const code = require('../src/services/chatPdf').verificationCode(thread, await chat.messagesIn(thread.id));
+  assert.match((await admin.get('/activity')).text, new RegExp(`Downloaded the secure PDF of messages with Olivia Officer \\(2 messages, verification code ${code}\\)`));
+  assert.equal((await olivia.post(`/chat/${thread.id}/log.pdf`, { password: 'kept safe 123', confirm: 'kept safe 123' }, '/my/chat')).status, 403, 'admins only');
 
   // Never changed; kept 2 years, then removed by the nightly jobs.
   await assert.rejects(db.run("UPDATE chat_messages SET body = 'edited' WHERE id = ?", message.id), /can't be changed/);

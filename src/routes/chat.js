@@ -4,10 +4,15 @@
 // app notifications reach whoever the message is for. See services/chat.js.
 const express = require('express');
 const db = require('../db');
+const time = require('../time');
 const chat = require('../services/chat');
 const { notifyAdmins, notifyUsers } = require('../services/notify');
-const { notFound, numericIdParam, toId } = require('../helpers');
+const { notFound, numericIdParam, toId, logActivity } = require('../helpers');
+const { requireRecentCode } = require('../auth');
+const { chatLogPdf } = require('../services/chatPdf');
+const { ROLE_NAMES } = require('../viewHelpers');
 
+const PDF_PASSWORD = { min: 8, max: 64 };
 const wantsJson = (req) => (req.get('accept') || '').includes('application/json');
 const preview = (body) => (body.length > 140 ? `${body.slice(0, 139)}…` : body);
 
@@ -142,13 +147,29 @@ admin.post('/:id', async (req, res) => {
   res.redirect(`/chat/${thread.id}#latest`);
 });
 
-// The whole conversation as a text file (date and time on every message).
-admin.get('/:id/log.txt', async (req, res) => {
+// The whole conversation as a secure PDF: locked with a password the admin
+// chooses here (DMI doesn't keep it), printable but not changeable. Sent by
+// POST so the password never ends up in an address, and behind a fresh code.
+admin.post('/:id/log.pdf', requireRecentCode, async (req, res) => {
   const thread = await adminThread(req, res);
   if (!thread) return;
-  const text = chat.logText(thread, await chat.messagesIn(thread.id), res.locals.settings.company_name);
-  res.attachment(`Messages_${thread.name.replace(/[^A-Za-z0-9]+/g, '_')}.txt`);
-  res.type('text/plain; charset=utf-8').send(text);
+  const password = String(req.body.password || '');
+  let problem = null;
+  if (password.length < PDF_PASSWORD.min || password.length > PDF_PASSWORD.max) problem = `Choose a password of ${PDF_PASSWORD.min} to ${PDF_PASSWORD.max} characters to lock the PDF.`;
+  else if (password !== String(req.body.confirm || '')) problem = "The two passwords don't match.";
+  if (problem) {
+    req.flash('error', problem);
+    return res.redirect(`/chat/${thread.id}`);
+  }
+  const messages = await chat.messagesIn(thread.id);
+  const { bytes, code } = await chatLogPdf({
+    thread, messages, password, downloadedBy: req.user.name, companyName: res.locals.settings.company_name,
+    roleName: (ROLE_NAMES[thread.person_role] || thread.person_role).toLowerCase(),
+  });
+  await logActivity(req, `Downloaded the secure PDF of messages with ${thread.name} (${messages.length} messages, verification code ${code})`);
+  res.set('Cache-Control', 'no-store');
+  res.attachment(`Messages_${thread.name.replace(/[^A-Za-z0-9]+/g, '_')}_${time.todayStr()}.pdf`);
+  res.type('pdf').send(Buffer.from(bytes));
 });
 
 module.exports = { mineRouter: mine, adminRouter: admin };
