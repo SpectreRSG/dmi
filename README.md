@@ -203,9 +203,17 @@ sites' details. So keep its password private, and deactivate it when you're not 
 - **Paid sick leave (W-2 employees, California):** 1 hour earned for every 30 worked, earning stops
   while 80 hours are banked, up to 40 hours used a year, usable from the 90th day of employment
   (start date on the staff record).
-- **Not done by the app yet:** moving money (direct deposit), paying the taxes to the IRS and EDD,
-  and the quarterly and year-end returns (941, DE 9, W-2s). Until those are added, the office or
-  accountant does them from the pay runs.
+- **Paying the payroll taxes (Pay → Tax payments):** lists what's owed to the IRS (federal income
+  tax, Social Security and Medicare, FUTA) and the EDD (California income tax and SDI, UI and ETT)
+  from finalized W-2 pay, with due dates from the schedule in **Settings → Payroll** (monthly for
+  most new employers, or semiweekly), moved past weekends and federal holidays. Pay each one through
+  EFTPS or EDD e-Services, then **record it** with its confirmation number. Admins get a reminder
+  3 days before each due date, and once if a payment is late.
+- **Tax reports (Pay → Tax reports):** the numbers for **Form 941** and the EDD's **DE 9** and
+  **DE 9C** each quarter, and **Form 940** each year, by line number, ready to type in. The DE 9C
+  download has full Social Security numbers, so it asks for a fresh two-step code.
+- **Not done by the app yet:** moving money (direct deposit) and year-end W-2s. Until those are
+  added, the office or accountant does them from the pay runs.
 - Once a pay run is **finalized**, its hours are locked so nobody can be paid twice.
 - Times are entered as 24-hour clock. If a shift's end time is earlier than its start time
   (22:00 → 06:00), it finishes the next day.
@@ -263,6 +271,9 @@ src/
     paycheck.js      from gross to net for one pay line: taxes, paid sick leave, deductions, what blocks finalizing
     sickLeave.js     California paid sick leave rules
     payslip.js       what a pay stub shows, with year-to-date totals
+    taxDeposits.js   payroll tax payments: what's owed, due dates, what's paid, reminders
+    taxReports.js    the numbers for Forms 941 and 940, and the EDD's DE 9 and DE 9C
+    businessDays.js  federal holidays and business days, for due dates
     withholdingProfile.js  W-4 and DE 4 answers: the form, checks, saving (SSN encrypted)
     compliance.js    "is this guard licensed and trained?"
     conflicts.js     the schedule conflict checker and "find cover"

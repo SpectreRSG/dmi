@@ -27,6 +27,7 @@ const DEFAULTS = {
   ca_ui_rate: '3.4', // the company's California unemployment insurance rate, in % (EDD sends it each December; 3.4 for new employers)
   ca_ett_rate: '0.1', // California employment training tax, in %
   futa_credit_reduction: '1.5', // extra federal unemployment tax for California employers, in % (set each November)
+  fed_deposit_schedule: 'monthly', // when payroll taxes are paid: 'monthly' (most new employers) or 'semiweekly' (IRS Pub 15)
   tax_tables_confirmed: '', // the year whose tax rates an admin has checked, e.g. '2026'
 };
 
@@ -69,6 +70,7 @@ async function getSettings() {
     ca_ui_rate: Number(s.ca_ui_rate),
     ca_ett_rate: Number(s.ca_ett_rate),
     futa_credit_reduction: Number(s.futa_credit_reduction),
+    fed_deposit_schedule: s.fed_deposit_schedule === 'semiweekly' ? 'semiweekly' : 'monthly',
     tax_tables_confirmed: s.tax_tables_confirmed,
   };
 }

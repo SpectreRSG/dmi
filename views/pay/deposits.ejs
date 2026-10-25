@@ -1,0 +1,113 @@
+<%- include('../partials/top') %>
+<%
+  const statusBadge2 = (o) => {
+    if (o.status === 'paid') return badge(`Paid ${fmtDate(o.paidOn)}`, 'green');
+    if (o.status === 'overdue') return badge(o.paidAmount ? `Overdue: ${money(o.left)} left` : 'Overdue', 'red');
+    if (o.status === 'part') return badge(`Part paid: ${money(o.left)} left`, 'amber');
+    if (o.status === 'carries') return badge('Under $500: carries over', 'gray');
+    const days = daysBetween(today, o.due);
+    return badge(days === 0 ? 'Due today' : `Due in ${days} day${days === 1 ? '' : 's'}`, days <= 3 ? 'amber' : 'blue');
+  };
+%>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/pay">← Pay</a></p>
+    <h1>Tax payments <%= year %></h1>
+    <p class="page-sub">What the company owes the IRS and the EDD from W-2 pay, and when. Pay each one online, then record it here. Paid <%= settings.fed_deposit_schedule === 'semiweekly' ? 'semiweekly' : 'monthly' %> (<a href="/settings">Settings</a>).</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/pay/deposits?year=<%= year - 1 %>">← <%= year - 1 %></a>
+    <a class="btn" href="/pay/deposits?year=<%= year + 1 %>"><%= year + 1 %> →</a>
+    <a class="btn" href="/pay/reports?year=<%= year %>">Tax reports</a>
+  </div>
+</div>
+
+<div class="card">
+  <% if (!list.length) { %>
+    <p class="empty">No W-2 pay with a pay date in <%= year %> has been finalized, so there's nothing to pay for this year.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th>Due</th><th>What</th><th>For</th><th class="num">Amount</th><th>Status</th><th>Record a payment</th></tr></thead>
+        <tbody>
+          <% for (const o of list) { %>
+            <tr>
+              <td class="nowrap"><strong><%= fmtDate(o.due) %></strong></td>
+              <td><%= o.label %><br><span class="muted small">Pay to the <%= o.agency %> through <%= o.how %></span></td>
+              <td><%= o.period %><% if (o.carriedIn) { %><br><span class="muted small">incl. <%= money(o.carriedIn) %> carried over</span><% } %></td>
+              <td class="num"><%= money(o.amount) %></td>
+              <td><%- statusBadge2(o) %></td>
+              <td>
+                <% if (!['paid', 'carries'].includes(o.status)) { %>
+                  <form method="post" action="/pay/deposits" class="deposit-form">
+                    <%- include('../partials/csrf') %>
+                    <input type="hidden" name="kind" value="<%= o.kind %>">
+                    <input type="hidden" name="period_key" value="<%= o.key %>">
+                    <input type="hidden" name="year" value="<%= year %>">
+                    <input type="date" name="paid_on" value="<%= today %>" max="<%= today %>" aria-label="Date paid" required>
+                    <input type="number" name="amount" step="0.01" min="0.01" value="<%= o.left.toFixed(2) %>" aria-label="Amount paid" required>
+                    <input name="reference" maxlength="60" placeholder="Confirmation no." aria-label="Confirmation number">
+                    <button type="submit" class="btn btn-sm">Record</button>
+                  </form>
+                <% } else { %>—<% } %>
+              </td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+
+<div class="grid-2">
+  <section class="card card-pad">
+    <h2>How to pay</h2>
+    <ul class="plain-list">
+      <li><strong>IRS (federal):</strong> through EFTPS at <a href="https://www.eftps.gov" target="_blank" rel="noopener">eftps.gov</a>. Enroll once; it takes about a week to get your PIN.</li>
+      <li><strong>EDD (California):</strong> through e-Services for Business, from <a href="https://edd.ca.gov" target="_blank" rel="noopener">edd.ca.gov</a>.</li>
+      <li>Then record each payment above with its confirmation number, so DMI shows it as paid and stops reminding you.</li>
+    </ul>
+  </section>
+  <section class="card card-pad">
+    <h2>Good to know</h2>
+    <ul class="plain-list small">
+      <li>Due dates on a weekend or holiday move to the next business day. Dates here are on the safe side.</li>
+      <li>California follows the federal schedule. If the company withholds less than $350 of California tax a month, the EDD may allow paying it with the quarterly DE 9 instead: check with your accountant.</li>
+      <li>If federal payroll taxes ever reach $100,000 on a single day, they're due the next business day.</li>
+      <li>DMI reminds admins 3 days before each due date, and again if one is late.</li>
+    </ul>
+  </section>
+</div>
+
+<section class="card">
+  <div class="card-head"><h2>Recorded payments</h2></div>
+  <% if (!payments.length) { %>
+    <p class="empty">No payments recorded yet.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table compact">
+        <thead><tr><th>Paid on</th><th>What</th><th>For</th><th class="num">Amount</th><th>Confirmation no.</th><th>Recorded by</th><th></th></tr></thead>
+        <tbody>
+          <% for (const p of payments) { %>
+            <tr>
+              <td class="nowrap"><%= fmtDate(p.paid_on) %></td>
+              <td><%= KINDS[p.kind].label %></td>
+              <td class="nowrap"><%= p.period_key %></td>
+              <td class="num"><%= money(p.amount) %></td>
+              <td><%= p.reference || '—' %></td>
+              <td><%= p.recorded_by_name || '—' %></td>
+              <td>
+                <form method="post" action="/pay/deposits/<%= p.id %>/delete" data-confirm="Remove this recorded payment? Only do this if it was recorded by mistake.">
+                  <%- include('../partials/csrf') %>
+                  <input type="hidden" name="year" value="<%= year %>">
+                  <button type="submit" class="btn btn-sm btn-ghost">Remove</button>
+                </form>
+              </td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</section>
+<%- include('../partials/bottom') %>

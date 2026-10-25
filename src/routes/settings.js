@@ -23,7 +23,7 @@ router.post('/', requireRecentCode, async (req, res) => {
     'company_name', 'timezone', 'currency_symbol', 'overtime_weekly_hours', 'overtime_multiplier', 'daily_overtime', 'workday_start',
     'expiry_warning_days', 'min_rest_hours', 'two_step_required_for',
     'payer_name', 'payer_ein', 'payer_address', 'payer_city', 'payer_state', 'payer_zip', 'payer_phone', 'payer_state_id', 'ppo_license',
-    'pay_frequency', 'ca_ui_rate', 'ca_ett_rate', 'futa_credit_reduction',
+    'pay_frequency', 'ca_ui_rate', 'ca_ett_rate', 'futa_credit_reduction', 'fed_deposit_schedule',
   ]);
   const was = res.locals.settings;
   // A field left out of the form (or empty) keeps its current value.
@@ -54,6 +54,7 @@ router.post('/', requireRecentCode, async (req, res) => {
     ca_ui_rate: rate('ca_ui_rate'),
     ca_ett_rate: rate('ca_ett_rate'),
     futa_credit_reduction: rate('futa_credit_reduction'),
+    fed_deposit_schedule: v.fed_deposit_schedule ?? was.fed_deposit_schedule,
   };
 
   let error = null;
@@ -76,6 +77,8 @@ router.post('/', requireRecentCode, async (req, res) => {
     error = 'Use the 2-letter state code, like CA.';
   } else if (values.payer_zip && !zipOk(values.payer_zip)) {
     error = 'The ZIP code should be 5 digits (or ZIP+4).';
+  } else if (!['monthly', 'semiweekly'].includes(values.fed_deposit_schedule)) {
+    error = 'Choose when payroll taxes are paid: monthly or semiweekly.';
   } else if (!PAY_FREQUENCIES[values.pay_frequency]) {
     error = 'Choose how often people are paid.';
   } else if (Number.isNaN(values.ca_ui_rate) || values.ca_ui_rate < 0 || values.ca_ui_rate > 10) {
@@ -95,6 +98,7 @@ router.post('/', requireRecentCode, async (req, res) => {
   if (was.daily_overtime !== values.daily_overtime || was.workday_start !== values.workday_start) {
     notes.push(values.daily_overtime === 'california' ? `California daily overtime on, workdays from ${values.workday_start}` : 'daily overtime off');
   }
+  if (was.fed_deposit_schedule !== values.fed_deposit_schedule) notes.push(`payroll taxes now paid ${values.fed_deposit_schedule}`);
   if (was.pay_frequency !== values.pay_frequency) notes.push(`pay frequency now ${PAY_FREQUENCIES[values.pay_frequency].label.toLowerCase()}`);
   if (was.ca_ui_rate !== values.ca_ui_rate || was.ca_ett_rate !== values.ca_ett_rate || was.futa_credit_reduction !== values.futa_credit_reduction) {
     notes.push(`unemployment rates now UI ${values.ca_ui_rate}%, ETT ${values.ca_ett_rate}%, FUTA credit reduction ${values.futa_credit_reduction}%`);

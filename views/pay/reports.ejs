@@ -1,0 +1,117 @@
+<%- include('../partials/top') %>
+<% const f = report.f941; const d = report.de9; const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']; %>
+<div class="page-head">
+  <div>
+    <p class="page-sub"><a href="/pay">← Pay</a></p>
+    <h1>Tax reports: <%= year %> quarter <%= quarter %></h1>
+    <p class="page-sub">The numbers for the payroll tax returns, from finalized pay runs with W-2 employees paid <%= fmtDate(report.from) %> – <%= fmtDate(report.to) %>. File Form 941 with the IRS and DE 9 and DE 9C with the EDD by <strong><%= fmtDate(quarterDue) %></strong>.</p>
+  </div>
+  <div class="page-actions">
+    <% for (const q of [1, 2, 3, 4]) { %><a class="btn <%= q === quarter ? 'btn-primary' : '' %>" href="/pay/reports?year=<%= year %>&quarter=<%= q %>">Q<%= q %></a><% } %>
+    <a class="btn" href="/pay/reports?year=<%= year - 1 %>&quarter=<%= quarter %>"><%= year - 1 %></a>
+    <a class="btn" href="/pay/reports?year=<%= year + 1 %>&quarter=<%= quarter %>"><%= year + 1 %></a>
+  </div>
+</div>
+
+<% if (!report.payDates) { %>
+  <div class="flash flash-info">No W-2 pay was finalized with a pay date in this quarter. If the company had W-2 employees, it may still need to file a return showing zero: check with your accountant.</div>
+<% } %>
+
+<div class="grid-2">
+  <section class="card card-pad">
+    <h2>IRS Form 941 (quarterly federal return)</h2>
+    <table class="table compact report-table">
+      <tbody>
+        <tr><td>Line 1</td><td>Employees paid for the pay period including <%= MONTHS[report.months[2] - 1] %> 12</td><td class="num"><%= f.line1 %></td></tr>
+        <tr><td>Line 2</td><td>Wages</td><td class="num"><%= money(f.line2) %></td></tr>
+        <tr><td>Line 3</td><td>Federal income tax withheld</td><td class="num"><%= money(f.line3) %></td></tr>
+        <tr><td>Line 5a</td><td>Social Security wages <%= money(f.line5a.wages) %> × 12.4%</td><td class="num"><%= money(f.line5a.tax) %></td></tr>
+        <tr><td>Line 5c</td><td>Medicare wages <%= money(f.line5c.wages) %> × 2.9%</td><td class="num"><%= money(f.line5c.tax) %></td></tr>
+        <tr><td>Line 5d</td><td>Additional Medicare wages <%= money(f.line5d.wages) %> × 0.9%</td><td class="num"><%= money(f.line5d.tax) %></td></tr>
+        <tr><td>Line 5e</td><td>Total Social Security and Medicare</td><td class="num"><%= money(f.line5e) %></td></tr>
+        <tr><td>Line 6</td><td>Total taxes before adjustments</td><td class="num"><%= money(f.line6) %></td></tr>
+        <tr><td>Line 7</td><td>Fractions of cents</td><td class="num"><%= money(f.line7) %></td></tr>
+        <tr><td>Line 10 / 12</td><td>Total taxes</td><td class="num"><strong><%= money(f.line12) %></strong></td></tr>
+        <tr><td>Line 13</td><td>Deposits recorded in DMI for this quarter</td><td class="num"><%= money(f.line13) %></td></tr>
+        <tr><td><%= f.line14 ? 'Line 14' : 'Line 15' %></td><td><%= f.line14 ? 'Balance due' : 'Overpayment' %></td><td class="num"><%= money(f.line14 || f.line15) %></td></tr>
+      </tbody>
+    </table>
+    <% if (settings.fed_deposit_schedule === 'semiweekly') { %>
+      <h3>Schedule B: tax by pay date</h3>
+      <table class="table compact"><tbody>
+        <% for (const p of f.byPayDate) { %><tr><td><%= fmtDate(p.date) %></td><td class="num"><%= money(p.amount) %></td></tr><% } %>
+      </tbody></table>
+    <% } else { %>
+      <h3>Line 16: tax for each month</h3>
+      <table class="table compact"><tbody>
+        <% report.months.forEach((m, i) => { %><tr><td>Month <%= i + 1 %> (<%= MONTHS[m - 1] %>)</td><td class="num"><%= money(f.byMonth[i]) %></td></tr><% }) %>
+      </tbody></table>
+    <% } %>
+  </section>
+
+  <section class="card card-pad">
+    <h2>EDD DE 9 (quarterly contribution return)</h2>
+    <table class="table compact report-table">
+      <tbody>
+        <tr><td>Total wages</td><td>Total subject wages</td><td class="num"><%= money(d.subjectWages) %></td></tr>
+        <tr><td>UI</td><td>Taxable wages <%= money(d.uiWages) %> × <%= d.uiRate %>% (first $7,000 each)</td><td class="num"><%= money(d.ui) %></td></tr>
+        <tr><td>ETT</td><td>Same wages × <%= d.ettRate %>%</td><td class="num"><%= money(d.ett) %></td></tr>
+        <tr><td>SDI</td><td>Taxable wages <%= money(d.sdiWages) %>, withheld</td><td class="num"><%= money(d.sdi) %></td></tr>
+        <tr><td>PIT</td><td>California income tax withheld</td><td class="num"><%= money(d.pit) %></td></tr>
+        <tr><td>Subtotal</td><td>Contributions and withholdings</td><td class="num"><strong><%= money(d.subtotal) %></strong></td></tr>
+        <tr><td>Paid</td><td>Payments recorded in DMI for this quarter</td><td class="num"><%= money(d.paid) %></td></tr>
+        <tr><td>Due</td><td>Still to pay</td><td class="num"><%= money(d.due) %></td></tr>
+      </tbody>
+    </table>
+    <p class="hint">UI and ETT use the rates in Settings now; if they changed during the year, check them against your EDD notice.</p>
+  </section>
+</div>
+
+<section class="card card-pad">
+  <div class="card-title-row">
+    <h2>EDD DE 9C (each employee's wages)</h2>
+    <% if (report.de9c.employees.length) { %><a class="btn btn-sm" href="/pay/reports/de9c.csv?year=<%= year %>&quarter=<%= quarter %>">Download with full SSNs (CSV)</a><% } %>
+  </div>
+  <p class="small">Employees paid for the pay period including the 12th: <% report.months.forEach((m, i) => { %><%= MONTHS[m - 1] %> <strong><%= report.de9c.counts[i] %></strong><%= i < 2 ? ' · ' : '' %><% }) %></p>
+  <% if (!report.de9c.employees.length) { %>
+    <p class="muted">Nobody was paid as a W-2 employee this quarter.</p>
+  <% } else { %>
+    <div class="table-wrap">
+      <table class="table compact">
+        <thead><tr><th>Employee</th><th>SSN</th><th class="num">Total subject wages</th><th class="num">PIT wages</th><th class="num">PIT withheld</th></tr></thead>
+        <tbody>
+          <% for (const e of report.de9c.employees) { %>
+            <tr>
+              <td><a href="/staff/<%= e.employee_id %>"><%= e.first_name %> <%= e.last_name %></a></td>
+              <td><%- e.ssnLast4 ? `***-**-${e.ssnLast4}` : badge('Missing: no W-4 on file', 'red') %></td>
+              <td class="num"><%= money(e.wages) %></td>
+              <td class="num"><%= money(e.wages) %></td>
+              <td class="num"><%= money(e.pit) %></td>
+            </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+    <p class="hint">The download asks for a fresh two-step code, because it has full Social Security numbers.</p>
+  <% } %>
+</section>
+
+<section class="card card-pad">
+  <h2>IRS Form 940 (yearly federal unemployment) for <%= year %></h2>
+  <p class="small">File by <strong><%= fmtDate(yearDue) %></strong>. It covers the whole year so far.</p>
+  <table class="table compact report-table">
+    <tbody>
+      <tr><td>Line 3</td><td>Total payments to all employees</td><td class="num"><%= money(annual.line3) %></td></tr>
+      <tr><td>Line 5</td><td>Payments over $7,000 for each employee</td><td class="num"><%= money(annual.line5) %></td></tr>
+      <tr><td>Line 7</td><td>Taxable FUTA wages</td><td class="num"><%= money(annual.line7) %></td></tr>
+      <tr><td>Line 8</td><td>FUTA tax before adjustments (× 0.6%)</td><td class="num"><%= money(annual.line8) %></td></tr>
+      <tr><td>Line 11</td><td>Credit reduction (California, Schedule A)</td><td class="num"><%= money(annual.line11) %></td></tr>
+      <tr><td>Line 12</td><td>Total FUTA tax</td><td class="num"><strong><%= money(annual.line12) %></strong></td></tr>
+      <tr><td>Line 13</td><td>FUTA deposits recorded in DMI</td><td class="num"><%= money(annual.line13) %></td></tr>
+      <tr><td><%= annual.line14 ? 'Line 14' : 'Line 15' %></td><td><%= annual.line14 ? 'Balance due' : 'Overpayment' %></td><td class="num"><%= money(annual.line14 || annual.line15) %></td></tr>
+      <% annual.quarters.forEach((q, i) => { %><tr><td>Line 16<%= 'abcd'[i] %></td><td>Quarter <%= i + 1 %> liability (at 0.6%)</td><td class="num"><%= money(q) %></td></tr><% }) %>
+    </tbody>
+  </table>
+  <p class="hint">The credit reduction for the year is set by the IRS in November (Settings → Payroll); check it before filing.</p>
+</section>
+<%- include('../partials/bottom') %>

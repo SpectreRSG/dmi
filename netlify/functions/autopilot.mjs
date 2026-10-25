@@ -2,7 +2,7 @@
 // the published site, not on previews): records the hours of shifts that have
 // ended, tells the next wave of officers about open shifts, tells the office
 // when nobody has claimed one, and sends reminders (shifts coming up, time
-// cards due). See src/services/jobs.js.
+// cards due, payroll tax payments due). See src/services/jobs.js.
 //
 // Like app.mjs, it lists the libraries the code it runs needs, so Netlify
 // packages them (tests/netlify-function.test.js checks this). (pdf-lib: the

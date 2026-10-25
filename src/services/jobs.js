@@ -15,6 +15,7 @@ const { recordFinishedShifts } = require('./hoursFromSchedule');
 const { advanceOffers } = require('./openShifts');
 const { offerUpcoming } = require('./shiftRequests');
 const { sendReminders } = require('./reminders');
+const { remindTaxDeposits } = require('./taxDeposits');
 
 async function runDueJobs() {
   const settings = await getSettings();
@@ -23,6 +24,8 @@ async function runDueJobs() {
   await offerUpcoming(settings);
   await advanceOffers();
   await sendReminders();
+  const money = (n) => `${settings.currency_symbol}${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  await remindTaxDeposits(settings, money);
 }
 
 let lastCatchUp = 0;

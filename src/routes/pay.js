@@ -21,10 +21,15 @@ const { payslipData } = require('../services/payslip');
 const { TABLES, PAY_FREQUENCIES, tablesFor, tableYears } = require('../services/taxTables');
 const { federalTableRows, californiaTableRows, EMPLOYEE_TAXES, EMPLOYER_TAXES, sumOf } = require('../services/withholding');
 const { saveSettings } = require('../settings');
+const taxDeposits = require('../services/taxDeposits');
+const taxReports = require('../services/taxReports');
+const { requireRecentCode } = require('../auth');
+const { decrypt } = require('../secureData');
 
 const router = express.Router();
 numericIdParam(router);
 router.param('itemId', (req, res, next, id) => (/^\d+$/.test(id) ? next() : next('route')));
+router.param('depositId', (req, res, next, id) => (/^\d+$/.test(id) ? next() : next('route')));
 
 function findRun(id) {
   return db.get(
@@ -165,6 +170,94 @@ router.post('/taxes/confirm', async (req, res) => {
   await logActivity(req, `Confirmed the ${year} payroll tax rates were checked against the IRS and EDD publications`);
   req.flash('success', `Thanks. The ${year} tax rates are confirmed, so pay runs with W-2 employees can be finalized.`);
   res.redirect(`/pay/taxes?year=${year}`);
+});
+
+// ---- Tax payments ------------------------------------------------------------------
+
+const readYear = (value) => (/^\d{4}$/.test(String(value)) && Number(value) >= 2000 && Number(value) <= 2100 ? Number(value) : Number(time.todayStr().slice(0, 4)));
+
+// What's owed to the IRS and the EDD from W-2 pay, when, and what's been paid.
+router.get('/deposits', async (req, res) => {
+  const year = readYear(req.query.year);
+  const [list, payments] = await Promise.all([taxDeposits.obligations(year, res.locals.settings), taxDeposits.recordedPayments()]);
+  res.render('pay/deposits', { title: 'Tax payments', year, list, payments, KINDS: taxDeposits.KINDS, today: time.todayStr() });
+});
+
+const PERIOD_KEY = /^(M:\d{4}-(0[1-9]|1[0-2])|S:\d{4}-\d{2}-\d{2}|Q:\d{4}-[1-4])$/;
+
+router.post('/deposits', async (req, res) => {
+  const kind = String(req.body.kind || '');
+  const key = String(req.body.period_key || '');
+  const paidOn = String(req.body.paid_on || '');
+  const amount = toNumber(req.body.amount, NaN);
+  const reference = String(req.body.reference || '').trim().slice(0, 60) || null;
+  const back = `/pay/deposits?year=${readYear(req.body.year)}`;
+  let error = null;
+  if (!taxDeposits.KINDS[kind] || !PERIOD_KEY.test(key)) error = 'Choose which tax payment this was for.';
+  else if (!time.isValidDate(paidOn)) error = 'Enter the date it was paid.';
+  else if (paidOn > time.todayStr()) error = "The payment date can't be in the future.";
+  else if (Number.isNaN(amount) || amount <= 0 || amount > 10000000) error = 'Enter the amount paid, like 1234.56.';
+  if (error) {
+    req.flash('error', error);
+    return res.redirect(back);
+  }
+  await db.insert(
+    'INSERT INTO tax_deposits (kind, period_key, paid_on, amount, reference, recorded_by) VALUES (?, ?, ?, ?, ?, ?)',
+    kind, key, paidOn, round2(amount), reference, req.user.id
+  );
+  const k = taxDeposits.KINDS[kind];
+  await logActivity(req, `Recorded a ${k.agency} tax payment of ${round2(amount)} (${k.label}, ${key}, paid ${paidOn})`);
+  req.flash('success', `Payment recorded: ${k.label}.`);
+  res.redirect(back);
+});
+
+// Undo a payment recorded by mistake.
+router.post('/deposits/:depositId/delete', async (req, res) => {
+  const deposit = await db.get('SELECT * FROM tax_deposits WHERE id = ?', req.params.depositId);
+  if (!deposit) return notFound(res, 'tax payment');
+  await db.run('DELETE FROM tax_deposits WHERE id = ?', deposit.id);
+  await logActivity(req, `Removed a recorded tax payment of ${deposit.amount} (${taxDeposits.KINDS[deposit.kind].label}, ${deposit.period_key}, paid ${deposit.paid_on})`);
+  req.flash('success', 'Recorded payment removed.');
+  res.redirect(`/pay/deposits?year=${readYear(req.body.year)}`);
+});
+
+// ---- Tax reports --------------------------------------------------------------------
+
+function readQuarter(req) {
+  const year = readYear(req.query.year);
+  const q = Number(req.query.quarter);
+  return { year, quarter: [1, 2, 3, 4].includes(q) ? q : Math.ceil(Number(time.todayStr().slice(5, 7)) / 3) };
+}
+
+// The numbers for Form 941, DE 9 and DE 9C (each quarter) and Form 940 (each year).
+router.get('/reports', async (req, res) => {
+  const { year, quarter } = readQuarter(req);
+  const [report, annual] = await Promise.all([taxReports.quarterReport(year, quarter, res.locals.settings), taxReports.yearReport(year)]);
+  res.render('pay/reports', {
+    title: `Tax reports ${year} Q${quarter}`,
+    year,
+    quarter,
+    report,
+    annual,
+    quarterDue: taxDeposits.quarterPeriod(year, quarter).due,
+    yearDue: taxDeposits.quarterPeriod(year, 4).due,
+  });
+});
+
+// DE 9C with full Social Security numbers, to type in or upload (asks for a fresh two-step code).
+router.get('/reports/de9c.csv', requireRecentCode, async (req, res) => {
+  const { year, quarter } = readQuarter(req);
+  const report = await taxReports.quarterReport(year, quarter, res.locals.settings);
+  const profiles = new Map((await db.all('SELECT employee_id, legal_name, ssn_encrypted FROM withholding_profiles')).map((p) => [p.employee_id, p]));
+  const rows = [['Employee', 'Social Security number', 'Total subject wages', 'PIT wages', 'PIT withheld']];
+  for (const e of report.de9c.employees) {
+    const p = profiles.get(e.employee_id);
+    const ssn = p ? (await decrypt(p.ssn_encrypted)).replace(/^(\d{3})(\d{2})(\d{4})$/, '$1-$2-$3') : 'MISSING';
+    rows.push([p?.legal_name || `${e.first_name} ${e.last_name}`, ssn, e.wages, e.wages, e.pit]);
+  }
+  await logActivity(req, `Downloaded the DE 9C for ${year} quarter ${quarter} (with Social Security numbers)`);
+  res.attachment(`DE9C-${year}-Q${quarter}.csv`);
+  res.type('text/csv').send(rows.map((row) => row.map(csvCell).join(',')).join('\r\n'));
 });
 
 // ---- Pages ------------------------------------------------------------------------

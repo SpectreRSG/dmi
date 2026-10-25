@@ -50,6 +50,13 @@
       </select>
       <span class="hint">Withholding is worked out for this many paydays a year. Keep your pay runs the same length.</span>
     </label>
+    <label>Payroll taxes are paid
+      <select name="fed_deposit_schedule">
+        <option value="monthly" <%= values.fed_deposit_schedule !== 'semiweekly' ? 'selected' : '' %>>Monthly (most new employers)</option>
+        <option value="semiweekly" <%= values.fed_deposit_schedule === 'semiweekly' ? 'selected' : '' %>>Semiweekly</option>
+      </select>
+      <span class="hint">The IRS decides this from your taxes in an earlier year (Publication 15); new employers are monthly. California follows the same schedule. Pay → Tax payments shows the due dates.</span>
+    </label>
     <label>California UI rate (%)
       <input type="number" name="ca_ui_rate" min="0" max="10" step="0.01" value="<%= values.ca_ui_rate %>">
       <span class="hint">Unemployment insurance, on each employee's first $7,000 a year. The EDD mails your rate each December (3.4% for new employers).</span>

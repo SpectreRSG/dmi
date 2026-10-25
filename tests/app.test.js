@@ -2183,11 +2183,86 @@ test('W-2 payroll: W-4 and DE 4, taxes, sick leave and deductions, pay stubs; 10
   assert.notEqual((await worker.get(`/staff/${wes}/withholding`)).status, 200);
 });
 
+test('tax payments and reports: what is owed and when, recording payments, reminders, and the 941, DE 9, DE 9C and 940 numbers', async () => {
+  const { remindTaxDeposits } = require('../src/services/taxDeposits');
+  const { quarterReport, yearReport } = require('../src/services/taxReports');
+  const settings = () => require('../src/settings').getSettings();
+  const year = Number(time.todayStr().slice(0, 4));
+  // A W-2 employee paid on Friday 9 January this year for a quiet fortnight.
+  let res = await admin.post('/staff', { first_name: 'Tina', last_name: 'Taxes', hourly_rate: '30', status: 'active', tax_form: 'W-2' });
+  const tina = Number(res.location.split('/').pop());
+  for (let i = 0; i < 5; i += 1) {
+    const day = time.addDays('2025-06-02', i);
+    await db.run("INSERT INTO time_entries (employee_id, start_at, end_at, status) VALUES (?, ?, ?, 'approved')", tina, `${day}T08:00`, `${day}T16:00`);
+  }
+  res = await admin.post('/pay', { period_start: '2025-06-01', period_end: '2025-06-14' });
+  const run = Number(res.location.split('/').pop());
+  await admin.post(`/pay/${run}/finalize`, { paid_on: `${year}-01-09` }, `/pay/${run}`);
+  const line = await db.get('SELECT * FROM pay_run_items WHERE pay_run_id = ?', run);
+  assert.equal(line.gross_pay, 1200);
+  const federal = Math.round((line.fed_income_tax + 2 * line.social_security + 2 * line.medicare) * 100) / 100;
+  const california = Math.round((line.ca_income_tax + line.ca_sdi) * 100) / 100;
+
+  // January's taxes were due February 17th (the 15th was a Sunday, the 16th Presidents Day), so they're overdue.
+  let page = await admin.get(`/pay/deposits?year=${year}`);
+  assert.equal(page.status, 200);
+  assert.match(page.text, new RegExp(`17 Feb ${year}[\\s\\S]*Federal income tax, Social Security and Medicare[\\s\\S]*Overdue`));
+  assert.match(page.text, /California income tax and SDI/);
+  // The admins hear about it once.
+  await remindTaxDeposits(await settings(), (n) => `$${n}`);
+  await remindTaxDeposits(await settings(), (n) => `$${n}`);
+  assert.equal((await db.get("SELECT COUNT(*)::int AS n FROM reminders_sent WHERE kind = 'tax_late' AND ref = ?", `federal:M:${year}-01`)).n, 1);
+
+  // Recording payments: checked, then federal paid in full and California half paid.
+  res = await admin.post('/pay/deposits', { kind: 'federal', period_key: `M:${year}-01`, paid_on: time.addDays(time.todayStr(), 1), amount: String(federal), year }, '/pay/deposits');
+  assert.match((await admin.get('/pay/deposits')).text, /can&#39;t be in the future|can't be in the future/);
+  res = await admin.post('/pay/deposits', { kind: 'federal', period_key: 'nonsense', paid_on: `${year}-02-10`, amount: '5', year }, '/pay/deposits');
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM tax_deposits')).n, 0);
+  await admin.post('/pay/deposits', { kind: 'federal', period_key: `M:${year}-01`, paid_on: `${year}-02-10`, amount: String(federal), reference: 'EFT-123', year }, '/pay/deposits');
+  await admin.post('/pay/deposits', { kind: 'california', period_key: `M:${year}-01`, paid_on: `${year}-02-10`, amount: String(Math.round(california * 50) / 100), year }, '/pay/deposits');
+  page = await admin.get(`/pay/deposits?year=${year}`);
+  assert.match(page.text, new RegExp(`Paid 10 Feb ${year}`));
+  assert.match(page.text, /Overdue: \$[\d,.]+ left/);
+  assert.match(page.text, /EFT-123/);
+  assert.match((await admin.get('/activity')).text, /Recorded a IRS tax payment/);
+
+  // The quarter's returns.
+  const q1 = await quarterReport(year, 1, await settings());
+  assert.equal(q1.f941.line2, 1200);
+  assert.equal(q1.f941.line3, line.fed_income_tax);
+  assert.deepEqual([q1.f941.line5a.tax, q1.f941.line5c.tax], [148.8, 34.8]);
+  assert.equal(q1.f941.line13, federal, 'the deposit recorded for January');
+  assert.equal(q1.f941.byMonth[0], federal);
+  assert.equal(q1.de9.pit, line.ca_income_tax);
+  assert.equal(q1.de9.sdi, line.ca_sdi);
+  assert.deepEqual(q1.de9c.employees.map((e) => [e.first_name, e.wages, e.ssnLast4]), [['Tina', 1200, null]]);
+  page = await admin.get(`/pay/reports?year=${year}&quarter=1`);
+  assert.equal(page.status, 200);
+  assert.match(page.text, /IRS Form 941/);
+  assert.match(page.text, /Missing: no W-4 on file/);
+  // The DE 9C download has full Social Security numbers, so it asks for a fresh code first.
+  res = await admin.get(`/pay/reports/de9c.csv?year=${year}&quarter=1`);
+  if (res.status === 302) {
+    assert.match(res.location, /^\/account\/confirm/);
+    await admin.post('/account/confirm', { code: await codeFor('alex@example.com'), next: '/pay' }, '/account/confirm?next=/pay');
+    res = await admin.get(`/pay/reports/de9c.csv?year=${year}&quarter=1`);
+  }
+  assert.match(res.text, /Tina Taxes,MISSING,1200,1200,/);
+  // Form 940 for the year: everyone paid as W-2.
+  const annual = await yearReport(year);
+  const futa = await db.get(
+    `SELECT COALESCE(SUM(i.futa), 0) AS futa, COALESCE(SUM(i.futa_wages), 0) AS wages FROM pay_run_items i JOIN pay_runs p ON p.id = i.pay_run_id
+     WHERE p.status = 'finalized' AND i.tax_form = 'W-2' AND substr(p.paid_on, 1, 4) = ?`, String(year)
+  );
+  assert.equal(annual.line12, Math.round(futa.futa * 100) / 100);
+  assert.equal(annual.line7, Math.round(futa.wages * 100) / 100);
+});
+
 test('every main page loads', async () => {
   for (const url of ['/', '/schedule', '/timesheets?status=all', '/pay', `/pay/${ids.payRun}`, '/staff', `/staff/${ids.employee}`,
     '/clients', `/clients/${ids.client}`, '/contracts', '/training', '/training/records', '/training/sessions',
     '/training/courses', '/training/sessions/new', '/training/records/new', '/schedule/conflicts', `/schedule/${ids.shift}/cover`,
-    '/timesheets/submissions', '/tax', '/tax/filing', '/users', '/settings', '/activity', '/account', '/incidents', '/incidents?view=all', '/pay/taxes']) {
+    '/timesheets/submissions', '/tax', '/tax/filing', '/users', '/settings', '/activity', '/account', '/incidents', '/incidents?view=all', '/pay/taxes', '/pay/deposits', '/pay/reports']) {
     const res = await admin.get(url);
     assert.equal(res.status, 200, url);
   }
