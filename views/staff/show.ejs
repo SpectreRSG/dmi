@@ -42,7 +42,10 @@
       <dt>License number</dt><dd><%= employee.license_number || '—' %></dd>
       <dt>License expiry</dt><dd><%= employee.license_expiry ? fmtDate(employee.license_expiry) : '—' %></dd>
       <% if (employee.notes) { %><dt>Notes</dt><dd class="pre"><%= employee.notes %></dd><% } %>
-      <dt>Sign-in account</dt><dd><% if (account) { %><%= account.email %> · <%= ROLE_NAMES[account.role] %><%= account.last_login_at ? ` · last in ${fmtDate(account.last_login_at)}` : '' %><% } else { %><span class="muted">None. They can sign up at /register; then link them under User accounts.</span><% } %></dd>
+      <dt>Sign-in account</dt><dd><% if (account) { %><%= account.email %> · <%= ROLE_NAMES[account.role] %><%= account.last_login_at ? ` · last in ${fmtDate(account.last_login_at)}` : '' %>
+        <% if (locals.isAdmin && account.role === 'officer') { %>
+          <form method="post" action="/chat/start" class="inline-form"><%- include('../partials/csrf') %><input type="hidden" name="user_id" value="<%= account.id %>"><button type="submit" class="btn btn-sm btn-ghost"><%- icon('chat') %> Message</button></form>
+        <% } %><% } else { %><span class="muted">None. They can sign up at /register; then link them under User accounts.</span><% } %></dd>
       <% if (account && account.role === 'officer') { %>
         <dt>App notifications</dt>
         <dd>

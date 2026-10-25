@@ -2666,11 +2666,94 @@ test('employment types: a change switches pay and taxes; salaried pay; meal and 
   await db.run("UPDATE employees SET status = 'inactive', end_date = '2024-09-21' WHERE id = ?", sal); // out of later pay runs
 });
 
+test('messages: officers and clients each have a private conversation with the admins, stamped, unchangeable and kept 2 years', async () => {
+  const notify = require('../src/services/notify');
+  const chat = require('../src/services/chat');
+  const sent = [];
+  notify.setSender(async (subscription, payload) => sent.push({ to: subscription.endpoint.split('/').pop(), ...JSON.parse(payload) }));
+  const to = (who) => sent.filter((m) => m.to === who);
+
+  // An officer writes to the office.
+  const olivia = makeClient();
+  await signIn(olivia, 'olivia@example.com', 'officer password 1');
+  let page = await olivia.get('/my/chat');
+  assert.equal(page.status, 200);
+  assert.match(page.text, /No messages yet/);
+  assert.match(page.text, /href="\/my\/chat"/, 'in the menu');
+  let res = await olivia.post('/my/chat', { body: '   ' }, '/my/chat');
+  assert.equal(res.location, '/my/chat');
+  assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM chat_messages')).n, 0, 'nothing empty is sent');
+  res = await olivia.post('/my/chat', { body: 'Running 10 minutes late to Main entrance.\nTraffic on the 101.' }, '/my/chat');
+  assert.equal(res.location, '/my/chat#latest');
+  const oliviaUser = await db.get("SELECT id FROM users WHERE email = 'olivia@example.com'");
+  const thread = await chat.threadFor(oliviaUser);
+  let message = await db.get('SELECT * FROM chat_messages WHERE thread_id = ?', thread.id);
+  assert.match(message.created_at, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/, 'date and time stamped');
+  assert.deepEqual([message.sender_name, message.sender_role], ['Olivia Officer', 'officer']);
+  assert.match(to('alex').at(-1).title, /Message from Olivia Officer/);
+  assert.equal(to('alex').at(-1).url, `/chat/${thread.id}`);
+
+  // The admins' inbox: unread until opened.
+  page = await admin.get('/chat');
+  assert.match(page.text, /Olivia Officer/);
+  assert.match(page.text, /class="nav-count"[^>]*>1</, 'unread in the menu');
+  page = await admin.get(`/chat/${thread.id}`);
+  assert.match(page.text, /Running 10 minutes late to Main entrance\.\nTraffic on the 101\./);
+  assert.doesNotMatch(page.text, /class="nav-count"/, 'the menu counts it as read straight away');
+  assert.doesNotMatch((await admin.get('/chat')).text, /class="nav-count"/, 'read now');
+
+  // An admin answers; Olivia gets a notification and sees it.
+  await admin.post(`/chat/${thread.id}`, { body: 'Thanks, I\'ll tell the site.' }, `/chat/${thread.id}`);
+  assert.match(to('olivia').at(-1).title, /New message from the office/);
+  assert.match(to('olivia').at(-1).body, /^Alex: Thanks/);
+  assert.match((await olivia.get('/my/schedule')).text, /class="nav-count"[^>]*>1</);
+  const fresh = JSON.parse((await olivia.get(`/my/chat/messages?after=${message.id}`)).text).messages;
+  assert.equal(fresh.length, 1);
+  assert.deepEqual([fresh[0].label, fresh[0].right, fresh[0].body], ['Alex Admin (office)', false, 'Thanks, I\'ll tell the site.']);
+  assert.equal(JSON.parse((await olivia.get(`/my/chat/messages?after=${fresh[0].id}`)).text).messages.length, 0);
+  assert.doesNotMatch((await olivia.get('/my/schedule')).text, /class="nav-count"/, 'read once fetched');
+
+  // An admin can start one with a client; only the two sides can see it.
+  const carlaUser = await db.get("SELECT id FROM users WHERE email = 'carla@example.com'");
+  res = await admin.post('/chat/start', { user_id: String(carlaUser.id) }, '/chat');
+  const carlaThread = Number(res.location.split('/').pop());
+  await admin.post(`/chat/${carlaThread}`, { body: 'Your new officer starts Monday.' }, `/chat/${carlaThread}`);
+  const carla = makeClient();
+  await signIn(carla, 'carla@example.com', 'client password 1');
+  page = await carla.get('/my/chat');
+  assert.match(page.text, /Your new officer starts Monday\./);
+  assert.doesNotMatch(page.text, /Running 10 minutes late/);
+  assert.equal((await carla.get(`/chat/${thread.id}`)).location, '/my');
+  assert.equal((await olivia.get(`/chat/${carlaThread}`)).location, '/my');
+  const manager = makeClient();
+  await signIn(manager, 'morgan@example.com', 'another long password');
+  assert.equal((await manager.get('/my/chat')).status, 403);
+  assert.equal((await manager.get('/chat')).status, 403);
+  res = await admin.post('/chat/start', { user_id: String((await db.get("SELECT id FROM users WHERE email = 'morgan@example.com'")).id) }, '/chat');
+  assert.equal(res.location, '/chat', 'only officers and clients');
+
+  // The log, with the date and time on every message.
+  res = await admin.raw('GET', `/chat/${thread.id}/log.txt`);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-disposition'), /Messages_Olivia_Officer\.txt/);
+  assert.match(res.text, new RegExp(`\\[${message.created_at}\\] Olivia Officer:`));
+  assert.match(res.text, /Alex Admin \(office\):/);
+
+  // Never changed; kept 2 years, then removed by the nightly jobs.
+  await assert.rejects(db.run("UPDATE chat_messages SET body = 'edited' WHERE id = ?", message.id), /can't be changed/);
+  await assert.rejects(db.run('DELETE FROM chat_messages WHERE id = ?', message.id), /kept for 2 years/);
+  const old = `${time.addMonths(time.todayStr(), -25)} 09:00:00`;
+  const oldId = await db.insert("INSERT INTO chat_messages (thread_id, sender_id, sender_name, sender_role, body, created_at) VALUES (?, ?, 'Olivia Officer', 'officer', 'An old one', ?)", thread.id, oliviaUser.id, old);
+  await chat.purgeOld();
+  assert.equal(await db.get('SELECT 1 FROM chat_messages WHERE id = ?', oldId), undefined, 'over 2 years old: removed');
+  assert.ok(await db.get('SELECT 1 FROM chat_messages WHERE id = ?', message.id), 'newer ones stay');
+});
+
 test('every main page loads', async () => {
   for (const url of ['/', '/schedule', '/timesheets?status=all', '/pay', `/pay/${ids.payRun}`, '/staff', `/staff/${ids.employee}`,
     '/clients', `/clients/${ids.client}`, '/contracts', '/training', '/training/records', '/training/sessions',
     '/training/courses', '/training/sessions/new', '/training/records/new', '/schedule/conflicts', `/schedule/${ids.shift}/cover`,
-    '/timesheets/submissions', '/tax', '/tax/filing', '/users', '/settings', '/activity', '/account', '/incidents', '/incidents?view=all', '/pay/taxes', '/pay/deposits', '/pay/reports', '/w2']) {
+    '/timesheets/submissions', '/tax', '/tax/filing', '/users', '/settings', '/activity', '/account', '/incidents', '/incidents?view=all', '/pay/taxes', '/pay/deposits', '/pay/reports', '/w2', '/chat']) {
     const res = await admin.get(url);
     assert.equal(res.status, 200, url);
   }

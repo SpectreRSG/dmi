@@ -27,6 +27,7 @@ const ICONS = {
   menu: '<path d="M3 6h18M3 12h18M3 18h18"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   alert: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/>',
+  chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   paperclip: '<path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
 };
 
@@ -46,11 +47,13 @@ const NAV = [
   { href: '/contracts', label: 'Contracts', icon: 'file', roles: OFFICE },
   { href: '/training', label: 'Training', icon: 'cap', roles: OFFICE },
   { href: '/incidents', label: 'Incident reports', icon: 'alert', roles: ['admin'] },
+  { href: '/chat', label: 'Messages', icon: 'chat', roles: ['admin'], badge: 'messages' },
   { href: '/my/schedule', label: 'My schedule', icon: 'calendar', roles: ['officer'] },
   { href: '/my/schedule', label: 'Schedule', icon: 'calendar', roles: ['client'] },
   { href: '/my/availability', label: 'My availability', icon: 'clock', roles: ['officer'] },
   { href: '/my/incidents', label: 'Incident reports', icon: 'alert', roles: ['officer', 'manager', 'client'] },
   { href: '/my/requests', label: 'Shift requests', icon: 'plus', roles: ['client'] },
+  { href: '/my/chat', label: 'Messages', icon: 'chat', roles: ['officer', 'client'], badge: 'messages' },
   { href: '/my/pay', label: 'My pay', icon: 'money', roles: ['officer'], also: ['/my/tax'] },
   { href: '/my/details', label: 'My details', icon: 'user', roles: ['officer'] },
   { href: '/waiting', label: 'Getting started', icon: 'clock', roles: ['pending'] },

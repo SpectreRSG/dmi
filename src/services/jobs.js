@@ -17,6 +17,7 @@ const { offerUpcoming } = require('./shiftRequests');
 const { sendReminders } = require('./reminders');
 const { remindTaxDeposits } = require('./taxDeposits');
 const { remindNewHires } = require('./newHires');
+const chat = require('./chat');
 
 async function runDueJobs() {
   const settings = await getSettings();
@@ -28,6 +29,7 @@ async function runDueJobs() {
   const money = (n) => `${settings.currency_symbol}${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   await remindTaxDeposits(settings, money);
   await remindNewHires();
+  await chat.purgeOld(); // messages are kept for 2 years
 }
 
 let lastCatchUp = 0;

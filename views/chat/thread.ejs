@@ -1,0 +1,32 @@
+<%- include('../partials/top') %>
+<% const office = currentUser.role === 'admin'; %>
+<div class="page-head">
+  <div>
+    <% if (office) { %><p class="page-sub"><a href="/chat">← All messages</a></p><% } %>
+    <h1><%= office ? thread.name : 'Messages' %><% if (office) { %> <%- badge(ROLE_NAMES[thread.person_role] || thread.person_role, 'gray') %><% if (thread.active === 0) { %> <%- badge('Account off', 'amber') %><% } %><% } %></h1>
+    <p class="page-sub"><%= intro %></p>
+  </div>
+  <% if (office && messages.length) { %><div class="page-actions"><a class="btn" href="<%= base %>/log.txt"><%- icon('file') %> Download the log</a></div><% } %>
+</div>
+<section class="card chat" data-chat data-poll="<%= base %>/messages" data-last-id="<%= messages.length ? messages.at(-1).id : 0 %>">
+  <div class="chat-log" data-chat-log aria-live="polite">
+    <% if (!messages.length) { %><p class="empty" data-chat-empty>No messages yet. Write the first one below.</p><% } %>
+    <% let lastDay = ''; for (const m of messages) { %>
+      <% if (m.day !== lastDay) { lastDay = m.day; %><p class="chat-day" data-day="<%= m.day %>"><%= m.day %></p><% } %>
+      <div class="chat-msg<%= m.right ? ' right' : '' %>" data-id="<%= m.id %>">
+        <div class="chat-bubble"><%= m.body %></div>
+        <div class="chat-meta"><%= m.label %> · <time datetime="<%= m.at.replace(' ', 'T') %>"><%= m.time %></time></div>
+      </div>
+    <% } %>
+    <span id="latest"></span>
+  </div>
+  <form method="post" action="<%= base %>" class="chat-form" data-chat-form>
+    <%- include('../partials/csrf') %>
+    <label class="sr-only" for="chat-body">Message</label>
+    <textarea id="chat-body" name="body" rows="2" maxlength="<%= maxLength %>" required placeholder="Message <%= otherName %>…"></textarea>
+    <button type="submit" class="btn btn-primary">Send</button>
+  </form>
+  <p class="chat-error" data-chat-error hidden>Not sent: check your connection and try again.</p>
+  <p class="hint chat-note">Every message is date and time stamped, can't be changed or deleted, and is kept for <%= retainYears %> years.</p>
+</section>
+<%- include('../partials/bottom') %>

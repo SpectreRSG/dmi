@@ -113,9 +113,22 @@ app.use(async (req, res, next) => {
   next();
 });
 
+// Unread messages, for the menu (admins, officers and clients).
+app.use(async (req, res, next) => {
+  if (['admin', 'officer', 'client'].includes(req.user.role)) {
+    try {
+      res.locals.unreadMessages = await require('./services/chat').unreadFor(req.user);
+    } catch (err) {
+      console.error('Unread messages failed:', err);
+    }
+  }
+  next();
+});
+
 app.use('/account', require('./routes/account')); // every kind of account
 app.use('/my/incidents', require('./routes/incidents').officerRouter); // officers' incident reports (always open)
 app.use('/my', requireNotifications); // officers: notifications on first
+app.use('/my/chat', require('./routes/chat').mineRouter); // officers' and clients' messages with the office
 app.use('/my', require('./routes/my')); // officers' and clients' own pages
 app.use(requireBackOffice); // everything below is for admins and managers
 
@@ -129,6 +142,7 @@ app.use('/sites', require('./routes/clients').sitesRouter);
 app.use('/contracts', require('./routes/contracts'));
 app.use('/training', require('./routes/training'));
 app.use('/incidents', requireAdmin, require('./routes/incidents').adminRouter);
+app.use('/chat', requireAdmin, require('./routes/chat').adminRouter);
 app.use('/users', requireAdmin, require('./routes/users'));
 app.use('/tax', requireAdmin, require('./routes/tax'));
 app.use('/w2', requireAdmin, require('./routes/w2'));

@@ -55,6 +55,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Messages: send without reloading, and check for new ones every few seconds.
+  const chatBox = document.querySelector('[data-chat]');
+  if (chatBox) setUpChat(chatBox);
+
   // Staff form: only show the pay fields that go with the employment type
   // (and, for Full Time, hourly or salary). data-show-for lists types with |.
   const payForm = document.querySelector('[data-pay-form]');
@@ -598,4 +602,98 @@ function setUpBackup(form) {
   };
   form.addEventListener('input', save);
   form.addEventListener('change', save);
+}
+
+// Messages (views/chat/thread.ejs). The page works without this: the form
+// sends normally and the page reloads. With it, new messages appear by
+// themselves while the page is open (asked for every 8 seconds).
+function setUpChat(box) {
+  const log = box.querySelector('[data-chat-log]');
+  const form = box.querySelector('[data-chat-form]');
+  const latest = log.querySelector('#latest');
+  const problem = box.querySelector('[data-chat-error]');
+  let lastId = Number(box.dataset.lastId) || 0;
+  const days = log.querySelectorAll('[data-day]');
+  let lastDay = days.length ? days[days.length - 1].dataset.day : '';
+  const scrollDown = () => { log.scrollTop = log.scrollHeight; };
+
+  const add = (m) => {
+    if (m.id <= lastId) return;
+    lastId = m.id;
+    const empty = log.querySelector('[data-chat-empty]');
+    if (empty) empty.remove();
+    if (m.day !== lastDay) {
+      const day = document.createElement('p');
+      day.className = 'chat-day';
+      day.dataset.day = m.day;
+      day.textContent = m.day;
+      log.insertBefore(day, latest);
+      lastDay = m.day;
+    }
+    const item = document.createElement('div');
+    item.className = `chat-msg${m.right ? ' right' : ''}`;
+    item.dataset.id = m.id;
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-bubble';
+    bubble.textContent = m.body;
+    const meta = document.createElement('div');
+    meta.className = 'chat-meta';
+    meta.textContent = `${m.label} · ${m.time}`;
+    item.append(bubble, meta);
+    log.insertBefore(item, latest);
+  };
+
+  let busy = false;
+  const check = async (force) => {
+    if (busy || (!force && document.visibilityState !== 'visible')) return;
+    busy = true;
+    try {
+      const res = await fetch(`${box.dataset.poll}?after=${lastId}`, { headers: { Accept: 'application/json' }, credentials: 'same-origin' });
+      if (res.ok) {
+        const { messages } = await res.json();
+        if (messages.length) {
+          messages.forEach(add);
+          scrollDown();
+        }
+      }
+    } catch {
+      // Offline for a moment: the next check tries again.
+    }
+    busy = false;
+  };
+  setInterval(check, 8000);
+  document.addEventListener('visibilitychange', () => check());
+  scrollDown();
+
+  form.addEventListener('submit', async (event) => {
+    const text = form.elements.body.value.trim();
+    if (!text) return;
+    event.preventDefault();
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    problem.hidden = true;
+    try {
+      const res = await fetch(form.action, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(new FormData(form)),
+        credentials: 'same-origin',
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      form.elements.body.value = '';
+      while (busy) await new Promise((r) => { setTimeout(r, 100); });
+      await check(true);
+    } catch {
+      problem.hidden = false; // what they wrote stays in the box
+    }
+    button.disabled = false;
+    form.elements.body.focus();
+  });
+  // On a computer, Enter sends and Shift+Enter starts a new line.
+  form.elements.body.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && window.matchMedia('(pointer: fine)').matches) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
 }

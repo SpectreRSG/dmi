@@ -1,0 +1,35 @@
+<%- include('../partials/top') %>
+<div class="page-head">
+  <div>
+    <h1>Messages</h1>
+    <p class="page-sub">Private conversations with officers and clients. Each one is between that person and the office: every admin can read and answer it. Messages are date and time stamped and kept for <%= retainYears %> years.</p>
+  </div>
+</div>
+<form method="post" action="/chat/start" class="card card-pad filters">
+  <%- include('../partials/csrf') %>
+  <label class="inline">New message to
+    <select name="user_id" required>
+      <option value="">Choose an officer or client…</option>
+      <% for (const p of people) { %><option value="<%= p.id %>"><%= p.name %> (<%= ROLE_NAMES[p.role] %>)</option><% } %>
+    </select>
+  </label>
+  <button type="submit" class="btn btn-primary">Open</button>
+</form>
+<div class="card">
+  <% if (!threads.length) { %>
+    <p class="empty">No messages yet. When an officer or client writes to the office, it shows up here.</p>
+  <% } else { %>
+    <ul class="list chat-inbox">
+      <% for (const t of threads) { %>
+        <li class="<%= t.unread ? 'unread' : '' %>">
+          <a href="/chat/<%= t.id %>">
+            <span class="chat-inbox-who"><strong><%= t.name %></strong> <span class="muted small"><%= ROLE_NAMES[t.person_role] || t.person_role %></span><% if (t.unread) { %> <span class="nav-count"><%= t.unread %></span><% } %></span>
+            <span class="chat-inbox-last muted small"><%= t.last_sender %>: <%= t.last_body.length > 90 ? `${t.last_body.slice(0, 89)}…` : t.last_body %></span>
+          </a>
+          <span class="muted small nowrap"><%= fmtDateTime(t.last_message_at) %></span>
+        </li>
+      <% } %>
+    </ul>
+  <% } %>
+</div>
+<%- include('../partials/bottom') %>

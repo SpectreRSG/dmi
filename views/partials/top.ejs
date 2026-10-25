@@ -21,7 +21,7 @@
     <a class="brand" href="<%= homeFor(currentUser) %>"><img src="/img/logo.png" alt="Direct Measures Inc" width="640" height="240"></a>
     <nav class="nav" aria-label="Main">
       <% for (const item of NAV) { if (!item.roles.includes(currentUser.role)) continue; %>
-        <a href="<%= item.href %>" class="<%= [item.href, ...(item.also || [])].some((href) => isActive(currentPath, href)) ? 'active' : '' %>"><%- icon(item.icon) %><span><%= item.label %></span></a>
+        <a href="<%= item.href %>" class="<%= [item.href, ...(item.also || [])].some((href) => isActive(currentPath, href)) ? 'active' : '' %>"><%- icon(item.icon) %><span><%= item.label %></span><% if (item.badge === 'messages' && locals.unreadMessages) { %><span class="nav-count" aria-label="<%= unreadMessages %> unread"><%= unreadMessages %></span><% } %></a>
       <% } %>
       <% if (locals.isAdmin) { %>
         <div class="nav-heading">Admin</div>
@@ -45,6 +45,9 @@
     <header class="mobile-bar">
       <button type="button" class="icon-button" data-nav-toggle aria-controls="sidebar" aria-expanded="false"><%- icon('menu') %><span class="sr-only">Menu</span></button>
       <a href="<%= homeFor(currentUser) %>" class="mobile-brand"><img src="/img/logo-mark.png" alt="Direct Measures Inc" width="288" height="160"></a>
+      <% if (locals.unreadMessages !== undefined) { const chatHref = currentUser.role === 'admin' ? '/chat' : '/my/chat'; %>
+        <a href="<%= chatHref %>" class="mobile-chat<%= isActive(currentPath, chatHref) ? ' active' : '' %>" title="Messages"><%- icon('chat') %><% if (unreadMessages) { %><span class="nav-count"><%= unreadMessages %></span><% } %><span class="sr-only">Messages</span></a>
+      <% } %>
       <a href="/account" class="mobile-account<%= isActive(currentPath, '/account') ? ' active' : '' %>" title="My account"><%- icon('user') %><span class="sr-only">My account</span></a>
       <form method="post" action="/logout" class="mobile-signout">
         <input type="hidden" name="_csrf" value="<%= locals.csrfToken || '' %>">
