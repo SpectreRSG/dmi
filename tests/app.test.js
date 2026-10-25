@@ -1666,6 +1666,7 @@ test('incident reports: an officer fills one in and signs it; only admins review
   page = await officer.get(`/my/incidents/${id}`);
   assert.equal(page.status, 200);
   assert.match(page.text, /id="incident-form"/);
+  assert.match(page.text, /data-alert="myIncidents" title="1 report started but not sent"/, 'the menu reminds her it is not sent');
   assert.match(page.text, /name="guard_name" [^>]*value="Olivia Officer"/);
 
   // Drafts are hers alone: not the admins', and not other officers'.
@@ -1719,6 +1720,8 @@ test('incident reports: an officer fills one in and signs it; only admins review
   report = await ir.find(id);
   assert.equal(report.status, 'submitted');
   assert.equal(report.signed_name, 'olivia officer');
+  assert.match((await admin.get('/')).text, /data-alert="incidents" title="1 incident report to review"/, 'the admins\' menu shows it');
+  assert.doesNotMatch((await officer.get('/my/incidents')).text, /data-alert="myIncidents"/, 'nothing left for her to do');
   assert.equal(report.data.guard_signature, 'olivia officer');
   assert.equal(report.data.guard_printed_name, 'Olivia Officer');
   assert.equal(report.retain_until, `${Number(yesterday.slice(0, 4)) + 5}${yesterday.slice(4)}`, 'kept for 5 years after the incident');
@@ -1790,6 +1793,8 @@ test('incident reports: an officer fills one in and signs it; only admins review
   res = await admin.post(`/incidents/${id}/request-info`, { note: 'Which way did he run?' }, `/incidents/${id}`);
   assert.equal((await ir.find(id)).status, 'info_requested');
   assert.match(to('olivia').at(-1).title, /More information needed/);
+  assert.match((await officer.get('/my/schedule')).text, /data-alert="myIncidents" title="The office asked for more about 1 report"/, 'and her menu shows it');
+  assert.doesNotMatch((await admin.get('/')).text, /data-alert="incidents"/, 'waiting on her now');
   assert.match((await officer.get(`/my/incidents/${id}`)).text, /Which way did he run\?/);
   res = await officer.post(`/my/incidents/${id}/supplement`, { note: 'He ran east along the fence line.' }, `/my/incidents/${id}`);
   assert.equal(res.status, 302);
@@ -2696,22 +2701,22 @@ test('messages: officers and clients each have a private conversation with the a
   // The admins' inbox: unread until opened.
   page = await admin.get('/chat');
   assert.match(page.text, /Olivia Officer/);
-  assert.match(page.text, /class="nav-count"[^>]*>1</, 'unread in the menu');
+  assert.match(page.text, /data-alert="messages"[^>]*><span aria-hidden="true">1</, 'unread in the menu');
   page = await admin.get(`/chat/${thread.id}`);
   assert.match(page.text, /Running 10 minutes late to Main entrance\.\nTraffic on the 101\./);
-  assert.doesNotMatch(page.text, /class="nav-count"/, 'the menu counts it as read straight away');
-  assert.doesNotMatch((await admin.get('/chat')).text, /class="nav-count"/, 'read now');
+  assert.doesNotMatch(page.text, /data-alert="messages"/, 'the menu counts it as read straight away');
+  assert.doesNotMatch((await admin.get('/chat')).text, /data-alert="messages"/, 'read now');
 
   // An admin answers; Olivia gets a notification and sees it.
   await admin.post(`/chat/${thread.id}`, { body: 'Thanks, I\'ll tell the site.' }, `/chat/${thread.id}`);
   assert.match(to('olivia').at(-1).title, /New message from the office/);
   assert.match(to('olivia').at(-1).body, /^Alex: Thanks/);
-  assert.match((await olivia.get('/my/schedule')).text, /class="nav-count"[^>]*>1</);
+  assert.match((await olivia.get('/my/schedule')).text, /data-alert="messages"[^>]*><span aria-hidden="true">1</);
   const fresh = JSON.parse((await olivia.get(`/my/chat/messages?after=${message.id}`)).text).messages;
   assert.equal(fresh.length, 1);
   assert.deepEqual([fresh[0].label, fresh[0].right, fresh[0].body], ['Alex Admin (office)', false, 'Thanks, I\'ll tell the site.']);
   assert.equal(JSON.parse((await olivia.get(`/my/chat/messages?after=${fresh[0].id}`)).text).messages.length, 0);
-  assert.doesNotMatch((await olivia.get('/my/schedule')).text, /class="nav-count"/, 'read once fetched');
+  assert.doesNotMatch((await olivia.get('/my/schedule')).text, /data-alert="messages"/, 'read once fetched');
 
   // An admin can start one with a client; only the two sides can see it.
   const carlaUser = await db.get("SELECT id FROM users WHERE email = 'carla@example.com'");
@@ -2757,6 +2762,51 @@ test('messages: officers and clients each have a private conversation with the a
   await chat.purgeOld();
   assert.equal(await db.get('SELECT 1 FROM chat_messages WHERE id = ?', oldId), undefined, 'over 2 years old: removed');
   assert.ok(await db.get('SELECT 1 FROM chat_messages WHERE id = ?', message.id), 'newer ones stay');
+});
+
+test('menu alerts: the side menu counts what needs attention soon, and says when notifications are off', async () => {
+  const alerts = require('../src/services/alerts');
+  const { getSettings } = require('../src/settings');
+  const alexUser = await db.get("SELECT * FROM users WHERE email = 'alex@example.com'");
+  const counts = async () => {
+    alerts.forget();
+    return alerts.menuAlerts(alexUser, await getSettings());
+  };
+  const n = (a) => (a ? a.count : 0);
+  const before = await counts();
+  // A new sign-up waiting, and a shift in 2 hours with nobody on it.
+  const waitingId = await db.insert("INSERT INTO users (email, name, role, password_hash) VALUES ('wade@example.com', 'Wade Waiting', 'pending', 'x')");
+  const site = await db.get('SELECT id FROM sites ORDER BY id LIMIT 1');
+  const start = time.addMinutes(time.nowStr(), 120);
+  const shiftId = await db.insert("INSERT INTO shifts (site_id, start_at, end_at, status) VALUES (?, ?, ?, 'scheduled')", site.id, start, time.addMinutes(start, 480));
+  const after = await counts();
+  assert.equal(n(after.signups), n(before.signups) + 1);
+  assert.equal(n(after.schedule), n(before.schedule) + 1);
+  assert.match(after.schedule.text, /unfilled shifts? in the next 24 hours/);
+  assert.equal(after.schedule.warn, false, 'red: it starts soon');
+  let page = await admin.get('/');
+  assert.match(page.text, new RegExp(`class="nav-count" data-alert="signups" title="[^"]+"><span aria-hidden="true">${after.signups.count}<`));
+  assert.match(page.text, new RegExp(`class="nav-count" data-alert="schedule" title="[^"]*in the next 24 hours[^"]*"><span aria-hidden="true">${after.schedule.count}<`));
+  assert.match(page.text, /class="icon-button menu-button"[^>]*>[\s\S]*?<span class="nav-count" aria-hidden="true">\d+</, 'the phone menu button shows there are alerts');
+
+  // Notifications off on every device: My account says so, until one is on again.
+  const alex = await db.get("SELECT id FROM users WHERE email = 'alex@example.com'");
+  const devices = await db.all('SELECT * FROM push_subscriptions WHERE user_id = ?', alex.id);
+  await db.run('DELETE FROM push_subscriptions WHERE user_id = ?', alex.id);
+  page = await admin.get('/schedule');
+  assert.match(page.text, /data-alert="account" title="Notifications are off: turn them on to hear about new incident reports, messages and call-outs"/);
+  assert.match(page.text, /href="\/account#notifications"/);
+  await addDevice(admin, 'alex');
+  assert.doesNotMatch((await admin.get('/schedule')).text, /data-alert="account"/);
+  await db.run('DELETE FROM push_subscriptions WHERE user_id = ?', alex.id);
+  for (const d of devices) await db.run('INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, device) VALUES (?, ?, ?, ?, ?)', d.user_id, d.endpoint, d.p256dh, d.auth, d.device);
+
+  // Dealt with: the counts go.
+  await db.run('DELETE FROM shifts WHERE id = ?', shiftId);
+  await db.run('DELETE FROM users WHERE id = ?', waitingId);
+  const done = await counts();
+  assert.equal(n(done.signups), n(before.signups));
+  assert.equal(n(done.schedule), n(before.schedule));
 });
 
 test('every main page loads', async () => {

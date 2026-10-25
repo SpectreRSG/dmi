@@ -1,0 +1,2 @@
+<%# One menu alert: the count, and what it means (on hover, and read out by screen readers). %>
+<% if (locals.a) { %><span class="nav-count<%= a.warn ? ' is-warn' : '' %>" data-alert="<%= locals.key || '' %>" title="<%= a.text.charAt(0).toUpperCase() + a.text.slice(1) %>"><span aria-hidden="true"><%= a.count %></span><span class="sr-only">: <%= a.text %></span></span><% } %>

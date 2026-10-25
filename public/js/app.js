@@ -168,6 +168,18 @@ document.addEventListener('DOMContentLoaded', () => {
   // Passkeys: the "Sign in with a passkey" and "Add a passkey" buttons.
   document.querySelectorAll('[data-passkey]').forEach(setUpPasskey);
 
+  // The installed app: files open in a viewer with a way back.
+  if (isInstalledApp()) {
+    setUpFileViewer();
+    // Back from "confirm it's you" with a file to open (see openFile).
+    const pending = /^#open-file=(.+)$/.exec(window.location.hash);
+    if (pending) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      const url = new URL(decodeURIComponent(pending[1]), window.location.href);
+      if (url.origin === window.location.origin && FILE_LINK.test(url.pathname)) openFile(url);
+    }
+  }
+
   // Phone-sized screens: open and close the side menu.
   const toggle = document.querySelector('[data-nav-toggle]');
   if (toggle) {
@@ -696,4 +708,204 @@ function setUpChat(box) {
       form.requestSubmit();
     }
   });
+}
+
+// Files (PDFs, photos, spreadsheets) in the installed app. An app added to
+// the Home Screen has no browser toolbar, so a PDF opened the usual way fills
+// the screen with no way back (on iPhones especially). There, files open in a
+// viewer inside the app instead, with Back and Share (Save to Files, Print,
+// AirDrop and so on). In a browser tab, links work as usual.
+// PDFs are drawn by pdf.js (public/vendor/pdfjs, from Mozilla, Apache 2.0).
+const FILE_LINK = /\/(pdf|approved-pdf|log\.pdf|timesheet\.pdf|file)$|\/files\/\d+$|\/my\/tax\/(w2|1099)\/\d+$|\.(csv|ach)$/;
+const PDFJS = '/vendor/pdfjs/';
+
+function isInstalledApp() {
+  return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+}
+
+function setUpFileViewer() {
+  document.addEventListener('click', (event) => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const link = event.target.closest('a[href]');
+    if (!link) return;
+    const url = new URL(link.href, window.location.href);
+    if (url.origin !== window.location.origin || !FILE_LINK.test(url.pathname)) return;
+    event.preventDefault();
+    openFile(url);
+  });
+  // The phone's back gesture (or button) closes the viewer, like leaving a page.
+  window.addEventListener('popstate', () => {
+    if (fileViewer && !(window.history.state && window.history.state.dmiFile)) closeFile();
+  });
+}
+
+let fileViewer = null; // the open viewer: { box, urls, pdfTask }
+let pdfLib = null;
+
+async function loadPdfLib() {
+  if (!pdfLib) {
+    pdfLib = await import(`${PDFJS}pdf.min.js`);
+    pdfLib.GlobalWorkerOptions.workerSrc = `${PDFJS}pdf.worker.min.js`;
+  }
+  return pdfLib;
+}
+
+// The file's name, from the Content-Disposition header the site sends.
+function fileNameFrom(response, url) {
+  const header = response.headers.get('content-disposition') || '';
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1]);
+    } catch {
+      // fall through to the plain name
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(header);
+  if (plain) return plain[1];
+  const last = url.pathname.split('/').pop();
+  return /\./.test(last) ? last : `${last || 'file'}.pdf`;
+}
+
+async function openFile(url) {
+  if (fileViewer) closeFile();
+  const box = document.createElement('div');
+  box.className = 'file-viewer';
+  box.setAttribute('role', 'dialog');
+  box.setAttribute('aria-modal', 'true');
+  box.innerHTML = `
+    <div class="file-viewer-bar">
+      <button type="button" class="file-viewer-back"><span aria-hidden="true">‹</span> Back</button>
+      <span class="file-viewer-title">Opening…</span>
+      <button type="button" class="file-viewer-share" hidden>Share</button>
+    </div>
+    <div class="file-viewer-body"><p class="file-viewer-status">Opening the file…</p></div>`;
+  document.body.append(box);
+  document.documentElement.classList.add('file-viewer-open');
+  fileViewer = { box, urls: [], pdfTask: null };
+  const viewer = fileViewer;
+  const title = box.querySelector('.file-viewer-title');
+  const body = box.querySelector('.file-viewer-body');
+  const status = box.querySelector('.file-viewer-status');
+  const share = box.querySelector('.file-viewer-share');
+  try {
+    window.history.pushState({ dmiFile: true }, '');
+  } catch {
+    // no history: Back still closes it
+  }
+  box.querySelector('.file-viewer-back').addEventListener('click', () => {
+    if (window.history.state && window.history.state.dmiFile) window.history.back();
+    else closeFile();
+  });
+  box.querySelector('.file-viewer-back').focus();
+
+  let response;
+  try {
+    response = await fetch(url, { credentials: 'same-origin' });
+  } catch {
+    status.textContent = "Couldn't open the file. Check the connection and try again.";
+    return;
+  }
+  if (viewer !== fileViewer) return; // closed while it loaded
+  const type = (response.headers.get('content-type') || '').toLowerCase();
+  if (type.includes('text/html')) {
+    // A page instead of a file, such as "confirm it's you" first: go there
+    // (in place of the viewer's history entry), then come back to this page
+    // and open the file here, rather than on its own with no way back.
+    closeFile();
+    const target = new URL(response.url);
+    if (target.pathname === '/account/confirm') {
+      target.searchParams.set('next', `${window.location.pathname}${window.location.search}#open-file=${encodeURIComponent(url.pathname + url.search)}`);
+    }
+    if (window.history.state && window.history.state.dmiFile) window.location.replace(target);
+    else window.location.assign(target);
+    return;
+  }
+  if (!response.ok) {
+    status.textContent = response.status === 404 ? "This file isn't there any more." : `Couldn't open the file (error ${response.status}).`;
+    return;
+  }
+  const blob = await response.blob();
+  if (viewer !== fileViewer) return;
+  const name = fileNameFrom(response, url);
+  title.textContent = name;
+  box.setAttribute('aria-label', name);
+
+  // Share: the phone's own sheet (Save to Files, Print, Mail…), or a download.
+  const file = new File([blob], name, { type: blob.type || type });
+  const canShare = navigator.canShare && navigator.canShare({ files: [file] });
+  share.textContent = canShare ? 'Share' : 'Download';
+  share.hidden = false;
+  share.addEventListener('click', async () => {
+    if (canShare) {
+      try {
+        await navigator.share({ files: [file], title: name });
+      } catch {
+        // cancelled
+      }
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    viewer.urls.push(link.href);
+    link.download = name;
+    document.body.append(link);
+    link.click();
+    link.remove();
+  });
+
+  if (type.includes('pdf')) {
+    try {
+      await showPdf(viewer, body, status, await blob.arrayBuffer());
+    } catch (err) {
+      if (viewer !== fileViewer) return;
+      status.hidden = false;
+      status.textContent = `This PDF couldn't be shown here. Use ${share.textContent} to open it in another app.`;
+      console.error('PDF viewer:', err);
+    }
+  } else if (type.startsWith('image/')) {
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(blob);
+    viewer.urls.push(img.src);
+    img.alt = name;
+    status.replaceWith(img);
+  } else {
+    status.textContent = `This file can't be shown here. Use ${share.textContent} to save it or open it in another app.`;
+  }
+}
+
+async function showPdf(viewer, body, status, bytes) {
+  const lib = await loadPdfLib();
+  const task = lib.getDocument({ data: bytes, standardFontDataUrl: `${PDFJS}standard_fonts/`, wasmUrl: `${PDFJS}wasm/` });
+  viewer.pdfTask = task;
+  const pdf = await task.promise;
+  if (viewer !== fileViewer) return null;
+  status.hidden = true;
+  // Sharp on high-resolution screens, without running out of memory on phones.
+  const ratio = Math.min(window.devicePixelRatio || 1, 2);
+  const width = Math.min(body.clientWidth - 16, 1000);
+  for (let n = 1; n <= pdf.numPages; n += 1) {
+    const page = await pdf.getPage(n);
+    if (viewer !== fileViewer) return null;
+    const scale = width / page.getViewport({ scale: 1 }).width;
+    const viewport = page.getViewport({ scale: scale * ratio });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+    canvas.setAttribute('role', 'img');
+    canvas.setAttribute('aria-label', `Page ${n} of ${pdf.numPages}`);
+    body.append(canvas);
+    await page.render({ canvas, viewport }).promise;
+  }
+  return null;
+}
+
+function closeFile() {
+  if (!fileViewer) return;
+  const { box, urls, pdfTask } = fileViewer;
+  fileViewer = null;
+  if (pdfTask) pdfTask.destroy().catch(() => {});
+  urls.forEach((u) => URL.revokeObjectURL(u));
+  box.remove();
+  document.documentElement.classList.remove('file-viewer-open');
 }

@@ -1,4 +1,4 @@
-<section class="card card-pad push-box" data-push data-push-key="<%= pushKey %>"<% if (locals.continueTo) { %> data-push-continue="<%= continueTo %>"<% } %><% if (locals.afterInstall) { %> data-push-after-install<% } %>>
+<section class="card card-pad push-box" id="notifications" data-push data-push-key="<%= pushKey %>"<% if (locals.continueTo) { %> data-push-continue="<%= continueTo %>"<% } %><% if (locals.afterInstall) { %> data-push-after-install<% } %>>
   <h2><%= locals.heading || 'App notifications' %></h2>
   <p class="muted small"><%= locals.pushWhat || 'Free alerts on this phone or computer, like a text message.' %> Turn them on separately on each phone or computer you use.</p>
   <%- include('csrf') %>

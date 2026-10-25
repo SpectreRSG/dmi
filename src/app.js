@@ -16,6 +16,8 @@ const { getSettings } = require('./settings');
 const { getSessionSecret } = require('./secrets');
 const viewHelpers = require('./viewHelpers');
 const { catchUp } = require('./services/jobs');
+const alerts = require('./services/alerts');
+const chat = require('./services/chat');
 const { isExempt: isTwoStepExempt } = require('./services/twoStep');
 
 const app = express();
@@ -37,7 +39,10 @@ else if (config.https) app.set('trust proxy', 1);
 app.use(
   helmet({
     contentSecurityPolicy: {
-      directives: { upgradeInsecureRequests: config.https ? [] : null },
+      directives: {
+        upgradeInsecureRequests: config.https ? [] : null,
+        imgSrc: ["'self'", 'data:', 'blob:'], // blob: shows photos in the installed app's file viewer
+      },
     },
     strictTransportSecurity: config.https,
     // Send the "page you came from" only within this site (used to return you there after actions).
@@ -113,15 +118,21 @@ app.use(async (req, res, next) => {
   next();
 });
 
-// Unread messages, for the menu (admins, officers and clients).
-app.use(async (req, res, next) => {
-  if (['admin', 'officer', 'client'].includes(req.user.role)) {
-    try {
-      res.locals.unreadMessages = await require('./services/chat').unreadFor(req.user);
-    } catch (err) {
-      console.error('Unread messages failed:', err);
-    }
-  }
+// The menu's alerts (services/alerts.js) and unread messages, worked out
+// just before a page is shown, so they include whatever the page just did.
+app.use((req, res, next) => {
+  if (req.method !== 'GET') alerts.forget(); // a form was sent: counts may change
+  const render = res.render.bind(res);
+  res.render = (...args) => {
+    const unread = ['admin', 'officer', 'client'].includes(req.user.role) ? chat.unreadFor(req.user) : undefined;
+    Promise.all([unread, alerts.menuAlerts(req.user, res.locals.settings)])
+      .then(([messages, menu]) => {
+        res.locals.unreadMessages = messages;
+        res.locals.menuAlerts = menu;
+      })
+      .catch((err) => console.error('Menu alerts failed:', err))
+      .finally(() => render(...args));
+  };
   next();
 });
 

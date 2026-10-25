@@ -57,13 +57,20 @@ async function remindShifts() {
   }
 }
 
-async function remindTimeCards() {
+// The pay period whose time cards are due now (from 2 days before it ends), or null.
+function timeCardsDue() {
   const start = periodStartFor(time.todayStr());
   const end = periodEnd(start);
   const from = time.addDays(end, -PERIOD_DAYS_BEFORE);
-  if (time.nowStr() < `${from}T${PERIOD_FROM}`) return;
+  return time.nowStr() < `${from}T${PERIOD_FROM}` ? null : { start, end };
+}
+
+async function remindTimeCards() {
+  const due = timeCardsDue();
+  if (!due) return;
+  const { start, end } = due;
   const period = `${time.fmtDate(start)} to ${time.fmtDate(end)}`;
-  const due = dayWord(end);
+  const dueOn = dayWord(end);
   const tag = `time-cards-${start}`;
   const after = `${time.addDays(end, 1)}T00:00`; // to the end of the period's last day
 
@@ -75,8 +82,8 @@ async function remindTimeCards() {
       start, after, start, after
     );
     await notifyEmployees(officers.map((o) => o.employee_id), {
-      title: `Time cards are due ${due}`,
-      body: `The pay period ${period} ends ${due}. Check your hours in My pay, and tell the office if anything is missing or wrong.`,
+      title: `Time cards are due ${dueOn}`,
+      body: `The pay period ${period} ends ${dueOn}. Check your hours in My pay, and tell the office if anything is missing or wrong.`,
       url: '/my/pay',
       tag,
     });
@@ -86,8 +93,8 @@ async function remindTimeCards() {
       "SELECT COUNT(*)::int AS n FROM time_entries WHERE status = 'pending' AND start_at >= ? AND start_at < ?", start, after
     )).n;
     await notifyOffice({
-      title: `Time cards are due ${due}`,
-      body: `The pay period ${period} ends ${due}. Fix any hours (left early, stayed late, someone covered)${waiting ? ` and approve the ${waiting} waiting` : ''} before the pay run.`,
+      title: `Time cards are due ${dueOn}`,
+      body: `The pay period ${period} ends ${dueOn}. Fix any hours (left early, stayed late, someone covered)${waiting ? ` and approve the ${waiting} waiting` : ''} before the pay run.`,
       url: '/timesheets',
       tag,
     });
@@ -99,4 +106,4 @@ async function sendReminders() {
   await remindTimeCards();
 }
 
-module.exports = { sendReminders, remindShifts, remindTimeCards, SHIFT_REMINDERS };
+module.exports = { sendReminders, remindShifts, remindTimeCards, timeCardsDue, dayWord, SHIFT_REMINDERS };

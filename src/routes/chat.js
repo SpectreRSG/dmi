@@ -25,7 +25,6 @@ async function newMessages(req, thread) {
 
 async function renderThread(req, res, { thread, messages, base, title, intro, otherName }) {
   if (messages.length) await chat.markRead(db, thread.id, req.user.id, messages.at(-1).id);
-  res.locals.unreadMessages = await chat.unreadFor(req.user); // the menu, now these are read
   res.render('chat/thread', {
     title,
     thread,

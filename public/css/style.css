@@ -676,6 +676,7 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
   .form-grid { grid-template-columns: minmax(0, 1fr); }
   .form-card { padding: 18px 16px; }
   .filters input, .filters select { min-width: 0; flex: 1 1 140px; }
+  .toolbar .filters { flex: 1 1 100%; min-width: 0; } /* e.g. Schedule's site and staff filters fit a phone */
 }
 
 /* ---- Messages ------------------------------------------------------------- */
@@ -1272,6 +1273,12 @@ section.card + section.card, .card + section.card { margin-top: 16px; }
 
 /* Messages */
 .nav-count { margin-left: auto; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 12px; font-weight: 700; line-height: 18px; text-align: center; }
+/* Menu alerts (src/services/alerts.js): red to act now, amber for what's coming up. */
+.nav-count.is-warn { background: #f59e0b; color: #1b2430; }
+.sidebar-user .nav-alert-text { margin-top: 2px; color: #fca5a5; font-size: 11.5px; line-height: 1.35; }
+.menu-button { position: relative; }
+.menu-button .nav-count, .mobile-account .nav-count { position: absolute; top: 0; right: -4px; min-width: 18px; padding: 0 5px; font-size: 11px; line-height: 16px; }
+.mobile-account { position: relative; }
 .mobile-chat { position: relative; margin-left: auto; display: inline-flex; padding: 8px; color: #dbe4f0; }
 .mobile-chat .icon { width: 20px; height: 20px; }
 .mobile-chat.active { color: #fff; }
@@ -1302,3 +1309,16 @@ section.card + section.card, .card + section.card { margin-top: 16px; }
   .chat-log { max-height: calc(100vh - 330px); padding: 12px; }
   .chat-msg { max-width: 88%; }
 }
+
+/* Files in the installed app: a full-screen viewer with Back and Share
+   (public/js/app.js, openFile). */
+html.file-viewer-open, html.file-viewer-open body { overflow: hidden; }
+.file-viewer { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; background: #525659; }
+.file-viewer-bar { display: flex; align-items: center; gap: 8px; padding: calc(8px + env(safe-area-inset-top)) 12px 8px; background: var(--sidebar); color: #fff; }
+.file-viewer-back, .file-viewer-share { flex: none; min-height: 40px; border: 0; border-radius: 8px; padding: 8px 12px; background: rgba(255, 255, 255, 0.14); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+.file-viewer-back span { font-size: 20px; line-height: 1; }
+.file-viewer-back:focus-visible, .file-viewer-share:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.file-viewer-title { flex: 1; min-width: 0; overflow: hidden; color: #dbe4f0; font-size: 14px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.file-viewer-body { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; overflow: auto; padding: 8px 8px calc(16px + env(safe-area-inset-bottom)); -webkit-overflow-scrolling: touch; }
+.file-viewer-body canvas, .file-viewer-body img { display: block; width: 100%; max-width: 1000px; height: auto; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); }
+.file-viewer-status { max-width: 420px; margin: 40px 16px; color: #fff; text-align: center; }
