@@ -428,11 +428,15 @@ router.get('/sessions/:id', async (req, res) => {
   };
   const bookedIds = new Set(attendees.map((a) => a.id));
   const available = staff.filter((e) => !bookedIds.has(e.id)).map(withStatus);
+  // So an empty list can say why: everyone's booked, or staff are inactive.
+  const { n: inactiveCount } = await db.get("SELECT COUNT(*)::int AS n FROM employees WHERE status = 'inactive'");
   res.render('training/session', {
     title: `${session.course_name} – ${time.fmtDate(session.starts_at)}`,
     session,
     attendees: attendees.map(withStatus),
     available,
+    activeCount: staff.length,
+    inactiveCount,
     dueCount: available.filter((e) => e.current !== 'valid' && e.current !== 'no-expiry').length,
   });
 });

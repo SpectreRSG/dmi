@@ -55,16 +55,25 @@
   <% if (session.status === 'scheduled') { %>
     <div class="add-row">
       <h3>Book people in</h3>
-      <form method="post" action="/training/sessions/<%= session.id %>/attendees" class="filters">
-        <%- include('../partials/csrf') %>
-        <select name="employee_id" required aria-label="Staff member">
-          <option value="">Choose a staff member…</option>
-          <% for (const e of available) { %>
-            <option value="<%= e.id %>"><%= e.first_name %> <%= e.last_name %> – <%= e.current === 'valid' || e.current === 'no-expiry' ? 'already valid' : e.current %></option>
-          <% } %>
-        </select>
-        <button type="submit" class="btn">Add</button>
-      </form>
+      <% if (available.length) { %>
+        <form method="post" action="/training/sessions/<%= session.id %>/attendees" class="filters">
+          <%- include('../partials/csrf') %>
+          <select name="employee_id" required aria-label="Staff member">
+            <option value="">Choose a staff member…</option>
+            <% for (const e of available) { %>
+              <option value="<%= e.id %>"><%= e.first_name %> <%= e.last_name %> – <%= e.current === 'valid' || e.current === 'no-expiry' ? 'already valid' : e.current %></option>
+            <% } %>
+          </select>
+          <button type="submit" class="btn">Add</button>
+        </form>
+      <% } else if (activeCount) { %>
+        <p class="muted">Everyone on the staff list is already booked on this session (they're listed above), so there's nobody left to add.</p>
+      <% } else { %>
+        <p class="muted">There are no active staff yet. <a href="/staff/new">Add staff</a> first, then book them here.</p>
+      <% } %>
+      <% if (inactiveCount) { %>
+        <p class="hint"><%= inactiveCount %> inactive staff member<%= inactiveCount === 1 ? " isn't" : "s aren't" %> listed. To book someone inactive, set them to Active on their <a href="/staff?status=inactive">staff page</a> first.</p>
+      <% } %>
       <% if (dueCount) { %>
         <form method="post" action="/training/sessions/<%= session.id %>/add-due" class="inline-form">
           <%- include('../partials/csrf') %>

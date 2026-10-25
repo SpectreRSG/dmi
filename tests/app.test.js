@@ -481,7 +481,14 @@ test('training: expiry dates are filled in and completing a session creates reco
 
   res = await admin.post('/training/sessions', { course_id: courseId, date: time.addDays(time.todayStr(), 3), start_time: '09:00' });
   const sessionId = Number(res.location.split('/').pop());
+  let page = await admin.get(`/training/sessions/${sessionId}`);
+  assert.match(page.text, /Choose a staff member/);
   await admin.post(`/training/sessions/${sessionId}/attendees`, { employee_id: ids.employee });
+  await admin.post(`/training/sessions/${sessionId}/add-due`, {}); // everyone else who needs it
+  // With everyone booked, the page says so instead of showing an empty list.
+  page = await admin.get(`/training/sessions/${sessionId}`);
+  assert.doesNotMatch(page.text, /Choose a staff member/);
+  assert.match(page.text, /Everyone on the staff list is already booked on this session/);
   res = await admin.post(`/training/sessions/${sessionId}/complete`, { attended: ids.employee });
   assert.equal(res.status, 302);
   assert.equal((await db.get('SELECT COUNT(*)::int AS n FROM training_records WHERE employee_id = ?', ids.employee)).n, 2);
