@@ -6,6 +6,7 @@ const { entryHours, round2 } = require('../services/payroll');
 const { complianceFor, expiryStatus } = require('../services/compliance');
 const { recordFinishedShifts } = require('../services/hoursFromSchedule');
 const { newHiresDue } = require('../services/newHires');
+const { pendingCount } = require('../services/shiftRequests');
 
 const router = express.Router();
 
@@ -24,7 +25,7 @@ router.get('/', async (req, res) => {
         `SELECT s.*, si.name AS site_name, c.name AS client_name, e.first_name, e.last_name
          FROM shifts s JOIN sites si ON si.id = s.site_id JOIN clients c ON c.id = si.client_id
          LEFT JOIN employees e ON e.id = s.employee_id
-         WHERE s.status = 'scheduled' AND s.end_at > ? AND s.start_at < ?
+         WHERE s.status = 'scheduled' AND s.start_at > ? AND s.start_at < ?
          ORDER BY s.start_at`,
         now,
         in7Days
@@ -56,15 +57,17 @@ router.get('/', async (req, res) => {
       ),
     ]);
 
-  // Shifts offered to officers that nobody has claimed yet.
+  // Shifts offered to officers that nobody has claimed yet (until they start:
+  // a shift whose time has passed is no longer a warning).
   const openOffers = await db.all(
     `SELECT o.id, o.escalated_at, s.id AS shift_id, s.start_at, s.end_at, si.name AS site_name, c.name AS client_name
      FROM shift_offers o JOIN shifts s ON s.id = o.shift_id JOIN sites si ON si.id = s.site_id JOIN clients c ON c.id = si.client_id
-     WHERE o.status = 'open' ORDER BY s.start_at`
+     WHERE o.status = 'open' AND s.start_at > ? ORDER BY s.start_at`,
+    now
   );
 
-  // Shifts sites have asked for, waiting for the office to approve.
-  const pendingRequests = (await db.get("SELECT COUNT(*)::int AS n FROM shift_requests WHERE status = 'pending'")).n;
+  // Shifts sites have asked for, waiting for the office to approve (with a date still to come).
+  const pendingRequests = await pendingCount(now);
 
   // Incident reports waiting for an admin (only admins see them).
   const incidents = res.locals.isAdmin

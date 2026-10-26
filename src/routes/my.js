@@ -137,7 +137,7 @@ router.get('/schedule', async (req, res) => {
         scopeId,
         range[1],
         range[0]
-      )).flatMap((r) => shiftRequests.timesFor(r).filter((t) => t.start_at >= range[0] && t.start_at < range[1]).map((t) => ({ ...r, ...t })));
+      )).flatMap((r) => shiftRequests.timesFor(r).filter((t) => t.start_at >= range[0] && t.start_at < range[1] && t.start_at > time.nowStr()).map((t) => ({ ...r, ...t })));
 
   const items = [
     ...shifts.map((s) => ({
@@ -154,6 +154,7 @@ router.get('/schedule', async (req, res) => {
       notes: s.notes,
       guard: shortName(s),
       offered: s.offered,
+      missed: !s.employee_id && s.status === 'scheduled' && s.start_at <= time.nowStr(), // nobody covered it, and its time has passed
       hours: entryHours(s),
     })),
     ...training.map((t) => ({
@@ -211,7 +212,7 @@ router.get('/schedule', async (req, res) => {
     totals: {
       shifts: live.length,
       hours: round2(live.reduce((sum, i) => sum + i.hours, 0)),
-      unfilled: live.filter((i) => !i.guard).length,
+      unfilled: live.filter((i) => !i.guard && !i.missed).length,
     },
   });
 });

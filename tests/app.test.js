@@ -2809,6 +2809,62 @@ test('menu alerts: the side menu counts what needs attention soon, and says when
   assert.equal(n(done.schedule), n(before.schedule));
 });
 
+test('past dates: an unfilled shift, a conflict or a site request stops being flagged once its time has passed', async () => {
+  const alerts = require('../src/services/alerts');
+  const shiftRequests = require('../src/services/shiftRequests');
+  const { findConflicts } = require('../src/services/conflicts');
+  const { getSettings } = require('../src/settings');
+  const settings = await getSettings();
+  const alexUser = await db.get("SELECT * FROM users WHERE email = 'alex@example.com'");
+  const unfilledCount = async () => {
+    alerts.forget();
+    const a = (await alerts.menuAlerts(alexUser, settings)).schedule;
+    return a ? a.count : 0;
+  };
+  const site = await db.get('SELECT id, client_id FROM sites ORDER BY id LIMIT 1');
+  const yesterday = time.addDays(time.todayStr(), -1);
+  const add = (start, minutes) => db.insert("INSERT INTO shifts (site_id, start_at, end_at, status) VALUES (?, ?, ?, 'scheduled')", site.id, start, time.addMinutes(start, minutes));
+  const baseline = await unfilledCount();
+
+  // Nobody on yesterday's shift, nor on one that started 3 hours ago: their time has passed.
+  const past = await add(`${yesterday}T09:00`, 480);
+  const running = await add(time.addMinutes(time.nowStr(), -180), 480);
+  assert.equal(await unfilledCount(), baseline, 'the side menu does not count them');
+  let page = await admin.get('/');
+  assert.doesNotMatch(page.text, new RegExp(`/schedule/${past}/edit`), 'not on the dashboard');
+  assert.doesNotMatch(page.text, new RegExp(`/schedule/${running}/edit`), 'not on the dashboard');
+  let issues = await findConflicts(yesterday, time.todayStr(), settings);
+  assert.ok(!issues.some((i) => i.shift && [past, running].includes(i.shift.id)), 'nor in the conflict checker');
+  page = await admin.get(`/schedule?week=${time.startOfWeek(yesterday)}`);
+  assert.match(page.text, /Not covered/, 'the schedule still shows it happened, as a record');
+
+  // One later today is still flagged everywhere.
+  const soon = await add(time.addMinutes(time.nowStr(), 180), 480);
+  assert.equal(await unfilledCount(), baseline + 1);
+  issues = await findConflicts(time.todayStr(), time.addDays(time.todayStr(), 1), settings);
+  assert.ok(issues.some((i) => i.type === 'unfilled' && i.shift.id === soon));
+
+  // A site request whose only date has passed isn't waiting for approval any more.
+  const pendingBefore = await shiftRequests.pendingCount();
+  const oldRequest = await db.insert(
+    "INSERT INTO shift_requests (client_id, site_id, start_at, end_at, last_end_at, status) VALUES (?, ?, ?, ?, ?, 'pending')",
+    site.client_id, site.id, `${yesterday}T09:00`, `${yesterday}T17:00`, `${yesterday}T17:00`
+  );
+  assert.equal(await shiftRequests.pendingCount(), pendingBefore);
+  page = await admin.get('/schedule/requests');
+  assert.match(page.text, /This time has already passed, so there's nothing left to approve/);
+  const tomorrow = time.addDays(time.todayStr(), 1);
+  const newRequest = await db.insert(
+    "INSERT INTO shift_requests (client_id, site_id, start_at, end_at, last_end_at, status) VALUES (?, ?, ?, ?, ?, 'pending')",
+    site.client_id, site.id, `${tomorrow}T09:00`, `${tomorrow}T17:00`, `${tomorrow}T17:00`
+  );
+  assert.equal(await shiftRequests.pendingCount(), pendingBefore + 1);
+
+  await db.run('DELETE FROM shift_requests WHERE id = ANY(?::int[])', [oldRequest, newRequest]);
+  await db.run('DELETE FROM shifts WHERE id = ANY(?::int[])', [past, running, soon]);
+  alerts.forget();
+});
+
 test('every main page loads', async () => {
   for (const url of ['/', '/schedule', '/timesheets?status=all', '/pay', `/pay/${ids.payRun}`, '/staff', `/staff/${ids.employee}`,
     '/clients', `/clients/${ids.client}`, '/contracts', '/training', '/training/records', '/training/sessions',

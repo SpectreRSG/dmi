@@ -42,6 +42,21 @@ function timesFor(r) {
   return datesFor(r).map((date) => time.buildRange(date, r.start_at.slice(11, 16), r.end_at.slice(11, 16)));
 }
 
+// When its last shift starts. After that there's nothing left to approve
+// (it can only be declined), so it no longer counts as waiting.
+function lastStartOf(r) {
+  return timesFor(r).at(-1).start_at;
+}
+
+// Requests waiting for approval that still have a shift to come.
+async function pendingCount(now = time.nowStr()) {
+  return (await db.get(
+    `SELECT COUNT(*)::int AS n FROM shift_requests
+     WHERE status = 'pending' AND last_end_at::timestamp - (end_at::timestamp - start_at::timestamp) > ?::timestamp`,
+    now
+  )).n;
+}
+
 // "Mon 2 Nov, 18:00–06:00 (+1)", or for a repeating request
 // "Every Mon, Wed, Fri, 18:00–06:00 (+1), Mon 2 Nov – 30 Nov 2026 (13 dates)".
 function when(r) {
@@ -341,6 +356,6 @@ async function cancel(id, clientId) {
 
 module.exports = {
   STATUS_LABELS, MAX_OFFICERS, MAX_REPEAT_DAYS, OFFER_AHEAD_DAYS, WEEKDAYS,
-  knownOfficers, clientSites, readForm, create, find, withDetails, datesFor, timesFor, when,
+  knownOfficers, clientSites, readForm, create, find, withDetails, datesFor, timesFor, lastStartOf, pendingCount, when,
   approve, decline, cancel, offerUpcoming,
 };

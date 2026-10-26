@@ -32,12 +32,12 @@
         <% r.asked.forEach((a, i) => { %><%= i ? ', ' : '' %><strong><%= a.name %></strong><% if (a.problem) { %> <span class="muted">(<%= a.problem %>)</span><% } %><% }) %>
       </p>
     <% } %>
-    <% if (r.last_end_at <= now) { %><p class="flash flash-warning">This time has already passed.</p>
+    <% if (r.lastStart <= now) { %><p class="flash flash-warning">This time has already passed, so there's nothing left to approve. Decline it to let the site know.</p>
     <% } else if (r.start_at <= now) { %><p class="flash flash-warning">Some of these dates have already passed. Approving adds only the ones still to come.</p><% } %>
     <div class="btn-row">
       <form method="post" action="/schedule/requests/<%= r.id %>/approve" class="inline-form">
         <%- include('../partials/csrf') %>
-        <button type="submit" class="btn btn-primary" <%= r.last_end_at <= now ? 'disabled' : '' %>><%= r.repeating ? `Approve all ${r.total} shifts` : 'Approve and offer to officers' %></button>
+        <button type="submit" class="btn btn-primary" <%= r.lastStart <= now ? 'disabled' : '' %>><%= r.repeating ? `Approve all ${r.total} shifts` : 'Approve and offer to officers' %></button>
       </form>
       <form method="post" action="/schedule/requests/<%= r.id %>/decline" class="inline-form decline-form" data-confirm="Decline this request? The site will be told.">
         <%- include('../partials/csrf') %>

@@ -168,7 +168,11 @@ router.get('/', async (req, res) => {
     params.push(employeeId);
   }
   await recordFinishedShifts(); // so shifts that have ended show as completed
-  const pendingRequests = (await db.get("SELECT COUNT(*)::int AS n FROM shift_requests WHERE status = 'pending'")).n;
+  const now = time.nowStr();
+  const pendingRequests = await shiftRequests.pendingCount(now);
+  // Conflicts from now on: days that have passed aren't checked.
+  const checkFrom = week > today ? week : today;
+  const checkTo = time.addDays(week, 6);
   const [shifts, sites, staff, conflicts] = await Promise.all([
     db.all(
       `SELECT x.*, EXISTS (SELECT 1 FROM shift_offers o WHERE o.shift_id = x.id AND o.status = 'open') AS offered
@@ -177,7 +181,7 @@ router.get('/', async (req, res) => {
     ),
     siteOptions(),
     staffOptions(),
-    findConflicts(week, time.addDays(week, 6), res.locals.settings),
+    checkFrom <= checkTo ? findConflicts(checkFrom, checkTo, res.locals.settings) : [],
   ]);
 
   const days = Array.from({ length: 7 }, (_, i) => {
@@ -205,7 +209,9 @@ router.get('/', async (req, res) => {
     today,
     days,
     totals: [...totals.values()].sort((a, b) => b.hours - a.hours),
-    unfilled: shifts.filter((s) => !s.employee_id && s.status === 'scheduled').length,
+    now,
+    checkFrom,
+    unfilled: shifts.filter((s) => !s.employee_id && s.status === 'scheduled' && s.start_at > now).length,
     conflictCount: conflicts.filter((c) => c.type !== 'unfilled').length,
     sites,
     staff,
@@ -292,7 +298,10 @@ router.get('/requests', async (req, res) => {
       a.problem = [booked && `already booked on ${booked} of ${times.length} dates`, cant && `said they can't work on ${cant}`].filter(Boolean).join('; ') || null;
     }
   }
-  for (const r of pending) r.dates ??= shiftRequests.datesFor(r);
+  for (const r of pending) {
+    r.dates ??= shiftRequests.datesFor(r);
+    r.lastStart = shiftRequests.lastStartOf(r);
+  }
   res.render('schedule/requests', { title: 'Shift requests', pending, recent, now: time.nowStr(), STATUS_LABELS: shiftRequests.STATUS_LABELS });
 });
 

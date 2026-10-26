@@ -83,7 +83,7 @@
                 : item.kind === 'available' ? 'is-free'
                 : item.kind === 'request' ? 'is-requested'
                 : item.status === 'cancelled' ? 'is-cancelled'
-                : !item.guard ? (item.offered ? 'is-claimable' : 'is-open') : '';
+                : !item.guard ? (item.missed ? 'is-missed' : item.offered ? 'is-claimable' : 'is-open') : '';
             %>
             <<%= item.kind === 'open' ? `a href="/my/open-shifts/${item.offerId}"` : 'div' %> class="cal-item <%= look %>">
               <span class="cal-time"><%= item.allDay ? 'All day' : fmtRange(item.start_at, item.end_at) %></span>
@@ -94,7 +94,7 @@
                 <% } else if (item.kind === 'available') { %>Available
                 <% } else if (item.kind === 'request') { %>Requested<%= item.count > 1 ? ` ×${item.count}` : '' %>: <%= item.site %>
                 <% } else if (isOfficer) { %><%= item.site %>
-                <% } else { %><%= item.guard || (item.offered ? 'Open shift' : 'Not yet assigned') %><% } %>
+                <% } else { %><%= item.guard || (item.missed ? 'Not covered' : item.offered ? 'Open shift' : 'Not yet assigned') %><% } %>
               </span>
             </<%= item.kind === 'open' ? 'a' : 'div' %>>
           <% } %>
@@ -153,7 +153,7 @@
             <% } %>
             <% if (item.canCallOut) { %><a class="small callout-link" href="/my/shifts/<%= item.id %>/call-out">I can't make it</a><% } %>
           <% } else { %>
-            <% if (item.guard) { %><strong><%= item.guard %></strong><% } else if (item.offered) { %><%- badge('Open: offered to officers', 'green') %><% } else { %><%- badge('Not yet assigned', 'amber') %><% } %>
+            <% if (item.guard) { %><strong><%= item.guard %></strong><% } else if (item.missed) { %><%- badge('Not covered', 'gray') %><% } else if (item.offered) { %><%- badge('Open: offered to officers', 'green') %><% } else { %><%- badge('Not yet assigned', 'amber') %><% } %>
             <span class="muted">· <%= item.site %></span>
             <% if (item.status === 'cancelled') { %><%- badge('Cancelled', 'gray') %><% } %>
           <% } %>

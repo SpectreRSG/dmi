@@ -239,6 +239,10 @@ sites' details. So keep its password private, and deactivate it when you're not 
   The pay run warns who has premiums, and each line's **Details** lists the days and why.
 - **Rest between shifts:** the conflict checker warns when someone has less than 8 hours between
   shifts. Change the number in **Settings → Scheduling**.
+- **Only what's still to come is flagged:** once a shift's start time has passed, it no longer shows
+  as unfilled or as a conflict (on the dashboard, in the side menu, on Schedule or in the conflict
+  checker), and a site request whose dates have all passed no longer counts as waiting (decline it
+  so the site knows). On the schedule, a past shift nobody covered shows in grey as **Not covered**.
 - **Payroll taxes (W-2 employees).** Each paycheck's withholding follows IRS Publication 15-T
   (Worksheet 1A, W-4 from 2020 or later) and the EDD's Method B, using the tax year of the **pay
   date**. Social Security stops at the year's wage base ($184,500 in 2026); FUTA, UI and ETT apply to

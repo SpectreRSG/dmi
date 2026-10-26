@@ -13,6 +13,7 @@ const { obligations } = require('./taxDeposits');
 const { newHiresDue } = require('./newHires');
 const { openShiftsFor } = require('./openShifts');
 const { timeCardsDue, dayWord } = require('./reminders');
+const { pendingCount } = require('./shiftRequests');
 
 const KEEP_MS = 30 * 1000;
 const TAX_DUE_SOON_DAYS = 7;
@@ -33,10 +34,9 @@ async function officeAlerts(isAdmin, settings) {
   const in24h = time.addMinutes(now, 24 * 60);
   const counts = await db.get(
     `SELECT
-       (SELECT COUNT(*)::int FROM shifts WHERE status = 'scheduled' AND employee_id IS NULL AND end_at > ? AND start_at < ?) AS unfilled_week,
-       (SELECT COUNT(*)::int FROM shifts WHERE status = 'scheduled' AND employee_id IS NULL AND end_at > ? AND start_at < ?) AS unfilled_day,
-       (SELECT COUNT(*)::int FROM shift_offers WHERE status = 'open' AND escalated_at IS NOT NULL) AS unclaimed,
-       (SELECT COUNT(*)::int FROM shift_requests WHERE status = 'pending') AS requests,
+       (SELECT COUNT(*)::int FROM shifts WHERE status = 'scheduled' AND employee_id IS NULL AND start_at > ? AND start_at < ?) AS unfilled_week,
+       (SELECT COUNT(*)::int FROM shifts WHERE status = 'scheduled' AND employee_id IS NULL AND start_at > ? AND start_at < ?) AS unfilled_day,
+       (SELECT COUNT(*)::int FROM shift_offers o JOIN shifts s ON s.id = o.shift_id WHERE o.status = 'open' AND o.escalated_at IS NOT NULL AND s.start_at > ?) AS unclaimed,
        (SELECT COUNT(*)::int FROM time_entries WHERE status = 'pending') AS hours,
        (SELECT COUNT(*)::int FROM contracts WHERE status = 'active' AND end_date IS NOT NULL AND end_date < ?) AS contracts_ended,
        (SELECT COUNT(*)::int FROM contracts WHERE status = 'active' AND end_date IS NOT NULL AND end_date >= ? AND end_date <= ?) AS contracts_ending,
@@ -45,9 +45,11 @@ async function officeAlerts(isAdmin, settings) {
        (SELECT COUNT(*)::int FROM bank_accounts b JOIN employees e ON e.id = b.employee_id WHERE b.status = 'pending' AND e.status = 'active') AS banks`,
     now, `${time.addDays(today, 7)}T00:00`,
     now, in24h,
+    now,
     today,
     today, time.addDays(today, settings.expiry_warning_days)
   );
+  counts.requests = await pendingCount(now); // with a date still to come
   const employees = await db.all("SELECT * FROM employees WHERE status = 'active'");
   const { byEmployee } = await complianceFor(employees, settings.expiry_warning_days);
   const levels = [...byEmployee.values()].map((c) => c.level);

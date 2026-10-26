@@ -73,9 +73,14 @@ function inRange(shift, from, to) {
   return date >= from && date <= to;
 }
 
-// Finds every problem with shifts starting between `from` and `to` (dates, inclusive).
+// Finds every problem with shifts starting between `from` and `to` (dates,
+// inclusive) that haven't started yet: once a shift's time has passed, it's no
+// longer something to fix, so it isn't reported (nor a week that has ended).
 async function findConflicts(from, to, settings) {
   const { shifts, training } = await loadRoster(from, to);
+  const now = time.nowStr();
+  const today = now.slice(0, 10);
+  const upcoming = (shift) => inRange(shift, from, to) && shift.start_at > now;
   const issues = [];
   const add = (type, issue) => issues.push({ type, ...TYPES[type], ...issue });
 
@@ -88,7 +93,7 @@ async function findConflicts(from, to, settings) {
 
   // Shifts with nobody assigned, or at a site that has been switched off.
   for (const s of shifts) {
-    if (!inRange(s, from, to) || s.status !== 'scheduled') continue;
+    if (!upcoming(s) || s.status !== 'scheduled') continue;
     if (!s.employee_id) {
       add('unfilled', { date: s.start_at, shift: s, text: `Nobody is assigned to ${shiftLabel(s)}.` });
     } else if (s.employee_status !== 'active') {
@@ -105,7 +110,7 @@ async function findConflicts(from, to, settings) {
     // Two shifts at once, or too little rest between one shift and the next.
     for (let i = 0; i < list.length; i += 1) {
       for (let j = i + 1; j < list.length && list[j].start_at < list[i].end_at; j += 1) {
-        if (!inRange(list[i], from, to) && !inRange(list[j], from, to)) continue;
+        if (!upcoming(list[i]) && !upcoming(list[j])) continue;
         add('double_booked', {
           date: list[j].start_at,
           shift: list[j],
@@ -119,7 +124,7 @@ async function findConflicts(from, to, settings) {
       // Each shift against the latest-finishing shift before it.
       let previous = null;
       for (const s of list) {
-        if (previous && previous.end_at <= s.start_at && inRange(s, from, to)) {
+        if (previous && previous.end_at <= s.start_at && upcoming(s)) {
           const restHours = round2(minutesBetween(previous.end_at, s.start_at) / 60);
           if (restHours < settings.min_rest_hours) {
             add('short_rest', {
@@ -137,7 +142,7 @@ async function findConflicts(from, to, settings) {
 
     // Booked on a shift while they should be at a training session.
     for (const t of training.filter((b) => b.employee_id === employeeId)) {
-      for (const s of list.filter((x) => overlaps(x, t) && inRange(x, from, to))) {
+      for (const s of list.filter((x) => overlaps(x, t) && upcoming(x))) {
         add('training_clash', {
           date: s.start_at,
           shift: s,
@@ -157,7 +162,7 @@ async function findConflicts(from, to, settings) {
       }
       for (const [week, hours] of weeks) {
         const weekEnd = time.addDays(week, 6);
-        if (hours <= settings.overtime_weekly_hours || weekEnd < from || week > to) continue;
+        if (hours <= settings.overtime_weekly_hours || weekEnd < from || week > to || weekEnd < today) continue;
         add('overtime', {
           date: `${week}T00:00`,
           week,
@@ -175,7 +180,7 @@ async function findConflicts(from, to, settings) {
   for (const entry of away) {
     const windows = availability.windowsOf(entry, time.addDays(from, -1), time.addDays(to, 1));
     for (const s of byEmployee.get(entry.employee_id)) {
-      if (!inRange(s, from, to) || s.status !== 'scheduled' || !windows.some((w) => w.start_at < s.end_at && w.end_at > s.start_at)) continue;
+      if (!upcoming(s) || s.status !== 'scheduled' || !windows.some((w) => w.start_at < s.end_at && w.end_at > s.start_at)) continue;
       add('unavailable', {
         date: s.start_at,
         shift: s,
@@ -193,7 +198,7 @@ async function findConflicts(from, to, settings) {
       const { items } = compliance.get(employee.id);
       const affected = new Map(); // problem label -> shifts
       for (const s of byEmployee.get(employee.id)) {
-        if (!inRange(s, from, to) || s.status !== 'scheduled') continue;
+        if (!upcoming(s) || s.status !== 'scheduled') continue;
         const date = s.start_at.slice(0, 10);
         for (const item of items) {
           const problem = item.status === 'missing' ? 'missing' : item.expires_on && item.expires_on < date ? `expired ${time.fmtDate(item.expires_on)}` : null;

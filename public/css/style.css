@@ -797,6 +797,8 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
 .shift.is-open .shift-who { color: var(--red); font-weight: 700; }
 .shift.is-offered { background: #d5f5ef; border-left-color: #0d9488; }
 .shift.is-offered .shift-who { color: #0b4f49; }
+.shift.is-missed { background: var(--gray-bg); border-left-color: #98a2b3; }
+.shift.is-missed .shift-who { color: var(--gray); }
 .shift.is-from-request .shift-where::after { content: " · requested by site"; }
 .shift.is-completed { background: var(--green-bg); border-left-color: var(--green); }
 .shift.is-cancelled { background: var(--gray-bg); border-left-color: #98a2b3; opacity: 0.7; }
@@ -1040,6 +1042,7 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
 .cal-what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cal-item.is-training { border-left-color: var(--green); background: var(--green-bg); }
 .cal-item.is-open { border-left-color: var(--amber); background: var(--amber-bg); }
+.cal-item.is-missed { border-left-color: #98a2b3; background: var(--gray-bg); color: var(--gray); }
 .cal-item.is-cancelled { border-left-color: var(--gray); background: var(--gray-bg); text-decoration: line-through; color: var(--muted); }
 /* Open shifts anyone eligible can claim: teal, so they stand out from your own (blue) shifts. */
 .cal-item.is-claimable { border-left-color: #0d9488; background: #d5f5ef; color: #0b4f49; font-weight: 600; }
