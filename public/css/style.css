@@ -1220,6 +1220,19 @@ a.cal-item.is-claimable:hover { background: #bdeee5; }
   border-top: 1px solid var(--border);
 }
 .ir-upload { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+/* The incident report one step at a time (public/js/app.js, setUpSteps). */
+.is-stepped > .ir-section:not(.is-current) { display: none; }
+.ir-index li[hidden] { display: none; }
+.ir-index li.is-current a { color: var(--text); font-weight: 700; }
+.ir-actionbar { align-items: center; }
+.ir-step-count { margin-right: auto; order: -1; white-space: nowrap; }
+.ir-index summary { cursor: pointer; }
+.ir-index details[open] summary { margin-bottom: 4px; }
+/* Questions folded away under a "more" link. */
+.ir-fields > .ir-more { flex-basis: 100%; }
+.ir-more { border: 1px dashed var(--input-border); border-radius: 8px; padding: 8px 12px; }
+.ir-more > summary { cursor: pointer; color: var(--primary); font-size: 14px; font-weight: 600; }
+.ir-more[open] > summary { margin-bottom: 10px; }
 .ir-upload input[name="note"] { flex: 1 1 200px; }
 .ir-answers { margin-bottom: 16px; }
 .ir-answers-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; }

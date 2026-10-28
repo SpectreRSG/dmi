@@ -1667,6 +1667,10 @@ test('incident reports: an officer fills one in and signs it; only admins review
   assert.equal(page.status, 200);
   assert.match(page.text, /id="incident-form"/);
   assert.match(page.text, /data-alert="myIncidents" title="1 report started but not sent"/, 'the menu reminds her it is not sent');
+  // One step at a time, and only what applies: the force questions wait for a force tick; optional parts are folded.
+  assert.match(page.text, /<form[^>]+id="incident-form"[^>]+data-steps>/);
+  assert.match(page.text, /<section class="card card-pad ir-section" id="s-force" data-shown-if-any="type_force,type_firearm_display,type_discharge,type_other_weapon,type_restraint,type_complaint">/);
+  assert.match(page.text, /<details class="ir-more">\s*<summary>More about the place \(optional\) <span class="muted">\(\d+ filled in\)<\/span>/, 'prefilled details stay folded, with a count');
   assert.match(page.text, /name="guard_name" [^>]*value="Olivia Officer"/);
 
   // Drafts are hers alone: not the admins', and not other officers'.

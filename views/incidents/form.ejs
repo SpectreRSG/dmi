@@ -18,24 +18,26 @@
   <button type="button" class="btn btn-sm" data-backup-restore>Put them back</button>
   <button type="button" class="btn btn-sm btn-ghost" data-backup-discard>Throw them away</button>
 </div>
-<nav class="card card-pad ir-index" aria-label="Sections">
-  <strong>Sections</strong>
+<nav class="card card-pad ir-index" aria-label="Steps">
+  <details data-step-menu>
+  <summary><strong data-step-title>Steps</strong></summary>
   <ol>
-    <% SECTIONS.forEach((s) => { %><li><a href="#s-<%= s.id %>"><%= s.title %></a></li><% }) %>
-    <li><a href="#sign">Sign and send</a></li>
+    <% SECTIONS.forEach((s) => { %><li data-step-link="s-<%= s.id %>"><a href="#s-<%= s.id %>"><%= s.title %></a></li><% }) %>
+    <li data-step-link="sign"><a href="#sign">Sign and send</a></li>
   </ol>
+  </details>
 </nav>
-<form method="post" action="/my/incidents/<%= report.id %>" id="incident-form" data-backup="incident-<%= report.id %>" data-saved-ms="<%= report.updated_ms %>">
+<form method="post" action="/my/incidents/<%= report.id %>" id="incident-form" data-backup="incident-<%= report.id %>" data-saved-ms="<%= report.updated_ms %>" data-steps>
   <%- include('../partials/csrf') %>
-  <% SECTIONS.forEach((s, i) => { %>
-    <section class="card card-pad ir-section" id="s-<%= s.id %>">
-      <h2><%= i + 1 %>. <%= s.title %></h2>
+  <% SECTIONS.forEach((s) => { %>
+    <section class="card card-pad ir-section" id="s-<%= s.id %>" <% if (s.showIfAny) { %>data-shown-if-any="<%= s.showIfAny.join(',') %>"<% } %>>
+      <h2><%= s.title %></h2>
       <% if (s.help) { %><p class="hint"><%= s.help %></p><% } %>
       <div class="ir-fields"><%- include('_fields', { fields: s.fields, values: data }) %></div>
     </section>
   <% }) %>
   <section class="card card-pad ir-section" id="sign">
-    <h2><%= SECTIONS.length + 1 %>. Sign and send</h2>
+    <h2>Sign and send</h2>
     <p><%= ATTEST %></p>
     <div class="stack">
       <label class="check"><input type="checkbox" name="attest" value="1"> I confirm this</label>
@@ -47,8 +49,11 @@
     </div>
   </section>
   <div class="ir-actionbar">
+    <button type="button" class="btn" data-step-back hidden>← Back</button>
     <button type="submit" name="action" value="save" class="btn">Save draft</button>
-    <a class="btn btn-primary" href="#sign">Sign and send ↓</a>
+    <span class="ir-step-count muted small" data-step-count aria-live="polite"></span>
+    <button type="button" class="btn btn-primary" data-step-next hidden>Next →</button>
+    <a class="btn btn-primary" href="#sign" data-sign-link>Sign and send ↓</a>
   </div>
 </form>
 <%- include('_files', { files, base: `/my/incidents/${report.id}`, canDelete: true, saveFirst: '#incident-form', keptNote: 'Saving your draft first, then adding the file.' }) %>

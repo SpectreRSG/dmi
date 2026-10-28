@@ -32,15 +32,22 @@ const text = (name, label, extra = {}) => ({ type: 'text', name, label, ...extra
 const long = (name, label, extra = {}) => ({ type: 'textarea', name, label, ...extra });
 // A table on the form: boxes named `${prefix}_${row}_${column}`.
 const rows = (prefix, count, columns, label) => ({ type: 'rows', prefix, count, columns, label });
+// Questions folded away under a "more" link: optional, or already filled in.
+const more = (label, fields) => ({ type: 'more', label, fields });
 
 const FIREARM_TICKS = ['type_firearm_display', 'type_discharge', 'force_draw', 'force_point', 'force_discharge'];
+// Incidents that involve force (or an allegation of it): only these get the
+// scene, force and weapons questions.
+const FORCE_TYPES = ['type_force', 'type_firearm_display', 'type_discharge', 'type_other_weapon', 'type_restraint', 'type_complaint'];
 
-// What the officer fills in, in order.
+// What the person reporting fills in, in order. A section or group with
+// `showIfAny` only appears once one of those boxes is ticked, so a simple
+// incident stays short. Every question keeps the name of its box on the form.
 const SECTIONS = [
   {
     id: 'type',
     title: 'What happened',
-    help: 'Tick everything that applies.',
+    help: 'Tick everything that applies. The rest of the form only asks about what you tick.',
     fields: [
       { type: 'heading', label: 'Type of incident' },
       check('type_force', 'Physical contact or force'),
@@ -53,13 +60,14 @@ const SECTIONS = [
       check('type_damage', 'Property damage'),
       check('type_police', 'Police report or investigation'),
       check('type_other', 'Other'),
-      { type: 'heading', label: 'Done straight away' },
-      check('immediate_911', 'Emergency services / 911 requested'),
-      check('immediate_scene_safe', 'Scene made safe and medical aid arranged'),
-      check('immediate_supervisor', 'Supervisor or on-call manager told'),
-      check('immediate_client', 'Client or site contact told (as the contract says)'),
-      check('immediate_police', 'Police asked to come, or told'),
-      check('immediate_preserve', 'Started keeping evidence and recordings'),
+      more('What was done straight away (optional)', [
+        check('immediate_911', 'Emergency services / 911 requested'),
+        check('immediate_scene_safe', 'Scene made safe and medical aid arranged'),
+        check('immediate_supervisor', 'Supervisor or on-call manager told'),
+        check('immediate_client', 'Client or site contact told (as the contract says)'),
+        check('immediate_police', 'Police asked to come, or told'),
+        check('immediate_preserve', 'Started keeping evidence and recordings'),
+      ]),
     ],
   },
   {
@@ -68,51 +76,62 @@ const SECTIONS = [
     fields: [
       text('incident_date', 'Date', { input: 'date', required: true }),
       text('incident_start', 'Start time', { input: 'time', required: true }),
-      text('incident_end', 'End time', { input: 'time' }),
       text('site_client', 'Site / client'),
-      text('post_assignment', 'Post / assignment'),
-      text('street_address', 'Street address'),
-      text('city_county', 'City / county'),
       text('specific_location', 'Exact spot (e.g. north car park, level 2)'),
-      text('site_setting', 'Indoor or outdoor', { choices: ['Indoor', 'Outdoor', 'Both', 'In a vehicle'] }),
-      text('site_contact', 'Site contact'),
-      text('reported_by', 'Reported by'),
+      more('More about the place (optional)', [
+        text('incident_end', 'End time', { input: 'time' }),
+        text('post_assignment', 'Post / assignment'),
+        text('street_address', 'Street address'),
+        text('city_county', 'City / county'),
+        text('site_setting', 'Indoor or outdoor', { choices: ['Indoor', 'Outdoor', 'Both', 'In a vehicle'] }),
+        text('site_contact', 'Site contact'),
+        text('reported_by', 'Reported by'),
+      ]),
     ],
   },
   {
-    id: 'you',
-    title: 'About you',
-    adminTitle: 'About the person reporting',
-    help: "Filled in from your account, staff record and shift where we could. Check it, and fill in the rest. Only the admins see these details.",
-    // `staffOnly`: about working as a guard for DMI, so not asked of clients.
+    id: 'account',
+    title: 'Your account',
+    adminTitle: 'Their account',
+    help: 'In your own words, in the order it happened: what led up to it, what happened, and what happened after. Say what you saw yourself, what others told you, and what you don\'t know. Don\'t guess.',
     fields: [
-      text('guard_name', 'Full legal name', { required: true }),
-      text('guard_address', 'Home mailing address'),
-      text('guard_dob', 'Date of birth', { input: 'date' }),
-      text('guard_registration', 'BSIS guard registration number', { staffOnly: true }),
-      text('guard_firearm_permit', 'Firearms permit number / status', { staffOnly: true }),
-      text('guard_baton_permit', 'Baton permit number, if you have one', { staffOnly: true }),
-      text('guard_employer', 'Employer legal name and PPO license number', { staffOnly: true }),
-      text('guard_employer_address', 'Employer business address / phone', { staffOnly: true }),
-      text('guard_shift', 'Shift / time on duty', { staffOnly: true }),
-      text('guard_client_post', 'Client and post orders / contract reference', { staffOnly: true }),
-      text('guard_uniform', 'Uniform / identification you wore', { staffOnly: true }),
-      text('guard_camera', 'Body-worn camera ID and whether it was recording', { staffOnly: true }),
+      long('guard_narrative', 'What happened', {
+        required: true, big: true, max: 20000,
+        placeholder: 'For example: "At about 22:10 I saw a man trying the doors of the warehouse. I said ‘Sir, this is private property, please leave.’ He…"',
+      }),
+      more('Anything else, or a witness statement (optional)', [
+        long('guard_supplement', 'Anything else you noticed', { max: 10000 }),
+        {
+          type: 'group',
+          label: 'A witness or other employee statement (if one was taken)',
+          fields: [
+            text('statement_person', 'Person giving the statement'),
+            text('statement_role', 'Their role'),
+            text('statement_taker', 'Statement taken by'),
+            text('statement_time_place', 'Date / time / place'),
+            text('statement_format', 'Written, recorded or a summary?'),
+            text('statement_attachment', 'Attached pages / file'),
+            text('statement_adopted', 'Did they read it and agree with it?'),
+            text('statement_signature', 'Their signature / date, if given'),
+          ],
+        },
+      ]),
     ],
   },
   {
     id: 'people',
     title: 'Other people involved',
-    help: 'Other employees, the person affected, whoever reported it, client staff, witnesses and responders. Write "unknown" for anything you don\'t know: don\'t guess.',
+    help: 'Optional. Tap to add anyone else who was part of it or saw it. Write "unknown" for anything you don\'t know.',
     fields: [
-      rows('employee', 3, ['Name', 'Registration / role', 'What they did or saw', 'Contact'], 'Other employee'),
       rows('participant', 4, ['Name / description', 'Role (e.g. person stopped, witness, client staff)', 'Contact / address, if known', 'How you know who they are'], 'Other person'),
+      rows('employee', 3, ['Name', 'Registration / role', 'What they did or saw', 'Contact'], 'Other employee'),
     ],
   },
   {
     id: 'scene',
     title: 'The scene, and what happened when',
-    help: 'Use local times, and say when a time is a guess. Keep what you saw yourself separate from what someone told you or what a recording shows.',
+    showIfAny: FORCE_TYPES,
+    help: 'Because force or a weapon was involved. Use local times, and say when a time is a guess. Keep what you saw yourself separate from what someone told you or what a recording shows.',
     fields: [
       { type: 'heading', label: 'Before contact or force: what mattered' },
       check('scene_lighting', 'Lighting / visibility'),
@@ -141,6 +160,7 @@ const SECTIONS = [
   {
     id: 'force',
     title: 'Force and weapons',
+    showIfAny: FORCE_TYPES,
     help: "Describe each action in order: when it started and ended, what changed, and what made you stop or change. Stick to facts: don't use words like 'appropriate', 'necessary' or 'excessive'.",
     fields: [
       { type: 'heading', label: 'What was used' },
@@ -197,61 +217,81 @@ const SECTIONS = [
   {
     id: 'after',
     title: 'Injuries, police and evidence',
+    help: 'Only what applies to what you ticked. Leave out anything you don\'t know.',
     fields: [
-      rows('injury', 3, ['Person', 'Injury or complaint you saw', 'First aid / medical care / transport', 'Refused / unknown'], 'Injury'),
-      text('ems_call', '911 / EMS (time / who called / outcome)'),
-      text('first_aid', 'First aid (who / when)'),
-      text('medical_provider', 'Hospital or provider, if known'),
-      text('property_damage', 'Property damage / owner / estimate'),
-      { type: 'heading', label: 'Police and others told' },
-      text('police_agency', 'Police agency / jurisdiction'),
-      text('police_officer', 'Officer / unit'),
-      text('police_arrival', 'Arrival time'),
-      text('police_case', 'Case / report number'),
-      text('police_investigation', 'Police investigation?'),
-      text('public_report', 'Did a member of the public file a report?'),
-      text('public_medical', 'Did a member of the public need medical care?'),
-      text('arrest_custody', 'Arrest / citation / custody'),
+      {
+        type: 'group',
+        label: 'Injuries and medical care',
+        showIfAny: ['type_injury', 'immediate_911', ...FORCE_TYPES],
+        fields: [
+          rows('injury', 3, ['Person', 'Injury or complaint you saw', 'First aid / medical care / transport', 'Refused / unknown'], 'Injury'),
+          text('ems_call', '911 / EMS (time / who called / outcome)'),
+          text('first_aid', 'First aid (who / when)'),
+          text('medical_provider', 'Hospital or provider, if known'),
+        ],
+      },
+      {
+        type: 'group',
+        label: 'Property damage',
+        showIfAny: ['type_damage'],
+        fields: [text('property_damage', 'Property damage / owner / estimate')],
+      },
+      {
+        type: 'group',
+        label: 'Police',
+        showIfAny: ['type_police', 'immediate_police', 'immediate_911', ...FORCE_TYPES],
+        fields: [
+          text('police_agency', 'Police agency / jurisdiction'),
+          text('police_officer', 'Officer / unit'),
+          text('police_arrival', 'Arrival time'),
+          text('police_case', 'Case / report number'),
+          text('police_investigation', 'Police investigation?'),
+          text('public_report', 'Did a member of the public file a report?'),
+          text('public_medical', 'Did a member of the public need medical care?'),
+          text('arrest_custody', 'Arrest / citation / custody'),
+          long('police_statements', 'What the responding officers said or asked you to do'),
+          long('custody_transfer', 'Who a person or property was handed over to'),
+        ],
+      },
+      { type: 'heading', label: 'Who you told' },
       text('supervisor_notified', 'Supervisor told (name / time)'),
       text('client_notified', 'Client told (name / time)'),
-      long('police_statements', 'What the responding officers said or asked you to do'),
-      long('custody_transfer', 'Who a person or property was handed over to'),
-      { type: 'heading', label: 'Evidence and records to keep' },
-      check('evidence_bodycam', 'Body-worn camera / audio'),
-      check('evidence_cctv', 'Fixed CCTV / access control video'),
-      check('evidence_dash', 'Dash camera / vehicle GPS'),
-      check('evidence_radio', 'Radio / dispatch / phone logs'),
-      check('evidence_photos', 'Photographs / scene diagram'),
-      check('evidence_firearm', 'Firearm / magazine / ammo / casings'),
-      check('evidence_clothing', 'Clothing / damaged property'),
-      check('evidence_statements', 'Witness / participant statements'),
-      check('evidence_medical', 'Medical or first-aid records'),
-      check('evidence_orders', 'Post orders / contract / training records'),
-      rows('evidence_log', 3, ['Item / source', 'Kept by / date and time', 'Where it is stored'], 'Evidence item'),
+      more('Evidence and records to keep (optional)', [
+        check('evidence_bodycam', 'Body-worn camera / audio'),
+        check('evidence_cctv', 'Fixed CCTV / access control video'),
+        check('evidence_dash', 'Dash camera / vehicle GPS'),
+        check('evidence_radio', 'Radio / dispatch / phone logs'),
+        check('evidence_photos', 'Photographs / scene diagram'),
+        check('evidence_firearm', 'Firearm / magazine / ammo / casings'),
+        check('evidence_clothing', 'Clothing / damaged property'),
+        check('evidence_statements', 'Witness / participant statements'),
+        check('evidence_medical', 'Medical or first-aid records'),
+        check('evidence_orders', 'Post orders / contract / training records'),
+        rows('evidence_log', 3, ['Item / source', 'Kept by / date and time', 'Where it is stored'], 'Evidence item'),
+      ]),
     ],
   },
   {
-    id: 'account',
-    title: 'Your account',
-    adminTitle: 'Their account',
-    help: "In your own words, in the order it happened (\"I saw…\", \"I said…\"). Say what you saw yourself, what others told you, what's a guess, and what you don't know. Include what happened before and after any force, even facts that don't support how you saw it.",
+    id: 'you',
+    title: 'About you',
+    adminTitle: 'About the person reporting',
+    help: 'Filled in from your account, staff record and shift where we could. Check your name; the rest is optional. Only the admins see these details.',
+    // `staffOnly`: about working as a guard for DMI, so not asked of clients.
     fields: [
-      long('guard_narrative', 'What happened', { required: true, big: true, max: 20000 }),
-      long('guard_supplement', 'Anything else you noticed (optional)', { max: 10000 }),
-      {
-        type: 'group',
-        label: 'A witness or other employee statement (if one was taken)',
-        fields: [
-          text('statement_person', 'Person giving the statement'),
-          text('statement_role', 'Their role'),
-          text('statement_taker', 'Statement taken by'),
-          text('statement_time_place', 'Date / time / place'),
-          text('statement_format', 'Written, recorded or a summary?'),
-          text('statement_attachment', 'Attached pages / file'),
-          text('statement_adopted', 'Did they read it and agree with it?'),
-          text('statement_signature', 'Their signature / date, if given'),
-        ],
-      },
+      text('guard_name', 'Full legal name', { required: true }),
+      more('Your other details (check them if you have a moment)', [
+        text('guard_address', 'Home mailing address'),
+        text('guard_dob', 'Date of birth', { input: 'date' }),
+        text('guard_registration', 'BSIS guard registration number', { staffOnly: true }),
+        text('guard_firearm_permit', 'Firearms permit number / status', { staffOnly: true }),
+        text('guard_baton_permit', 'Baton permit number, if you have one', { staffOnly: true }),
+        text('guard_employer', 'Employer legal name and PPO license number', { staffOnly: true }),
+        text('guard_employer_address', 'Employer business address / phone', { staffOnly: true }),
+        text('guard_shift', 'Shift / time on duty', { staffOnly: true }),
+        text('guard_client_post', 'Client and post orders / contract reference', { staffOnly: true }),
+        text('guard_uniform', 'Uniform / identification you wore', { staffOnly: true }),
+        text('guard_camera', 'Body-worn camera ID and whether it was recording', { staffOnly: true }),
+      ]),
     ],
   },
 ];
@@ -313,7 +353,7 @@ function boxesOf(sections) {
   const out = [];
   const walk = (fields) => {
     for (const f of fields) {
-      if (f.type === 'group') walk(f.fields);
+      if (f.type === 'group' || f.type === 'more') walk(f.fields);
       else if (f.type === 'rows') {
         for (let r = 1; r <= f.count; r += 1) {
           f.columns.forEach((label, c) => out.push({ name: `${f.prefix}_${r}_${c + 1}`, type: 'text', label: `${f.label} ${r}: ${label}`, max: 1000 }));
@@ -349,6 +389,9 @@ function readAnswers(body, boxes) {
   return out;
 }
 
+// How many questions in these fields have an answer (shown on a folded part).
+const answeredCount = (fields, data) => boxesOf([{ fields }]).filter((b) => data[b.name]).length;
+
 const typeLabels = (data) => TYPE_BOXES.filter((b) => data[b.name]).map((b) => b.label);
 const firearmDischarge = (data) => Boolean(data.type_discharge || data.force_discharge);
 
@@ -374,7 +417,9 @@ function present(sections, data, { forAdmin = false } = {}) {
         if (data[f.name]) checks.labels.push(f.label);
       } else {
         flush();
-        if (f.type === 'group') {
+        if (f.type === 'more') {
+          items.push(...itemsOf(f.fields, heading)); // folded away on the form only
+        } else if (f.type === 'group') {
           const inner = itemsOf(f.fields, f.label);
           if (inner.length) items.push({ kind: 'group', label: f.label, items: inner });
         } else if (f.type === 'rows') {
@@ -727,7 +772,7 @@ const EVENT_LABELS = {
 };
 
 module.exports = {
-  RETAIN_YEARS, STATUS_LABELS, SECTIONS, REVIEW_SECTIONS, DUTIES, FIREARM_TICKS, OFFICER_BOXES, REVIEW_BOXES, LABELS, EVENT_LABELS,
+  RETAIN_YEARS, STATUS_LABELS, SECTIONS, REVIEW_SECTIONS, DUTIES, FIREARM_TICKS, FORCE_TYPES, OFFICER_BOXES, REVIEW_BOXES, LABELS, EVENT_LABELS, answeredCount,
   readAnswers, present, typeLabels, firearmDischarge, prefill, create, find, saveDraft, submitProblem, submit, addEvent, eventsFor, filesFor,
   deadlines, deleteProblem, fmtStamp, pdfFor, addBusinessDays, retainUntilFor, reporterOf,
 };

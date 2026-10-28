@@ -81,6 +81,7 @@ officer.use(async (req, res, next) => {
   }
   req.me = me;
   res.locals.notStaff = req.user.role === 'client'; // clients aren't asked the questions about working as a guard
+  res.locals.answeredCount = ir.answeredCount; // shown on a folded part of the form
   next();
 });
 

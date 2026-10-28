@@ -136,6 +136,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const backupForm = document.querySelector('form[data-backup]');
   if (backupForm) setUpBackup(backupForm);
 
+  // ...and show one step at a time (after the parts shown only when ticked, above).
+  const steppedForm = document.querySelector('form[data-steps]');
+  if (steppedForm) setUpSteps(steppedForm);
+
   // "Add file" on a draft: save the draft first, so nothing typed is lost when the page reloads.
   document.querySelectorAll('form[data-save-first]').forEach((upload) => {
     upload.addEventListener('submit', async (event) => {
@@ -546,6 +550,78 @@ function setUpPasskey(box) {
   window.addEventListener('pageshow', (event) => {
     if (event.persisted && !busy) load(); // back to this page from the next one
   });
+}
+
+// A long form one step at a time (the incident report): Back and Next,
+// "Step 2 of 6", and the draft saved quietly on each Next. Steps that don't
+// apply (hidden by data-shown-if-any) are skipped. Without this, every step
+// shows on one page, as before.
+function setUpSteps(form) {
+  const sections = [...form.querySelectorAll(':scope > .ir-section')];
+  const back = form.querySelector('[data-step-back]');
+  const next = form.querySelector('[data-step-next]');
+  const count = form.querySelector('[data-step-count]');
+  const signLink = form.querySelector('[data-sign-link]');
+  if (sections.length < 2 || !back || !next || !count) return;
+  const links = [...document.querySelectorAll('[data-step-link]')];
+  const menu = document.querySelector('[data-step-menu]');
+  const menuTitle = document.querySelector('[data-step-title]');
+  const steps = () => sections.filter((s) => !s.hidden);
+  const titleOf = (s) => s.querySelector('h2').textContent.trim();
+
+  // Back from a problem when sending: start at the step it names, e.g. (under "When and where").
+  let current = sections[0];
+  const error = document.querySelector('.flash-error');
+  if (error) current = steps().find((s) => error.textContent.includes(`"${titleOf(s)}"`)) || sections.at(-1);
+
+  const save = () => {
+    const body = new URLSearchParams(new FormData(form));
+    body.set('action', 'save');
+    // (getAttribute: the buttons named "action" hide the form's own .action)
+    fetch(form.getAttribute('action'), { method: 'POST', body, credentials: 'same-origin' }).catch(() => {
+      // Offline: the copy on this phone still has it, and Save draft works later.
+    });
+  };
+
+  const show = (section, { scroll = true } = {}) => {
+    const list = steps();
+    current = list.includes(section) ? section : list[0];
+    const i = list.indexOf(current);
+    sections.forEach((s) => s.classList.toggle('is-current', s === current));
+    back.hidden = i === 0;
+    next.hidden = i === list.length - 1;
+    if (signLink) signLink.hidden = true;
+    count.textContent = `Step ${i + 1} of ${list.length}`;
+    if (menuTitle) menuTitle.textContent = `Step ${i + 1} of ${list.length}: ${titleOf(current)}`;
+    if (menu) menu.open = false;
+    for (const li of links) {
+      const target = document.getElementById(li.dataset.stepLink);
+      li.hidden = Boolean(target && target.hidden);
+      li.classList.toggle('is-current', target === current);
+    }
+    if (scroll) current.scrollIntoView({ block: 'start' });
+  };
+
+  form.classList.add('is-stepped');
+  next.addEventListener('click', () => {
+    const list = steps();
+    save();
+    show(list[list.indexOf(current) + 1]);
+  });
+  back.addEventListener('click', () => {
+    const list = steps();
+    show(list[list.indexOf(current) - 1]);
+  });
+  for (const li of links) {
+    li.querySelector('a').addEventListener('click', (event) => {
+      const target = document.getElementById(li.dataset.stepLink);
+      if (!target || target.hidden) return;
+      event.preventDefault();
+      show(target);
+    });
+  }
+  form.addEventListener('change', () => show(current, { scroll: false })); // ticks add or remove steps
+  show(current, { scroll: Boolean(error) });
 }
 
 // A copy of a long form's answers, kept on this phone as they're typed, so
