@@ -27,9 +27,10 @@ A private website for running the business side of a security company:
 | **Admin** | User accounts (approving sign-ups and giving each person a role: admin, manager, officer or client), company settings, and an activity log of who changed what. |
 
 > **Live site:** https://dmi.codehound.org, hosted on Netlify (see section 4). Officers' hours now
-> come from the schedule, so they don't send timesheets. The old stand-alone timesheet page
-> (https://dmi.codehound.org/timesheet/) is still there for anyone with an old link, but the login
-> page no longer points to it.
+> come from the schedule, so they don't need to send timesheets. The original stand-alone timesheet
+> form, which fills in the DMI timesheet PDF in the browser, is at
+> https://dmi.codehound.org/timesheet/ for anyone who wants it, and the sign-in page links to it
+> ("Use the timesheet form →"). It needs no account.
 
 ---
 
@@ -559,6 +560,5 @@ and ask for help setting up regular database snapshots too.
 ## 5. Ideas for later
 
 - Clock in/out from the officer's phone, to catch late starts automatically
-- Retire the stand-alone /timesheet/ page
 - Client invoicing (bill rates per site)
 - Email reminders for expiring licenses and unfilled shifts

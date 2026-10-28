@@ -33,7 +33,8 @@ page. Nudge those numbers if anything prints slightly off.
 Served at dmi.codehound.org/timesheet/ as plain files from the `public/`
 folder, alongside the admin app. It was the temporary placeholder for the site
 while the admin app moved to Netlify. Officers' hours now come from the schedule
-in the admin app, so nobody needs this page; it stays only for anyone with an
-old link, and the login page no longer points to it. Originally copied from the `dmi/` folder of
+in the admin app, but the page stays online for anyone who wants to fill in the
+DMI timesheet PDF this way, and the sign-in page links to it again ("Use the
+timesheet form"). Originally copied from the `dmi/` folder of
 the SpectreRSG/CodeHound repository (branch `dmi-timesheet`, commit `ec878c1`).
 Its security headers are set in the root `netlify.toml`.

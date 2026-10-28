@@ -122,8 +122,10 @@ test('the 5-minute job lists every library its code needs, and runs', async () =
   assert.equal(await (await job()).text(), 'ok');
 });
 
-test('the officer timesheet page is still served', async () => {
+test('the officer timesheet page is still served, and the sign-in page links to it', async () => {
   const res = await handler(site('/timesheet/'), context);
   assert.equal(res.status, 200);
   assert.match(await res.text(), /DMI Timesheet/);
+  const login = await handler(site('/login'), context);
+  assert.match(await login.text(), /<a href="\/timesheet\/">Use the timesheet form →<\/a>/);
 });
