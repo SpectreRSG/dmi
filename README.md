@@ -424,13 +424,15 @@ data/                YOUR LOCAL DATA (database + uploaded files). Created automa
 ### Branches: `dev` and `main`
 
 - **`dev`** is where new work goes. Make and test your changes here.
-- **`main`** is the finished, trusted version: the one to run for real.
-- **Every evening at 21:07 US Pacific time** (a few minutes after the hour, when GitHub is less busy), GitHub automatically runs the tests on `dev`. If they
-  all pass, it copies `dev` into `main`. If they fail, `main` is left alone. You'll see a red ❌
-  in the **Actions** tab on GitHub. This is set up in `.github/workflows/nightly-dev-to-main.yml`.
-- To copy `dev` to `main` right away instead of waiting, open the **Actions** tab, choose
-  **Nightly dev → main**, then **Run workflow**. Do the same if a night's copy hasn't happened:
-  when GitHub is busy it can start the job hours late, or skip a night.
+- **`main`** is the finished, trusted version: the one to run for real. The live site is built
+  from `main` and nothing else.
+- **Deploys are manual.** Nothing goes live on its own: the site only changes when someone pushes to
+  `main`. Pushes to `dev` (or any other branch) are never built by Netlify (see `ignore` in
+  `netlify.toml`).
+- To copy `dev` to `main` (and so put it live), open the **Actions** tab on GitHub, choose
+  **Copy dev → main**, then **Run workflow**. It runs the tests on `dev` first; if any fail,
+  `main` is left alone and you'll see a red ❌. This is set up in
+  `.github/workflows/copy-dev-to-main.yml`.
 
 ### Making changes
 

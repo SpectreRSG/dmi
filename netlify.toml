@@ -14,8 +14,9 @@
 [build]
   publish = "public"
   command = ""
-  # Never publish the live site from any branch other than main.
-  ignore = "if [ \"$CONTEXT\" = production ] && [ \"$BRANCH\" != main ]; then echo 'Live site only publishes from main'; exit 0; fi; exit 1"
+  # Deploys are manual: Netlify builds only when someone pushes to main. Pushes
+  # to any other branch (dev, previews) are never built or published.
+  ignore = "if [ \"$CONTEXT\" = production ] && [ \"$BRANCH\" = main ]; then exit 1; fi; echo 'Only pushes to main are deployed'; exit 0"
 
 [build.environment]
   NODE_VERSION = "22"

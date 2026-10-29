@@ -1,0 +1,46 @@
+# Copy everything new on the "dev" branch into "main" (which is what the live
+# site runs), but only if the automated tests pass on dev, so broken code never
+# reaches main. It runs only when someone starts it: GitHub → Actions tab →
+# "Copy dev → main" → "Run workflow". Nothing goes live on a schedule.
+name: Copy dev → main
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to push to main
+
+concurrency:
+  group: copy-dev-to-main
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Run the tests on dev
+        run: |
+          npm ci
+          npm test
+
+      - name: Merge dev into main and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B main origin/main
+          if git merge-base --is-ancestor origin/dev HEAD; then
+            echo "main already has everything from dev. Nothing to do."
+            exit 0
+          fi
+          git merge --no-edit origin/dev
+          git push origin main
