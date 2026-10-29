@@ -885,27 +885,6 @@ label.inline { flex-direction: row; align-items: center; gap: 6px; font-weight: 
   .table tbody tr:hover { background: none; }
 }
 
-/* The sign-in page's shortcut to the timesheet form, which needs no account. */
-.auth-shortcut {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-  max-width: 420px;
-  margin: 0 0 14px;
-  padding: 16px 20px;
-  border-radius: 14px;
-  background: #01b4ff;
-  color: #0f1b2d;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
-}
-.auth-shortcut:hover { background: #33c3ff; text-decoration: none; }
-.auth-shortcut:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
-.auth-shortcut .icon { flex: none; width: 28px; height: 28px; }
-.auth-shortcut strong { display: block; font-size: 17px; }
-.auth-shortcut small { display: block; font-size: 13.5px; }
-.auth-shortcut-go { margin-left: auto; font-size: 22px; font-weight: 700; }
-
 .auth-footer {
   margin: 20px 0 0;
   padding-top: 16px;

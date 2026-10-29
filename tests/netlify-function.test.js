@@ -122,10 +122,14 @@ test('the 5-minute job lists every library its code needs, and runs', async () =
   assert.equal(await (await job()).text(), 'ok');
 });
 
-test('the officer timesheet page is still served, and the sign-in page links to it', async () => {
+// The timesheet form stands on its own: people get its address directly, and
+// it neither links to the admin app nor is linked from it.
+test('the officer timesheet page is served on its own', async () => {
   const res = await handler(site('/timesheet/'), context);
   assert.equal(res.status, 200);
-  assert.match(await res.text(), /DMI Timesheet/);
+  const page = await res.text();
+  assert.match(page, /DMI Timesheet/);
+  assert.doesNotMatch(page, /href="\/(?!timesheet\/)/);
   const login = await handler(site('/login'), context);
-  assert.match(await login.text(), /<a class="auth-shortcut" href="\/timesheet\/">[\s\S]*?Fill in your timesheet[\s\S]*?No sign-in needed/);
+  assert.doesNotMatch(await login.text(), /\/timesheet/);
 });

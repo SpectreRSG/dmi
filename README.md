@@ -29,8 +29,9 @@ A private website for running the business side of a security company:
 > **Live site:** https://dmi.codehound.org, hosted on Netlify (see section 4). Officers' hours now
 > come from the schedule, so they don't need to send timesheets. The original stand-alone timesheet
 > form, which fills in the DMI timesheet PDF in the browser, is at
-> https://dmi.codehound.org/timesheet/ for anyone who wants it, and the sign-in page links to it
-> ("Use the timesheet form →"). It needs no account.
+> https://dmi.codehound.org/timesheet/ for anyone who wants it. It needs no account and is kept
+> separate from the app on purpose: nothing in the app links to it, and it doesn't link to the app.
+> Share the address directly.
 
 ---
 
@@ -404,7 +405,7 @@ src/
                      chat.js has /my/chat for officers and clients and the admins' /chat)
 views/               the HTML templates, one folder per area
 public/              CSS, browser JavaScript, the logo (img/) and app icons (icons/), pdf.js for the
-                     app's file viewer (vendor/pdfjs/), and the old stand-alone timesheet page (timesheet/)
+                     app's file viewer (vendor/pdfjs/), and the stand-alone timesheet form (timesheet/)
 brand/               the original logo images (rectangle and square) the logo and icons were made from
 assets/              the blank DMI timesheet and incident report PDFs the app fills in
 netlify/
