@@ -1,4 +1,10 @@
 <%- include('../partials/top') %>
+<%# The original timesheet form (public/timesheet/): no account needed. %>
+<a class="auth-shortcut" href="/timesheet/">
+  <%- icon('clock') %>
+  <span><strong>Fill in your timesheet</strong><small>No sign-in needed. Makes the DMI timesheet PDF.</small></span>
+  <span class="auth-shortcut-go" aria-hidden="true">→</span>
+</a>
 <div class="auth-card">
   <h1>Sign in</h1>
   <p class="muted">For <%= settings.company_name %> officers, clients and office staff.</p>
@@ -22,6 +28,6 @@
     <button type="button" class="btn btn-block" data-passkey-start><%- icon('passkey') %> Sign in with a passkey</button>
     <p class="hint">Face ID, Touch ID or your phone's screen lock, with no password. Add one under My account once you're in.</p>
   </div>
-  <p class="auth-footer">New officer or client? <a href="/register">Create an account →</a><br>Need the DMI timesheet PDF? <a href="/timesheet/">Use the timesheet form →</a></p>
+  <p class="auth-footer">New officer or client? <a href="/register">Create an account →</a></p>
 </div>
 <%- include('../partials/bottom') %>

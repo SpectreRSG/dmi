@@ -127,5 +127,5 @@ test('the officer timesheet page is still served, and the sign-in page links to 
   assert.equal(res.status, 200);
   assert.match(await res.text(), /DMI Timesheet/);
   const login = await handler(site('/login'), context);
-  assert.match(await login.text(), /<a href="\/timesheet\/">Use the timesheet form →<\/a>/);
+  assert.match(await login.text(), /<a class="auth-shortcut" href="\/timesheet\/">[\s\S]*?Fill in your timesheet[\s\S]*?No sign-in needed/);
 });

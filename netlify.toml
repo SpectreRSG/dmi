@@ -49,3 +49,9 @@
   for = "/timesheet/*.pdf"
   [headers.values]
     Cache-Control = "no-cache"
+
+# The timesheet form's short address (without the final slash) works too.
+[[redirects]]
+  from = "/timesheet"
+  to = "/timesheet/"
+  status = 301
