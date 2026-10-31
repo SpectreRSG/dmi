@@ -16,7 +16,10 @@ import jobs from '../../src/services/jobs.js';
 
 export default async (req, context) => {
   // A new deploy may have new rules for when things are due, so it looks straight away.
-  await jobs.runIfDue({ version: context?.deploy?.id });
+  const { ran, reason, due } = await jobs.runIfDue({ version: context?.deploy?.id });
+  // One line in the function's log each time, to see what it did.
+  const next = due ? ` Next due ${due}.` : '';
+  console.log(ran ? `Ran the background jobs (${reason}).${next}` : `Nothing due, so the database wasn't opened.${next}`);
   return new Response('ok');
 };
 

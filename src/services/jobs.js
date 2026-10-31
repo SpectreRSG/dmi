@@ -45,7 +45,7 @@ async function runDueJobs({ version } = {}) {
   await remindTaxDeposits(settings, money);
   await remindNewHires();
   await chat.purgeOld(); // messages are kept for 2 years
-  await saveNote({ startedAt, zone: settings.timezone, version });
+  return saveNote({ startedAt, zone: settings.timezone, version });
 }
 
 // When something next needs doing, in company time (like '2026-10-31T14:00').
@@ -76,42 +76,47 @@ function setNoteStore(store) {
   noteStore = store;
 }
 
+// Notes when the jobs are next due, and returns that time.
 async function saveNote({ startedAt, zone, version }) {
   const store = notes();
-  if (!store) return;
+  if (!store) return undefined;
   try {
     let due = await nextDue();
     const old = await store.get('next', { type: 'json' });
     // Two runs at once: keep the sooner time either of them saw coming.
     if (old && old.zone === zone && old.due > time.nowStr() && old.due < due) due = old.due;
     await store.setJSON('next', { due, zone, startedAt, version: version || old?.version });
+    return due;
   } catch (err) {
     console.error('Could not note when the background jobs are next due:', err);
+    return undefined;
   }
 }
 
-// Whether the jobs need running: nothing noted yet, a new deploy, a form sent
-// since the last run, or something due.
-async function isDue(store, version) {
+// Why the jobs need running now (nothing noted yet, a new deploy, a form sent
+// since the last run, or something due), or null if they don't.
+async function whyRun(store, version) {
   try {
     const [note, changed] = await Promise.all([store.get('next', { type: 'json' }), store.get('changed', { type: 'json' })]);
-    if (!note || (version && note.version !== version)) return true;
-    if (changed && changed.at >= note.startedAt - CHANGE_MARGIN_MS) return true;
+    if (!note) return { reason: 'nothing noted yet' };
+    if (version && note.version !== version) return { reason: 'a new deploy' };
+    if (changed && changed.at >= note.startedAt - CHANGE_MARGIN_MS) return { reason: 'a form was sent' };
     time.setTimeZone(note.zone);
-    return time.nowStr() >= note.due;
+    return time.nowStr() >= note.due ? { reason: `due at ${note.due}` } : { reason: null, due: note.due };
   } catch (err) {
     console.error('Could not read when the background jobs are due:', err);
-    return true; // when in doubt, run them
+    return { reason: "the note couldn't be read" }; // when in doubt, run them
   }
 }
 
 // The 5-minute timer and page loads: runs the jobs if they need running
-// (without touching the database if not). True if they ran.
+// (without touching the database if not). Says whether they ran, why, and
+// when they're next due.
 async function runIfDue({ version } = {}) {
   const store = notes();
-  if (store && !(await isDue(store, version))) return false;
-  await runDueJobs({ version });
-  return true;
+  const { reason, due } = store ? await whyRun(store, version) : { reason: 'no Blobs here, so always' };
+  if (!reason) return { ran: false, due };
+  return { ran: true, reason, due: await runDueJobs({ version }) };
 }
 
 // A form was sent: whatever it changed, the next look runs the jobs.

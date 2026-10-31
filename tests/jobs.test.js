@@ -142,7 +142,7 @@ test('the 5-minute timer only wakes the database when something is due', async (
   const shift = await addShift(at(-480), at(20)); // ends in 20 minutes
 
   // Nothing noted yet: it runs, and notes when to look next.
-  assert.equal(await jobs.runIfDue({ version: 'deploy-1' }), true);
+  assert.deepEqual(await jobs.runIfDue({ version: 'deploy-1' }), { ran: true, reason: 'nothing noted yet', due: at(20) });
   const note = await blobs.get('next');
   assert.equal(note.due, at(20), 'when the shift ends');
   assert.equal(note.zone, 'America/Los_Angeles');
@@ -150,31 +150,31 @@ test('the 5-minute timer only wakes the database when something is due', async (
 
   // Until then, the timer doesn't touch the database at all.
   const queries = countQueries();
-  assert.equal(await jobs.runIfDue({ version: 'deploy-1' }), false);
+  assert.deepEqual(await jobs.runIfDue({ version: 'deploy-1' }), { ran: false, due: at(20) });
   mock.timers.setTime(NOW + 19 * 60 * 1000);
-  assert.equal(await jobs.runIfDue({ version: 'deploy-1' }), false);
+  assert.equal((await jobs.runIfDue({ version: 'deploy-1' })).ran, false);
   queries.stop();
   assert.equal(queries.count(), 0);
   assert.equal((await db.get('SELECT status FROM shifts WHERE id = ?', shift)).status, 'scheduled');
 
   // Once the shift has ended, it runs and records the hours.
   mock.timers.setTime(NOW + 20 * 60 * 1000);
-  assert.equal(await jobs.runIfDue({ version: 'deploy-1' }), true);
+  assert.equal((await jobs.runIfDue({ version: 'deploy-1' })).reason, 'due at 2026-11-04T10:35');
   assert.equal((await db.get('SELECT status FROM shifts WHERE id = ?', shift)).status, 'completed');
   assert.ok(await db.get("SELECT 1 FROM time_entries WHERE shift_id = ? AND source = 'schedule'", shift));
-  assert.equal(await jobs.runIfDue({ version: 'deploy-1' }), false);
+  assert.equal((await jobs.runIfDue({ version: 'deploy-1' })).ran, false);
 
   // A form sent on the site: the next look runs, in case it changed something.
   mock.timers.setTime(NOW + 30 * 60 * 1000);
   const open = await addShift(at(60), at(540), { officer: false });
   await db.insert('INSERT INTO shift_offers (shift_id, next_wave_at, escalate_at) VALUES (?, ?, ?)', open, at(10), at(30));
   await jobs.somethingChanged();
-  assert.equal(await jobs.runIfDue({ version: 'deploy-1' }), true);
+  assert.equal((await jobs.runIfDue({ version: 'deploy-1' })).reason, 'a form was sent');
   assert.equal((await blobs.get('next')).due, at(10), 'now it knows about the open shift');
   // A run soon after the form might have missed it, so it looks once more, then settles.
   mock.timers.setTime(NOW + 36 * 60 * 1000);
   await jobs.runIfDue({ version: 'deploy-1' });
-  assert.equal(await jobs.runIfDue({ version: 'deploy-1' }), false);
+  assert.equal((await jobs.runIfDue({ version: 'deploy-1' })).ran, false);
 
   // Two runs at once: the sooner time either saw coming is kept.
   await blobs.setJSON('next', { ...(await blobs.get('next')), due: at(2) });
@@ -182,13 +182,13 @@ test('the 5-minute timer only wakes the database when something is due', async (
   assert.equal((await blobs.get('next')).due, at(2));
 
   // A new deploy looks straight away.
-  assert.equal(await jobs.runIfDue({ version: 'deploy-2' }), true);
-  assert.equal(await jobs.runIfDue({ version: 'deploy-2' }), false);
+  assert.equal((await jobs.runIfDue({ version: 'deploy-2' })).reason, 'a new deploy');
+  assert.equal((await jobs.runIfDue({ version: 'deploy-2' })).ran, false);
 
   // Can't read the note: it runs, to be safe.
   t.mock.method(console, 'error', () => {});
   blobs.get = async () => {
     throw new Error('Blobs is down');
   };
-  assert.equal(await jobs.runIfDue({ version: 'deploy-2' }), true);
+  assert.equal((await jobs.runIfDue({ version: 'deploy-2' })).reason, "the note couldn't be read");
 });
