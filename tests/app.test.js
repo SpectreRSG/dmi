@@ -2869,6 +2869,20 @@ test('past dates: an unfilled shift, a conflict or a site request stops being fl
   alerts.forget();
 });
 
+test('a form sent on the site tells the background jobs to look again (looking at pages does not)', async (t) => {
+  const jobs = require('../src/services/jobs');
+  const noted = [];
+  // A stand-in for Netlify Blobs with nothing noted yet, so page loads still run the jobs.
+  jobs.setNoteStore({ get: async () => null, setJSON: async (key) => noted.push(key) });
+  t.after(() => jobs.setNoteStore(undefined));
+  await admin.get('/clients');
+  await admin.get('/schedule');
+  assert.equal(noted.filter((key) => key === 'changed').length, 0);
+  const res = await admin.post('/clients', { name: '' }); // turned away, but it still counts
+  assert.equal(res.status, 400);
+  assert.equal(noted.filter((key) => key === 'changed').length, 1);
+});
+
 test('every main page loads', async () => {
   for (const url of ['/', '/schedule', '/timesheets?status=all', '/pay', `/pay/${ids.payRun}`, '/staff', `/staff/${ids.employee}`,
     '/clients', `/clients/${ids.client}`, '/contracts', '/training', '/training/records', '/training/sessions',

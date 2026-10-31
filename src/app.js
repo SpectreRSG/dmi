@@ -15,7 +15,7 @@ const { loadUser, requireLogin, requireAdmin, requireBackOffice, requireTwoStep,
 const { getSettings } = require('./settings');
 const { getSessionSecret } = require('./secrets');
 const viewHelpers = require('./viewHelpers');
-const { catchUp } = require('./services/jobs');
+const { catchUp, somethingChanged } = require('./services/jobs');
 const alerts = require('./services/alerts');
 const chat = require('./services/chat');
 const { isExempt: isTwoStepExempt } = require('./services/twoStep');
@@ -114,7 +114,8 @@ app.use(require('./routes/auth')); // /setup, /login, /register, /logout (no log
 app.use(requireLogin); // everything below needs a login
 app.use(requireTwoStep); // ...and two-step sign-in, where it's required
 app.use(async (req, res, next) => {
-  await catchUp(); // record finished shifts and move open-shift offers along (at most once a minute)
+  await catchUp(); // the background jobs, if anything is due (at most once a minute)
+  if (req.method !== 'GET' && req.method !== 'HEAD') await somethingChanged(); // a form was sent: the jobs look again
   next();
 });
 

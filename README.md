@@ -411,7 +411,7 @@ assets/              the blank DMI timesheet and incident report PDFs the app fi
 netlify/
   database/migrations/   the database tables (like spreadsheet tabs), applied by Netlify
   functions/app.mjs      runs the whole app on Netlify
-  functions/autopilot.mjs  the timed jobs, every 5 minutes on the live site
+  functions/autopilot.mjs  the timed jobs: checks every 5 minutes, runs them when something is due
 netlify.toml         Netlify settings
 scripts/
   start.js           "npm start": starts the local database, then the website
@@ -541,14 +541,20 @@ push services.
 - An officer only gets them if they've turned on notifications. Their staff page shows
   **App notifications: On** or **Off**.
 - They're sent by the timed jobs below, so on the live site they arrive within 5 minutes of the
-  time. On a preview site they only go out when someone is using it.
+  time. On your computer they only go out when someone is using the site.
 
-**Timed jobs:** every 5 minutes the live site records the hours of shifts that have ended, offers
-a repeating request's shifts as they come within two weeks, moves open-shift offers along, sends
-reminders (shifts, time cards, tax payments, new hire reports), and removes messages older than
-2 years (`netlify/functions/autopilot.mjs`). Netlify only runs timed jobs on the
-live site, so on the preview (and on your computer) the same jobs run when someone loads a page,
-at most once a minute. That's about 8,600 short runs a month, a few of Netlify's credits.
+**Timed jobs:** the live site records the hours of shifts that have ended, offers a repeating
+request's shifts as they come within two weeks, moves open-shift offers along, sends reminders
+(shifts, time cards, tax payments, new hire reports), and removes messages older than 2 years
+(`src/services/jobs.js`). Every 5 minutes a timer (`netlify/functions/autopilot.mjs`) checks
+whether any of that is due, and only then opens the database. Why: Netlify bills the database for
+every hour it's awake, and it only falls asleep after 5 minutes with nothing to do, so opening it
+every 5 minutes kept it awake (and billed) all day, about 280 credits a day. Now each run leaves a
+small note in Netlify Blobs saying when the next thing is due (a shift ending, a reminder, the
+next group to tell about an open shift, midnight for the daily jobs, or 3 hours at most), and
+the timer reads that instead. Any form sent on the site, and each new deploy, makes the next
+check run the jobs in case something changed. On your computer there's no timer: the same jobs
+run when someone loads a page, at most once a minute.
 
 **Running it somewhere else:** any host that can run Node.js and a Postgres database works. Set
 `DATABASE_URL` to the database's address, `SESSION_SECRET`, and `HTTPS=true` once it's on https.

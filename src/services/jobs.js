@@ -6,21 +6,35 @@
 // and removing messages once they're 2 years old.
 //
 // They run in two ways, and either is enough on its own:
-// - every 5 minutes on the live site (netlify/functions/autopilot.mjs), and
-// - on ordinary page loads, at most once a minute (handy on your computer and
-//   on preview sites, where Netlify doesn't run timed jobs).
+// - from the 5-minute timer on the live site (netlify/functions/autopilot.mjs), and
+// - on ordinary page loads, at most once a minute.
 // Every step is safe to run twice at the same moment.
+//
+// On Netlify they only run when something is due. Netlify bills the database
+// for every hour it's awake, and it only falls asleep after 5 minutes with
+// nothing to do, so running every 5 minutes would keep it awake (and billed)
+// all day. Instead, each run leaves a note in Netlify Blobs (outside the
+// database) saying when the next thing is due: a shift ending, a reminder, the
+// next group to tell about an open shift, midnight for the daily ones. Until
+// then the timer reads the note and stops, and the database sleeps. Any form
+// sent on the site marks that things may have changed, so the next look runs
+// them. (On your computer, and wherever Blobs isn't set up, they always run.)
+const config = require('../config');
 const time = require('../time');
 const { getSettings } = require('../settings');
-const { recordFinishedShifts } = require('./hoursFromSchedule');
-const { advanceOffers } = require('./openShifts');
-const { offerUpcoming } = require('./shiftRequests');
-const { sendReminders } = require('./reminders');
+const { recordFinishedShifts, nextShiftEnd } = require('./hoursFromSchedule');
+const { advanceOffers, nextOfferStep } = require('./openShifts');
+const { offerUpcoming, nextToOffer } = require('./shiftRequests');
+const { sendReminders, nextShiftReminder, nextTimeCardReminder } = require('./reminders');
 const { remindTaxDeposits } = require('./taxDeposits');
 const { remindNewHires } = require('./newHires');
 const chat = require('./chat');
 
-async function runDueJobs() {
+const MAX_SLEEP_MINUTES = 3 * 60; // look at least this often anyway, in case something was missed
+const CHANGE_MARGIN_MS = 5 * 60 * 1000; // a form sent this soon before a run started may not have been seen by it
+
+async function runDueJobs({ version } = {}) {
+  const startedAt = Date.now();
   const settings = await getSettings();
   time.setTimeZone(settings.timezone); // what "now" means for the company
   await recordFinishedShifts();
@@ -31,6 +45,84 @@ async function runDueJobs() {
   await remindTaxDeposits(settings, money);
   await remindNewHires();
   await chat.purgeOld(); // messages are kept for 2 years
+  await saveNote({ startedAt, zone: settings.timezone, version });
+}
+
+// When something next needs doing, in company time (like '2026-10-31T14:00').
+async function nextDue() {
+  const now = time.nowStr();
+  const times = await Promise.all([nextShiftEnd(), nextToOffer(), nextOfferStep(), nextShiftReminder()]);
+  times.push(nextTimeCardReminder());
+  times.push(`${time.addDays(time.todayStr(), 1)}T00:00`); // tax payments, new hire reports and old messages go by the day
+  times.push(time.addMinutes(now, MAX_SLEEP_MINUTES));
+  return times.filter(Boolean).sort()[0];
+}
+
+// The note lives in Netlify Blobs. Elsewhere (your computer, the tests) there's none.
+let noteStore;
+function notes() {
+  if (noteStore === undefined) {
+    try {
+      noteStore = config.onNetlify ? require('@netlify/blobs').getStore({ name: 'jobs', consistency: 'strong' }) : null;
+    } catch {
+      noteStore = null; // Blobs isn't set up here
+    }
+  }
+  return noteStore;
+}
+
+// For the tests: a stand-in for Blobs (undefined goes back to the real one).
+function setNoteStore(store) {
+  noteStore = store;
+}
+
+async function saveNote({ startedAt, zone, version }) {
+  const store = notes();
+  if (!store) return;
+  try {
+    let due = await nextDue();
+    const old = await store.get('next', { type: 'json' });
+    // Two runs at once: keep the sooner time either of them saw coming.
+    if (old && old.zone === zone && old.due > time.nowStr() && old.due < due) due = old.due;
+    await store.setJSON('next', { due, zone, startedAt, version: version || old?.version });
+  } catch (err) {
+    console.error('Could not note when the background jobs are next due:', err);
+  }
+}
+
+// Whether the jobs need running: nothing noted yet, a new deploy, a form sent
+// since the last run, or something due.
+async function isDue(store, version) {
+  try {
+    const [note, changed] = await Promise.all([store.get('next', { type: 'json' }), store.get('changed', { type: 'json' })]);
+    if (!note || (version && note.version !== version)) return true;
+    if (changed && changed.at >= note.startedAt - CHANGE_MARGIN_MS) return true;
+    time.setTimeZone(note.zone);
+    return time.nowStr() >= note.due;
+  } catch (err) {
+    console.error('Could not read when the background jobs are due:', err);
+    return true; // when in doubt, run them
+  }
+}
+
+// The 5-minute timer and page loads: runs the jobs if they need running
+// (without touching the database if not). True if they ran.
+async function runIfDue({ version } = {}) {
+  const store = notes();
+  if (store && !(await isDue(store, version))) return false;
+  await runDueJobs({ version });
+  return true;
+}
+
+// A form was sent: whatever it changed, the next look runs the jobs.
+async function somethingChanged() {
+  const store = notes();
+  if (!store) return;
+  try {
+    await store.setJSON('changed', { at: Date.now() });
+  } catch (err) {
+    console.error('Could not note a change for the background jobs:', err);
+  }
 }
 
 let lastCatchUp = 0;
@@ -39,10 +131,10 @@ async function catchUp() {
   if (Date.now() - lastCatchUp < 60 * 1000) return;
   lastCatchUp = Date.now();
   try {
-    await runDueJobs();
+    await runIfDue();
   } catch (err) {
     console.error('Background jobs failed:', err);
   }
 }
 
-module.exports = { runDueJobs, catchUp };
+module.exports = { runDueJobs, runIfDue, nextDue, somethingChanged, catchUp, setNoteStore };

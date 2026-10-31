@@ -101,9 +101,33 @@ async function remindTimeCards() {
   }
 }
 
+// When the next shift reminder is due: 24 hours or 2 hours before a shift.
+async function nextShiftReminder() {
+  const now = time.nowStr();
+  const times = [];
+  for (const { hours } of SHIFT_REMINDERS) {
+    // Shifts closer than this have had this reminder (or a nearer one) already.
+    const row = await db.get(
+      "SELECT MIN(start_at) AS start_at FROM shifts WHERE status = 'scheduled' AND employee_id IS NOT NULL AND start_at > ?",
+      time.addMinutes(now, hours * 60)
+    );
+    if (row.start_at) times.push(time.addMinutes(row.start_at, -hours * 60));
+  }
+  return times.sort()[0];
+}
+
+// When the next "time cards are due" reminder goes out: this pay period's, or
+// (once that's gone) the next one's.
+function nextTimeCardReminder() {
+  const remindFrom = (start) => `${time.addDays(periodEnd(start), -PERIOD_DAYS_BEFORE)}T${PERIOD_FROM}`;
+  const start = periodStartFor(time.todayStr());
+  const thisPeriod = remindFrom(start);
+  return thisPeriod > time.nowStr() ? thisPeriod : remindFrom(time.addDays(periodEnd(start), 1));
+}
+
 async function sendReminders() {
   await remindShifts();
   await remindTimeCards();
 }
 
-module.exports = { sendReminders, remindShifts, remindTimeCards, timeCardsDue, dayWord, SHIFT_REMINDERS };
+module.exports = { sendReminders, remindShifts, remindTimeCards, timeCardsDue, nextShiftReminder, nextTimeCardReminder, dayWord, SHIFT_REMINDERS };

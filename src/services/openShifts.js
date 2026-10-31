@@ -313,6 +313,20 @@ async function advanceOffers() {
   await tellOfficeStillOpen(stillOpen);
 }
 
+// When advanceOffers next has something to do: the next group to tell, the
+// office to tell, or an offer whose shift starts. (Anything already past is
+// left over from a run that failed, so it's due now.)
+async function nextOfferStep() {
+  const row = await db.get(
+    `SELECT MIN(at) AS at FROM (
+       SELECT next_wave_at AS at FROM shift_offers WHERE status = 'open'
+       UNION ALL SELECT escalate_at FROM shift_offers WHERE status = 'open' AND escalated_at IS NULL
+       UNION ALL SELECT s.start_at FROM shift_offers o JOIN shifts s ON s.id = o.shift_id WHERE o.status = 'open'
+     ) steps`
+  );
+  return row.at || undefined;
+}
+
 // Nobody has claimed these shifts: one alert for the office (one per shift
 // would be a lot when a repeating request's shifts are offered together).
 async function tellOfficeStillOpen(shifts) {
@@ -353,4 +367,4 @@ async function openShiftsFor(employeeId) {
   );
 }
 
-module.exports = { offerShift, newDigest, sendDigest, callOut, claimShift, withdrawOffer, advanceOffers, openShiftsFor, findShift };
+module.exports = { offerShift, newDigest, sendDigest, callOut, claimShift, withdrawOffer, advanceOffers, nextOfferStep, openShiftsFor, findShift };

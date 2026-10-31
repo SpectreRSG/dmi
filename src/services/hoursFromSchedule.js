@@ -35,6 +35,15 @@ async function recordFinishedShifts() {
   return rows.length;
 }
 
+// When the next shift with someone on it ends (its hours are recorded then).
+async function nextShiftEnd() {
+  const row = await db.get(
+    "SELECT MIN(end_at) AS at FROM shifts WHERE status = 'scheduled' AND employee_id IS NOT NULL AND end_at > ?",
+    time.nowStr()
+  );
+  return row.at || undefined;
+}
+
 // The hours recorded from a shift, and whether they've been paid already.
 function hoursFromShift(dbOrTx, shiftId) {
   return dbOrTx.get(
@@ -66,4 +75,4 @@ async function syncHoursWithShift(tx, shiftId) {
   );
 }
 
-module.exports = { recordFinishedShifts, hoursFromShift, syncHoursWithShift };
+module.exports = { recordFinishedShifts, nextShiftEnd, hoursFromShift, syncHoursWithShift };

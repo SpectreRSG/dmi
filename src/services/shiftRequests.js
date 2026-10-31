@@ -326,6 +326,20 @@ async function offerUpcoming(settings) {
   }
 }
 
+// When offerUpcoming next has a shift to offer: now if any are already within
+// two weeks (more than one run's worth), else the day the next one comes within two weeks.
+async function nextToOffer() {
+  const row = await db.get(
+    `SELECT MIN(s.start_at) AS start_at FROM shifts s JOIN shift_requests r ON r.id = s.request_id
+     WHERE r.status = 'approved' AND s.employee_id IS NULL AND s.status = 'scheduled' AND s.start_at > ?
+       AND NOT EXISTS (SELECT 1 FROM shift_offers o WHERE o.shift_id = s.id)`,
+    time.nowStr()
+  );
+  if (!row.start_at) return undefined;
+  if (row.start_at <= offerHorizon()) return time.nowStr();
+  return `${time.addDays(row.start_at.slice(0, 10), -OFFER_AHEAD_DAYS)}T00:00`;
+}
+
 async function decline(id, { user, reason }) {
   const request = await find(id);
   if (!request || request.status !== 'pending') return { error: 'Only requests waiting for approval can be declined.' };
@@ -357,5 +371,5 @@ async function cancel(id, clientId) {
 module.exports = {
   STATUS_LABELS, MAX_OFFICERS, MAX_REPEAT_DAYS, OFFER_AHEAD_DAYS, WEEKDAYS,
   knownOfficers, clientSites, readForm, create, find, withDetails, datesFor, timesFor, lastStartOf, pendingCount, when,
-  approve, decline, cancel, offerUpcoming,
+  approve, decline, cancel, offerUpcoming, nextToOffer,
 };
