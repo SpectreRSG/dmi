@@ -25,7 +25,6 @@ const upload = multer({
 class UploadError extends Error {}
 
 // Where files are kept: Netlify Blobs, or a folder on your computer.
-let blobStore = null;
 const storage = {
   async save(name, buffer) {
     if (!config.onNetlify) return fs.promises.writeFile(path.join(config.uploadsDir, name), buffer);
@@ -45,9 +44,10 @@ const storage = {
   },
 };
 
+// A fresh handle each time: Netlify gives each request its own key for Blobs,
+// and a key kept from an earlier request stops working after a while.
 function store() {
-  if (!blobStore) blobStore = require('@netlify/blobs').getStore({ name: 'uploads', consistency: 'strong' });
-  return blobStore;
+  return require('@netlify/blobs').getStore({ name: 'uploads', consistency: 'strong' });
 }
 
 // Returns { file_name, file_original } or null if no file was chosen.

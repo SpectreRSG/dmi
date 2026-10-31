@@ -59,16 +59,17 @@ async function nextDue() {
 }
 
 // The note lives in Netlify Blobs. Elsewhere (your computer, the tests) there's none.
-let noteStore;
+// A fresh handle each time: Netlify gives each run its own key for Blobs, and a
+// key kept from an earlier run stops working after a while.
+let noteStore; // set by the tests
 function notes() {
-  if (noteStore === undefined) {
-    try {
-      noteStore = config.onNetlify ? require('@netlify/blobs').getStore({ name: 'jobs', consistency: 'strong' }) : null;
-    } catch {
-      noteStore = null; // Blobs isn't set up here
-    }
+  if (noteStore !== undefined) return noteStore;
+  if (!config.onNetlify) return null;
+  try {
+    return require('@netlify/blobs').getStore({ name: 'jobs', consistency: 'strong' });
+  } catch {
+    return null; // Blobs isn't set up here
   }
-  return noteStore;
 }
 
 // For the tests: a stand-in for Blobs (undefined goes back to the real one).
